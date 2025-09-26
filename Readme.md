@@ -1,4 +1,4 @@
-# Ultra-Optimized System Architecture Overview
+# Ultra-Optimized Lambda Execution Engine System Architecture Overview
 **Version:** 2025.09.25.01  
 **Purpose:** Lambda Execution Engine with Alexa/Home Assistant Integration Support
 **Optimization Level:** Maximum (87% memory reduction achieved)
@@ -9,7 +9,7 @@
 
 **Warning:** Claude commentted at end of this file that is was fully AWS Lambda ready.
 
-**Warning:** Configuration information is located in config folder in the config_core.py. This configuration while fully functional only currently has a handful of variables.
+**Warning:** Non-Enviromental Set Configuration information is located in config folder in the config_core.py. This configuration while fully functional only currently has a handful of variables programmed at the moment.
 
 **Info:** Modular by design. It was made as a newer more featureful Alexa-to-Home Assistant bridge for integration of home assistant in Alexa. This feature is able to be disabled if needed or even removed just for the pure Lambda Execution Unit.
 
