@@ -1,1 +1,0 @@
-# Alexa_Home_Assistant_Lamba_Modular_Ultra_Optimized
