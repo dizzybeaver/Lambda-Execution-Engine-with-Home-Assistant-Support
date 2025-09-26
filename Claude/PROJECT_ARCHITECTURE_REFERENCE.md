@@ -200,6 +200,7 @@ config_http.py                         # Internal HTTP-specific configuration im
 #### 📦 **Core Applications**
 ```
 lambda_function.py          # Main Lambda function handler
+variables.py                # Independant Variables for the whole project. An independant Config Primary Gateway managed file. This is where we will store our settings.
 ```
 
 #### 🏠 **Self-Contained Extensions**
