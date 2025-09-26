@@ -7,7 +7,7 @@
 
 **Warning:** This version is idle for the moment, but Claude commentted at end that is was fully AWS Lambda ready.
 
-**Warning:** Non-Eviromental Configuration information is located in config.py and the config folder.
+**Warning:** Configuration information is located in config folder in the config_core.py. This configuration while fully functional only currently has a handful of variables.
 
 ---
 
