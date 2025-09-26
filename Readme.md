@@ -5,9 +5,13 @@
 
 **Warning:** Untested as of yet. Use a Claude Project to scan for enviromental variables needed and generate instructions.
 
-**Warning:** This version is idle for the moment, but Claude commentted at end that is was fully AWS Lambda ready.
+**Warning:** This version is idle for the moment while I restore the balanced gateway interface system while retaining as many gains as possible from this version, 
+
+**Warning:** Claude commentted at end of this file that is was fully AWS Lambda ready.
 
 **Warning:** Configuration information is located in config folder in the config_core.py. This configuration while fully functional only currently has a handful of variables.
+
+**Info:** Modular by design. It was made as a newer more featureful Alexa-to-Home Assistant bridge for integration of home assistant in Alexa. The feature is able to be disabled if needed or even removed just for the pure Lambda Execution Unit.
 
 ---
 
