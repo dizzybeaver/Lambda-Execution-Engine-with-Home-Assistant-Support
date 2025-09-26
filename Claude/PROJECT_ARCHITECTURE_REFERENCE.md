@@ -5,7 +5,7 @@
 ---
 
 ## 🎯 BULLETPROOF LAMBDA DEVELOPMENT RULES - CRYSTAL CLEAR INSTRUCTIONS
-
+This is the ultra-optimized version. So please always go for best optimization.
 Always follow this PROJECT_ARCHITECTURE_REFERENCE.MD for all development decisions.  
 Always use Primary Interface functions where possible. They are a library of functions available for use by the codebase to help reduce code bloat and memory usage. Always ask permission for code generation unless otherwise told. Always output complete updated code files. Always attach the Apache 2.0 License information. Never list what was updated inside the code file.
 
