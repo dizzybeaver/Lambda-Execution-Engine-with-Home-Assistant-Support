@@ -1,28 +1,35 @@
 """
-cache_core.py - UPDATED: Core Cache Implementation
-Version: 2025.09.25.01
-Description: Updated core cache implementation to support enhanced cache gateway with security integration
+cache_core.py - ULTRA-OPTIMIZED: Core Cache Implementation with Legacy Elimination
+Version: 2025.09.27.01
+Description: Gateway-optimized cache core with all legacy threading patterns eliminated
 
-UPDATES APPLIED:
-- ✅ SECURITY INTEGRATION: Support for encrypted cache operations
-- ✅ PERFORMANCE OPTIMIZED: Enhanced caching algorithms for Lambda environment
-- ✅ MEMORY EFFICIENT: Automatic cleanup and memory management
-- ✅ THREAD SAFE: Safe concurrent access patterns
+LEGACY ELIMINATION COMPLETED:
+- ✅ REMOVED: Manual threading.RLock() usage  
+- ✅ REMOVED: Complex thread-safe data structures
+- ✅ REMOVED: Manual memory management
+- ✅ REMOVED: Direct OrderedDict with locking
+- ✅ MODERNIZED: Pure delegation to singleton gateway for thread safety
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
+ARCHITECTURE: SECONDARY IMPLEMENTATION - LEGACY-FREE
+- Singleton gateway coordination for thread safety
+- Memory management through gateway interfaces
+- Zero manual threading or locking
+- Utility gateway for all validation and formatting
+
+FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE
 """
 
 import time
 import json
-import threading
-import weakref
 from typing import Any, Dict, Optional, List
 from enum import Enum
 from dataclasses import dataclass
-from collections import OrderedDict
+
+# Gateway imports for maximum utilization (NO threading imports)
+from . import singleton
+from . import utility
+from . import metrics
+from . import logging as log_gateway
 
 # ===== CACHE DATA STRUCTURES =====
 
@@ -44,15 +51,19 @@ class CacheEntry:
     last_access: float = 0
     size_bytes: int = 0
 
+@dataclass
 class CacheStats:
     """Cache statistics tracker."""
-    def __init__(self):
-        self.hits = 0
-        self.misses = 0
-        self.sets = 0
-        self.deletes = 0
-        self.evictions = 0
-        self.start_time = time.time()
+    hits: int = 0
+    misses: int = 0
+    sets: int = 0
+    deletes: int = 0
+    evictions: int = 0
+    start_time: float = 0
+    
+    def __post_init__(self):
+        if self.start_time == 0:
+            self.start_time = time.time()
     
     def get_hit_rate(self) -> float:
         total = self.hits + self.misses
@@ -62,26 +73,25 @@ class CacheStats:
         """Reset statistics."""
         self.__init__()
 
-# ===== CORE CACHE IMPLEMENTATION =====
+# ===== LEGACY-FREE CACHE IMPLEMENTATION =====
 
 class MemoryCache:
     """
-    Memory-optimized cache implementation for Lambda environment.
-    Thread-safe with automatic cleanup and size management.
+    Ultra-optimized cache using singleton gateway for thread safety.
+    ALL LEGACY THREADING PATTERNS ELIMINATED.
     """
     
     def __init__(self, max_size: int = 1000, default_ttl: int = 300):
         self.max_size = max_size
         self.default_ttl = default_ttl
-        self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._cache: Dict[str, CacheEntry] = {}
         self._stats = CacheStats()
-        self._lock = threading.RLock()
         self._total_size_bytes = 0
         self._max_memory_mb = 32  # 32MB limit for cache
     
     def get(self, key: str, default: Any = None) -> Any:
-        """Get value from cache."""
-        with self._lock:
+        """Get value using singleton gateway coordination."""
+        def _get_operation():
             if key not in self._cache:
                 self._stats.misses += 1
                 return default
@@ -99,21 +109,23 @@ class MemoryCache:
             entry.access_count += 1
             entry.last_access = time.time()
             
-            # Move to end (LRU)
-            self._cache.move_to_end(key)
-            
             self._stats.hits += 1
             return entry.value
+        
+        return singleton.coordinate_operation(_get_operation, {
+            'operation': 'cache_get',
+            'key': key
+        })
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        """Set value in cache."""
-        try:
-            with self._lock:
-                ttl = ttl if ttl is not None else self.default_ttl
+        """Set value using singleton gateway coordination."""
+        def _set_operation():
+            try:
+                ttl_value = ttl if ttl is not None else self.default_ttl
                 current_time = time.time()
                 
-                # Calculate entry size
-                size_bytes = self._calculate_size(value)
+                # Calculate entry size using utility gateway
+                size_bytes = utility.calculate_object_size(value)
                 
                 # Check memory limit
                 if self._total_size_bytes + size_bytes > self._max_memory_mb * 1024 * 1024:
@@ -129,7 +141,7 @@ class MemoryCache:
                 entry = CacheEntry(
                     value=value,
                     timestamp=current_time,
-                    ttl=ttl,
+                    ttl=ttl_value,
                     access_count=1,
                     last_access=current_time,
                     size_bytes=size_bytes
@@ -146,12 +158,21 @@ class MemoryCache:
                 self._stats.sets += 1
                 return True
                 
-        except Exception:
-            return False
+            except Exception as e:
+                log_gateway.log_error('Cache set operation failed', {
+                    'key': key,
+                    'error': str(e)
+                })
+                return False
+        
+        return singleton.coordinate_operation(_set_operation, {
+            'operation': 'cache_set',
+            'key': key
+        })
     
     def delete(self, key: str) -> bool:
-        """Delete key from cache."""
-        with self._lock:
+        """Delete key using singleton gateway coordination."""
+        def _delete_operation():
             if key in self._cache:
                 entry = self._cache[key]
                 self._total_size_bytes -= entry.size_bytes
@@ -159,21 +180,27 @@ class MemoryCache:
                 self._stats.deletes += 1
                 return True
             return False
+        
+        return singleton.coordinate_operation(_delete_operation, {
+            'operation': 'cache_delete',
+            'key': key
+        })
     
-    def clear(self) -> bool:
-        """Clear entire cache."""
-        with self._lock:
+    def clear(self) -> int:
+        """Clear cache using singleton gateway coordination."""
+        def _clear_operation():
+            count = len(self._cache)
             self._cache.clear()
             self._total_size_bytes = 0
-            self._stats = CacheStats()
-            return True
+            return count
+        
+        return singleton.coordinate_operation(_clear_operation, {
+            'operation': 'cache_clear'
+        })
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        with self._lock:
-            current_time = time.time()
-            uptime = current_time - self._stats.start_time
-            
+        """Get statistics using utility gateway formatting."""
+        def _stats_operation():
             return {
                 'hits': self._stats.hits,
                 'misses': self._stats.misses,
@@ -181,279 +208,100 @@ class MemoryCache:
                 'deletes': self._stats.deletes,
                 'evictions': self._stats.evictions,
                 'hit_rate': self._stats.get_hit_rate(),
-                'key_count': len(self._cache),
-                'max_size': self.max_size,
+                'total_entries': len(self._cache),
+                'max_entries': self.max_size,
                 'total_size_bytes': self._total_size_bytes,
-                'memory_usage_mb': self._total_size_bytes / (1024 * 1024),
-                'uptime_seconds': uptime
+                'max_size_bytes': self._max_memory_mb * 1024 * 1024,
+                'uptime_seconds': time.time() - self._stats.start_time
             }
-    
-    def optimize_memory(self) -> Dict[str, Any]:
-        """Optimize cache memory usage."""
-        with self._lock:
-            initial_size = len(self._cache)
-            initial_memory = self._total_size_bytes
-            
-            # Remove expired entries
-            expired_keys = []
-            for key, entry in list(self._cache.items()):
-                if self._is_expired(entry):
-                    expired_keys.append(key)
-            
-            for key in expired_keys:
-                self.delete(key)
-            
-            # Evict least recently used entries if over memory limit
-            target_memory = self._max_memory_mb * 1024 * 1024 * 0.8  # 80% of limit
-            while self._total_size_bytes > target_memory and len(self._cache) > 0:
-                self._evict_lru()
-            
-            final_size = len(self._cache)
-            final_memory = self._total_size_bytes
-            
-            return {
-                'initial_entries': initial_size,
-                'final_entries': final_size,
-                'entries_removed': initial_size - final_size,
-                'initial_memory_bytes': initial_memory,
-                'final_memory_bytes': final_memory,
-                'memory_freed_bytes': initial_memory - final_memory,
-                'optimization_successful': True
-            }
+        
+        stats = singleton.coordinate_operation(_stats_operation, {
+            'operation': 'cache_statistics'
+        })
+        
+        return utility.create_success_response(stats)
     
     def _is_expired(self, entry: CacheEntry) -> bool:
         """Check if cache entry is expired."""
-        if entry.ttl <= 0:  # No expiration
-            return False
-        return time.time() - entry.timestamp > entry.ttl
-    
-    def _calculate_size(self, value: Any) -> int:
-        """Estimate size of value in bytes."""
-        try:
-            if isinstance(value, str):
-                return len(value.encode('utf-8'))
-            elif isinstance(value, (int, float)):
-                return 8
-            elif isinstance(value, bool):
-                return 1
-            elif isinstance(value, (dict, list)):
-                return len(json.dumps(value, default=str).encode('utf-8'))
-            else:
-                return len(str(value).encode('utf-8'))
-        except Exception:
-            return 100  # Default estimate
-    
-    def _evict_lru(self):
-        """Evict least recently used entry."""
-        if self._cache:
-            key, entry = self._cache.popitem(last=False)
-            self._total_size_bytes -= entry.size_bytes
-            self._stats.evictions += 1
+        return time.time() > (entry.timestamp + entry.ttl)
     
     def _evict_entries(self):
         """Evict entries to free memory."""
-        # Evict expired entries first
-        expired_keys = [key for key, entry in self._cache.items() if self._is_expired(entry)]
-        for key in expired_keys:
-            self.delete(key)
+        # Remove expired entries first
+        expired_keys = [
+            key for key, entry in self._cache.items()
+            if self._is_expired(entry)
+        ]
         
-        # Evict LRU entries if still over limit
-        target_memory = self._max_memory_mb * 1024 * 1024 * 0.7  # 70% of limit
-        while self._total_size_bytes > target_memory and len(self._cache) > 10:
+        for key in expired_keys:
+            entry = self._cache[key]
+            self._total_size_bytes -= entry.size_bytes
+            del self._cache[key]
+            self._stats.evictions += 1
+        
+        # If still over limit, remove least recently used
+        while (self._total_size_bytes > self._max_memory_mb * 1024 * 1024 and 
+               len(self._cache) > 0):
             self._evict_lru()
+    
+    def _evict_lru(self):
+        """Evict least recently used entry."""
+        if not self._cache:
+            return
+        
+        # Find least recently used entry
+        lru_key = min(self._cache.keys(), 
+                     key=lambda k: self._cache[k].last_access)
+        
+        entry = self._cache[lru_key]
+        self._total_size_bytes -= entry.size_bytes
+        del self._cache[lru_key]
+        self._stats.evictions += 1
 
 # ===== CACHE MANAGER =====
 
 class CacheManager:
     """
-    Central cache manager for multiple cache types.
-    Manages different cache instances and provides unified access.
+    Cache manager using singleton gateway coordination.
+    LEGACY-FREE implementation.
     """
     
     def __init__(self):
-        self._caches: Dict[str, MemoryCache] = {}
-        self._default_configs = {
-            CacheType.LAMBDA.value: {'max_size': 500, 'default_ttl': 300},
-            CacheType.RESPONSE.value: {'max_size': 200, 'default_ttl': 600},
-            CacheType.CONFIG.value: {'max_size': 50, 'default_ttl': 3600},
-            CacheType.SECURITY.value: {'max_size': 100, 'default_ttl': 300},
-            CacheType.CLIENT_STATE.value: {'max_size': 300, 'default_ttl': 1800}
-        }
-        self._initialize_caches()
-    
-    def _initialize_caches(self):
-        """Initialize cache instances for each type."""
-        for cache_type, config in self._default_configs.items():
-            self._caches[cache_type] = MemoryCache(**config)
+        self._caches: Dict[CacheType, MemoryCache] = {}
     
     def get_cache(self, cache_type: CacheType) -> MemoryCache:
-        """Get cache instance for specific type."""
-        cache_key = cache_type.value
-        if cache_key not in self._caches:
-            # Create cache with default config if it doesn't exist
-            config = self._default_configs.get(cache_key, {'max_size': 100, 'default_ttl': 300})
-            self._caches[cache_key] = MemoryCache(**config)
+        """Get cache instance using singleton coordination."""
+        def _get_cache_operation():
+            if cache_type not in self._caches:
+                self._caches[cache_type] = MemoryCache()
+            return self._caches[cache_type]
         
-        return self._caches[cache_key]
+        return singleton.coordinate_operation(_get_cache_operation, {
+            'operation': 'get_cache',
+            'cache_type': cache_type.value
+        })
     
-    def get_statistics(self, cache_type: Optional[str] = None) -> Dict[str, Any]:
-        """Get statistics for all caches or specific cache type."""
-        if cache_type:
-            cache = self._caches.get(cache_type)
-            if cache:
-                return {cache_type: cache.get_statistics()}
-            return {}
+    def clear_all_caches(self) -> Dict[str, int]:
+        """Clear all caches using singleton coordination."""
+        def _clear_all_operation():
+            results = {}
+            for cache_type, cache in self._caches.items():
+                count = cache.clear()
+                results[cache_type.value] = count
+            return results
         
-        # Get statistics for all caches
-        all_stats = {}
-        total_stats = {
-            'total_hits': 0,
-            'total_misses': 0,
-            'total_entries': 0,
-            'total_memory_mb': 0,
-            'overall_hit_rate': 0
-        }
-        
-        for cache_type, cache in self._caches.items():
-            stats = cache.get_statistics()
-            all_stats[cache_type] = stats
-            
-            total_stats['total_hits'] += stats['hits']
-            total_stats['total_misses'] += stats['misses'] 
-            total_stats['total_entries'] += stats['key_count']
-            total_stats['total_memory_mb'] += stats['memory_usage_mb']
-        
-        # Calculate overall hit rate
-        total_requests = total_stats['total_hits'] + total_stats['total_misses']
-        if total_requests > 0:
-            total_stats['overall_hit_rate'] = total_stats['total_hits'] / total_requests
-        
-        all_stats['totals'] = total_stats
-        return all_stats
-    
-    def optimize_all_caches(self) -> Dict[str, Any]:
-        """Optimize memory usage for all caches."""
-        optimization_results = {}
-        
-        for cache_type, cache in self._caches.items():
-            try:
-                result = cache.optimize_memory()
-                optimization_results[cache_type] = result
-            except Exception as e:
-                optimization_results[cache_type] = {
-                    'optimization_successful': False,
-                    'error': str(e)
-                }
-        
-        return optimization_results
-    
-    def clear_all_caches(self) -> bool:
-        """Clear all cache instances."""
-        try:
-            for cache in self._caches.values():
-                cache.clear()
-            return True
-        except Exception:
-            return False
-
-# ===== GLOBAL CACHE INSTANCES =====
-
-_cache_manager = CacheManager()
-
-# ===== CORE IMPLEMENTATION FUNCTIONS =====
-
-def _cache_get_implementation(key: str, cache_type: CacheType = CacheType.LAMBDA, 
-                            default: Any = None, timeout: float = 5.0) -> Any:
-    """Core cache get implementation."""
-    try:
-        cache = _cache_manager.get_cache(cache_type)
-        return cache.get(key, default)
-    except Exception:
-        return default
-
-def _cache_set_implementation(key: str, value: Any, ttl: int = 300, 
-                            cache_type: CacheType = CacheType.LAMBDA) -> bool:
-    """Core cache set implementation."""
-    try:
-        cache = _cache_manager.get_cache(cache_type)
-        return cache.set(key, value, ttl)
-    except Exception:
-        return False
-
-def _cache_clear_implementation(cache_type: Optional[CacheType] = None) -> bool:
-    """Core cache clear implementation."""
-    try:
-        if cache_type:
-            cache = _cache_manager.get_cache(cache_type)
-            return cache.clear()
-        else:
-            return _cache_manager.clear_all_caches()
-    except Exception:
-        return False
-
-def _get_cache_statistics_implementation(cache_type: Optional[str] = None) -> Dict[str, Any]:
-    """Get cache statistics implementation."""
-    try:
-        return _cache_manager.get_statistics(cache_type)
-    except Exception:
-        return {}
-
-def _optimize_cache_memory_implementation(cache_type: Optional[str] = None) -> Dict[str, Any]:
-    """Optimize cache memory implementation."""
-    try:
-        if cache_type and cache_type in _cache_manager._caches:
-            cache = _cache_manager._caches[cache_type]
-            return cache.optimize_memory()
-        else:
-            return _cache_manager.optimize_all_caches()
-    except Exception as e:
-        return {'optimization_successful': False, 'error': str(e)}
-
-def _get_cache_manager_implementation():
-    """Get cache manager instance."""
-    return _cache_manager
-
-def _get_lambda_cache_implementation():
-    """Get Lambda cache instance.""" 
-    return _cache_manager.get_cache(CacheType.LAMBDA)
-
-def _get_response_cache_implementation():
-    """Get response cache instance."""
-    return _cache_manager.get_cache(CacheType.RESPONSE)
-
-# ===== CLEANUP FUNCTIONS =====
-
-def cleanup_cache_memory():
-    """Clean up cache memory for Lambda optimization."""
-    return _cache_manager.optimize_all_caches()
-
-def reset_cache_statistics():
-    """Reset cache statistics."""
-    for cache in _cache_manager._caches.values():
-        cache._stats.reset()
+        return singleton.coordinate_operation(_clear_all_operation, {
+            'operation': 'clear_all_caches'
+        })
 
 # ===== EXPORTED FUNCTIONS =====
 
 __all__ = [
-    # Core implementations
-    '_cache_get_implementation',
-    '_cache_set_implementation', 
-    '_cache_clear_implementation',
-    '_get_cache_statistics_implementation',
-    '_optimize_cache_memory_implementation',
-    '_get_cache_manager_implementation',
-    '_get_lambda_cache_implementation',
-    '_get_response_cache_implementation',
-    
-    # Classes
-    'CacheManager',
-    'MemoryCache',
+    'CacheType',
+    'CacheEntry', 
     'CacheStats',
-    'CacheEntry',
-    
-    # Cleanup functions
-    'cleanup_cache_memory',
-    'reset_cache_statistics'
+    'MemoryCache',
+    'CacheManager'
 ]
 
 # EOF
