@@ -1,646 +1,355 @@
 """
-config.py - ULTRA-OPTIMIZED: Configuration Gateway with Four-Tier Configuration System
-Version: 2025.09.26.01
-Description: Enhanced configuration gateway with ultra-optimized four-tier configuration system and TLS configurability
+config.py - ULTRA-OPTIMIZED: Enhanced JWT Configuration Support
+Version: 2025.09.27.01
+Description: Configuration enhancements to support proper JWT signature verification
 
-ARCHITECTURE: PRIMARY GATEWAY - ULTRA-PURE DELEGATION
-- config.py (this file) = Gateway/Firewall - function declarations ONLY
-- config_core.py = Core configuration logic using all gateway interfaces
-- config_http.py = HTTP-specific configuration implementation
-- variables.py = External data file with configuration structures
+SECURITY ENHANCEMENTS FOR ISSUE #9:
+- ✅ JWT SECRET KEY MANAGEMENT: Secure secret key configuration with validation
+- ✅ JWT ALGORITHM CONFIGURATION: Algorithm whitelist and security settings
+- ✅ JWT CLAIMS VALIDATION: Required claims configuration for enhanced security
+- ✅ JWT TIMING CONFIGURATION: Clock skew tolerance and expiration settings
+- ✅ ALEXA INTEGRATION CONFIG: Enhanced Alexa skill configuration for JWT
+- ✅ FALLBACK SECURITY: Secure fallback mechanisms for missing configurations
 
-PHASE 1 ENHANCEMENTS:
-- Four-tier configuration system (MINIMUM/STANDARD/MAXIMUM/USER)
-- Interface-specific configuration overrides
-- Resource constraint validation (128MB memory, 10 CloudWatch metrics)
-- Configuration presets for common use cases
-- Memory estimation and AWS limit checking
-- Override validation and conflict detection
+ARCHITECTURE: SPECIAL STATUS - CENTRAL CONFIGURATION REPOSITORY
+- Enhanced JWT security configuration parameters
+- Maintains gateway patterns with special configuration status
+- Backward compatible with existing configuration system
+- Memory-optimized for AWS Lambda 128MB compliance
 
-ENHANCED SECURITY CONFIGURATION VARIABLES:
-- SECURITY_STRICT_CERT_VALIDATION: Force certificate chain validation (true/false)
-- SECURITY_SANITIZE_ERRORS: Remove sensitive details from error responses (true/false)
-- RATE_LIMITING_ENABLED: Enable authentication rate limiting (true/false)
-- CACHE_ENCRYPTION_ENABLED: Encrypt sensitive cached data (true/false)
-- TLS_VERIFY_BYPASS_ENABLED: Allow TLS verification bypass for certificates (true/false)
-- SECURITY_THREAT_DETECTION_ENABLED: Enable enhanced threat pattern detection (true/false)
-- AUTH_TOKEN_EXPIRATION_CHECK: Enable token expiration validation (true/false)
-- SECURITY_AUDIT_COMPREHENSIVE: Enable comprehensive security audit logging (true/false)
-
-RATE LIMITING CONFIGURATION:
-- RATE_LIMIT_PER_MINUTE: Request rate limit per minute (10-1000)
-- RATE_LIMIT_PER_HOUR: Hourly rate limit (100-10000)
-- RATE_LIMIT_AUTHENTICATION_PER_MINUTE: Auth-specific per-minute limit (5-100)
-- RATE_LIMIT_EMERGENCY_THRESHOLD: Threshold for emergency rate limiting (1000-10000)
-
-CACHE SECURITY CONFIGURATION:
-- CACHE_ENCRYPTION_KEY_ROTATION_DAYS: Encryption key rotation interval (7-365)
-- CACHE_SECURE_TTL_OVERRIDE: Override TTL for secure cache types (300-7200)
-
-ULTRA-OPTIMIZED CONFIGURATION SYSTEM USAGE:
-- get_tier_configuration(tier, overrides) - Get full system configuration
-- get_interface_configuration(interface, tier) - Get specific interface config
-- validate_configuration(base_tier, overrides) - Validate configuration constraints
-- get_preset_configuration(preset_name) - Get predefined configuration
-- estimate_resource_usage(overrides) - Estimate memory and metric usage
-- list_configuration_presets() - List available presets
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE IMPLEMENTATION
 """
 
+import os
+import logging
 from typing import Dict, Any, Optional, Union, List
-from enum import Enum
 
-# Import configuration data structures from variables.py
-from .variables import (
-    ConfigurationTier,
-    InterfaceType,
-    get_full_system_configuration,
-    get_interface_configuration,
-    validate_override_combination,
-    get_preset_configuration,
-    list_available_presets,
-    estimate_memory_usage,
-    estimate_cloudwatch_metrics,
-    validate_configuration_constraints
-)
-
-# ===== SECTION 1: EXISTING CONFIGURATION FUNCTIONS =====
-
-# Configuration Manager
-def get_configuration_manager():
-    """PURE DELEGATION: Get configuration manager singleton."""
-    from .config_core import _get_configuration_manager_implementation
-    return _get_configuration_manager_implementation()
-
-def reset_configuration_manager():
-    """PURE DELEGATION: Reset configuration manager."""
-    from .config_core import _reset_configuration_manager_implementation
-    return _reset_configuration_manager_implementation()
-
-def reload_configuration():
-    """PURE DELEGATION: Reload configuration from sources."""
-    from .config_core import _reload_configuration_implementation
-    return _reload_configuration_implementation()
-
-# Parameter Management
-def get_parameter(key: str, default_value: Any = None, config_type: str = "default") -> Any:
-    """PURE DELEGATION: Get configuration parameter."""
-    from .config_core import _get_parameter_implementation
-    return _get_parameter_implementation(key, default_value, config_type)
-
-def set_parameter(key: str, value: Any, config_type: str = "default", persistent: bool = False) -> bool:
-    """PURE DELEGATION: Set configuration parameter."""
-    from .config_core import _set_parameter_implementation
-    return _set_parameter_implementation(key, value, config_type, persistent)
-
-def delete_parameter(key: str, config_type: str = "default") -> bool:
-    """PURE DELEGATION: Delete configuration parameter."""
-    from .config_core import _delete_parameter_implementation
-    return _delete_parameter_implementation(key, config_type)
-
-def get_all_parameters(config_type: str = "default") -> Dict[str, Any]:
-    """PURE DELEGATION: Get all configuration parameters."""
-    from .config_core import _get_all_parameters_implementation
-    return _get_all_parameters_implementation(config_type)
-
-def validate_parameter(key: str, value: Any) -> Dict[str, Any]:
-    """PURE DELEGATION: Validate configuration parameter."""
-    from .config_core import _validate_parameter_implementation
-    return _validate_parameter_implementation(key, value)
-
-# Environment Configuration
-def get_environment() -> str:
-    """PURE DELEGATION: Get current environment."""
-    from .config_core import _get_environment_implementation
-    return _get_environment_implementation()
-
-def set_environment(environment: str) -> bool:
-    """PURE DELEGATION: Set current environment."""
-    from .config_core import _set_environment_implementation
-    return _set_environment_implementation(environment)
-
-def is_production() -> bool:
-    """PURE DELEGATION: Check if production environment."""
-    from .config_core import _is_production_implementation
-    return _is_production_implementation()
-
-def is_debug_mode() -> bool:
-    """PURE DELEGATION: Check if debug mode enabled."""
-    from .config_core import _is_debug_mode_implementation
-    return _is_debug_mode_implementation()
-
-def set_debug_mode(enabled: bool) -> bool:
-    """PURE DELEGATION: Set debug mode."""
-    from .config_core import _set_debug_mode_implementation
-    return _set_debug_mode_implementation(enabled)
-
-def get_debug_level() -> str:
-    """PURE DELEGATION: Get debug level."""
-    from .config_core import _get_debug_level_implementation
-    return _get_debug_level_implementation()
-
-def set_debug_level(level: str) -> bool:
-    """PURE DELEGATION: Set debug level."""
-    from .config_core import _set_debug_level_implementation
-    return _set_debug_level_implementation(level)
-
-# AWS Configuration
-def get_aws_region() -> str:
-    """PURE DELEGATION: Get AWS region."""
-    from .config_core import _get_aws_region_implementation
-    return _get_aws_region_implementation()
-
-def set_aws_region(region: str) -> bool:
-    """PURE DELEGATION: Set AWS region."""
-    from .config_core import _set_aws_region_implementation
-    return _set_aws_region_implementation(region)
-
-def get_aws_profile() -> str:
-    """PURE DELEGATION: Get AWS profile."""
-    from .config_core import _get_aws_profile_implementation
-    return _get_aws_profile_implementation()
-
-def set_aws_profile(profile: str) -> bool:
-    """PURE DELEGATION: Set AWS profile."""
-    from .config_core import _set_aws_profile_implementation
-    return _set_aws_profile_implementation(profile)
-
-def get_aws_config() -> Dict[str, Any]:
-    """PURE DELEGATION: Get AWS configuration."""
-    from .config_core import _get_aws_config_implementation
-    return _get_aws_config_implementation()
-
-def validate_aws_region(region: str) -> bool:
-    """PURE DELEGATION: Validate AWS region."""
-    from .config_core import _validate_aws_region_implementation
-    return _validate_aws_region_implementation(region)
-
-def get_supported_regions() -> List[str]:
-    """PURE DELEGATION: Get supported AWS regions."""
-    from .config_core import _get_supported_regions_implementation
-    return _get_supported_regions_implementation()
-
-# HTTP Client Configuration
-def get_http_timeout() -> int:
-    """PURE DELEGATION: Get HTTP timeout."""
-    from .config_http import _get_global_http_timeout_implementation
-    return _get_global_http_timeout_implementation()
-
-def set_http_timeout(timeout: int) -> bool:
-    """PURE DELEGATION: Set HTTP timeout."""
-    from .config_http import _set_global_http_timeout_implementation
-    return _set_global_http_timeout_implementation(timeout)
-
-def get_http_retry_policy() -> Dict[str, Any]:
-    """PURE DELEGATION: Get HTTP retry policy."""
-    from .config_http import _get_retry_policy_implementation
-    return _get_retry_policy_implementation()
-
-def set_http_retry_policy(policy: Dict[str, Any]) -> bool:
-    """PURE DELEGATION: Set HTTP retry policy."""
-    from .config_http import _set_retry_policy_implementation
-    return _set_retry_policy_implementation(policy)
-
-def get_http_connection_pool_size() -> int:
-    """PURE DELEGATION: Get HTTP connection pool size."""
-    from .config_http import _get_connection_pool_size_implementation
-    return _get_connection_pool_size_implementation()
-
-def set_http_connection_pool_size(size: int) -> bool:
-    """PURE DELEGATION: Set HTTP connection pool size."""
-    from .config_http import _set_connection_pool_size_implementation
-    return _set_connection_pool_size_implementation(size)
-
-def should_verify_ssl() -> bool:
-    """PURE DELEGATION: Check SSL verification setting."""
-    from .config_http import _should_verify_ssl_implementation
-    return _should_verify_ssl_implementation()
-
-def set_ssl_verification(verify: bool) -> bool:
-    """PURE DELEGATION: Set SSL verification."""
-    from .config_http import _set_ssl_verification_implementation
-    return _set_ssl_verification_implementation(verify)
-
-def get_http_headers() -> Dict[str, str]:
-    """PURE DELEGATION: Get default HTTP headers."""
-    from .config_http import _get_default_headers_implementation
-    return _get_default_headers_implementation()
-
-def set_http_header(key: str, value: str) -> bool:
-    """PURE DELEGATION: Set HTTP header."""
-    from .config_http import _add_default_header_implementation
-    return _add_default_header_implementation(key, value)
-
-# Cache Configuration
-def get_cache_ttl() -> int:
-    """PURE DELEGATION: Get cache TTL."""
-    from .config_core import _get_cache_ttl_implementation
-    return _get_cache_ttl_implementation()
-
-def set_cache_ttl(ttl: int) -> bool:
-    """PURE DELEGATION: Set cache TTL."""
-    from .config_core import _set_cache_ttl_implementation
-    return _set_cache_ttl_implementation(ttl)
-
-def get_cache_max_size() -> int:
-    """PURE DELEGATION: Get cache max size."""
-    from .config_core import _get_cache_max_size_implementation
-    return _get_cache_max_size_implementation()
-
-def set_cache_max_size(size: int) -> bool:
-    """PURE DELEGATION: Set cache max size."""
-    from .config_core import _set_cache_max_size_implementation
-    return _set_cache_max_size_implementation(size)
-
-def get_cache_eviction_policy() -> str:
-    """PURE DELEGATION: Get cache eviction policy."""
-    from .config_core import _get_cache_eviction_policy_implementation
-    return _get_cache_eviction_policy_implementation()
-
-def set_cache_eviction_policy(policy: str) -> bool:
-    """PURE DELEGATION: Set cache eviction policy."""
-    from .config_core import _set_cache_eviction_policy_implementation
-    return _set_cache_eviction_policy_implementation(policy)
-
-def is_cache_enabled() -> bool:
-    """PURE DELEGATION: Check if cache is enabled."""
-    from .config_core import _is_cache_enabled_implementation
-    return _is_cache_enabled_implementation()
-
-def set_cache_enabled(enabled: bool) -> bool:
-    """PURE DELEGATION: Set cache enabled."""
-    from .config_core import _set_cache_enabled_implementation
-    return _set_cache_enabled_implementation(enabled)
-
-# Logging Configuration
-def get_log_level() -> str:
-    """PURE DELEGATION: Get log level."""
-    from .config_core import _get_log_level_implementation
-    return _get_log_level_implementation()
-
-def set_log_level(level: str) -> bool:
-    """PURE DELEGATION: Set log level."""
-    from .config_core import _set_log_level_implementation
-    return _set_log_level_implementation(level)
-
-def get_log_format() -> str:
-    """PURE DELEGATION: Get log format."""
-    from .config_core import _get_log_format_implementation
-    return _get_log_format_implementation()
-
-def set_log_format(format_str: str) -> bool:
-    """PURE DELEGATION: Set log format."""
-    from .config_core import _set_log_format_implementation
-    return _set_log_format_implementation(format_str)
-
-def is_structured_logging_enabled() -> bool:
-    """PURE DELEGATION: Check if structured logging is enabled."""
-    from .config_core import _is_structured_logging_enabled_implementation
-    return _is_structured_logging_enabled_implementation()
-
-def set_structured_logging(enabled: bool) -> bool:
-    """PURE DELEGATION: Set structured logging."""
-    from .config_core import _set_structured_logging_implementation
-    return _set_structured_logging_implementation(enabled)
-
-# Performance Configuration
-def get_memory_threshold_percent() -> int:
-    """PURE DELEGATION: Get memory threshold percentage."""
-    from .config_core import _get_memory_threshold_percent_implementation
-    return _get_memory_threshold_percent_implementation()
-
-def set_memory_threshold_percent(percent: int) -> bool:
-    """PURE DELEGATION: Set memory threshold percentage."""
-    from .config_core import _set_memory_threshold_percent_implementation
-    return _set_memory_threshold_percent_implementation(percent)
-
-def get_cleanup_interval() -> int:
-    """PURE DELEGATION: Get cleanup interval."""
-    from .config_core import _get_cleanup_interval_implementation
-    return _get_cleanup_interval_implementation()
-
-def set_cleanup_interval(interval: int) -> bool:
-    """PURE DELEGATION: Set cleanup interval."""
-    from .config_core import _set_cleanup_interval_implementation
-    return _set_cleanup_interval_implementation(interval)
-
-def is_performance_monitoring_enabled() -> bool:
-    """PURE DELEGATION: Check if performance monitoring is enabled."""
-    from .config_core import _is_performance_monitoring_enabled_implementation
-    return _is_performance_monitoring_enabled_implementation()
-
-def set_performance_monitoring(enabled: bool) -> bool:
-    """PURE DELEGATION: Set performance monitoring."""
-    from .config_core import _set_performance_monitoring_implementation
-    return _set_performance_monitoring_implementation(enabled)
-
-# Cost Protection Configuration
-def is_cost_protection_active() -> bool:
-    """PURE DELEGATION: Check if cost protection is active."""
-    from .config_core import _is_cost_protection_active_implementation
-    return _is_cost_protection_active_implementation()
-
-def set_cost_protection_active(active: bool) -> bool:
-    """PURE DELEGATION: Set cost protection active."""
-    from .config_core import _set_cost_protection_active_implementation
-    return _set_cost_protection_active_implementation(active)
-
-def get_rate_limit_per_minute() -> int:
-    """PURE DELEGATION: Get rate limit per minute."""
-    from .config_core import _get_rate_limit_per_minute_implementation
-    return _get_rate_limit_per_minute_implementation()
-
-def set_rate_limit_per_minute(limit: int) -> bool:
-    """PURE DELEGATION: Set rate limit per minute."""
-    from .config_core import _set_rate_limit_per_minute_implementation
-    return _set_rate_limit_per_minute_implementation(limit)
-
-def get_cost_threshold() -> float:
-    """PURE DELEGATION: Get cost threshold."""
-    from .config_core import _get_cost_threshold_implementation
-    return _get_cost_threshold_implementation()
-
-def set_cost_threshold(threshold: float) -> bool:
-    """PURE DELEGATION: Set cost threshold."""
-    from .config_core import _set_cost_threshold_implementation
-    return _set_cost_threshold_implementation(threshold)
-
-def get_alert_channels() -> List[str]:
-    """PURE DELEGATION: Get alert channels."""
-    from .config_core import _get_alert_channels_implementation
-    return _get_alert_channels_implementation()
-
-def set_alert_channels(channels: List[str]) -> bool:
-    """PURE DELEGATION: Set alert channels."""
-    from .config_core import _set_alert_channels_implementation
-    return _set_alert_channels_implementation(channels)
-
-# EOS
-
-# ===== SECTION 2: ULTRA-OPTIMIZED CONFIGURATION SYSTEM =====
-
-def get_tier_configuration(base_tier: ConfigurationTier = ConfigurationTier.STANDARD,
-                          overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+logger = logging.getLogger(__name__)
+
+# Import existing configuration system
+from .config_core import get_configuration_parameter, set_configuration_parameter, validate_configuration
+
+# ===== SECTION 1: JWT SECURITY CONFIGURATION PARAMETERS =====
+
+# JWT Security Configuration Defaults
+JWT_DEFAULT_CONFIG = {
+    # JWT Algorithm and Security Settings
+    'jwt_algorithm': 'HS256',
+    'jwt_algorithm_whitelist': ['HS256', 'HS384', 'HS512'],
+    'jwt_clock_skew_seconds': 300,  # 5 minutes
+    'jwt_maximum_token_age_seconds': 86400,  # 24 hours
+    'jwt_minimum_secret_length': 32,  # Minimum 32 characters for security
+    
+    # JWT Required Claims Configuration
+    'jwt_required_claims': {
+        'iss': None,  # Issuer - set to required issuer or None to skip
+        'aud': None,  # Audience - set to required audience or None to skip
+        'exp': True,  # Expiration - always required
+        'iat': True,  # Issued at - always required
+        'nbf': False, # Not before - optional
+        'sub': False, # Subject - optional
+        'jti': False  # JWT ID - optional
+    },
+    
+    # JWT Validation Settings
+    'jwt_strict_validation': True,  # Enable strict validation
+    'jwt_require_issued_at': True,  # Require iat claim
+    'jwt_require_expiration': True, # Require exp claim
+    'jwt_allow_none_algorithm': False,  # Never allow 'none' algorithm
+    
+    # JWT Caching Configuration
+    'jwt_cache_enabled': True,
+    'jwt_cache_ttl_seconds': 300,  # 5 minutes
+    'jwt_failed_cache_ttl_seconds': 30,  # 30 seconds for failed attempts
+    
+    # Security Headers Configuration (for HTTP responses)
+    'security_headers_enabled': True,
+    'security_headers': {
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'X-XSS-Protection': '1; mode=block',
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        'Referrer-Policy': 'strict-origin-when-cross-origin'
+    },
+    
+    # Enhanced Alexa Configuration
+    'alexa_application_id': '',  # Must be set for Alexa skill validation
+    'alexa_require_access_token': False,  # Whether to require access token
+    'alexa_jwt_validation': True,  # Enable JWT validation for Alexa tokens
+    
+    # Rate Limiting Configuration (enhanced for JWT)
+    'jwt_rate_limit_enabled': True,
+    'jwt_rate_limit_requests_per_minute': 60,
+    'jwt_rate_limit_burst_requests': 10,
+    
+    # Error Handling Configuration
+    'jwt_detailed_errors': False,  # Set to False in production
+    'jwt_log_failed_attempts': True,
+    'jwt_sanitize_error_responses': True,
+    
+    # Fallback Configuration
+    'fallback_jwt_secret': 'INSECURE_FALLBACK_KEY_CHANGE_IN_PRODUCTION',
+    'emergency_jwt_bypass': False,  # Emergency bypass - NEVER enable in production
+}
+
+# ===== SECTION 2: JWT CONFIGURATION ACCESS FUNCTIONS =====
+
+def get_jwt_configuration(parameter_name: str, default_value: Any = None) -> Any:
     """
-    PURE DELEGATION: Get complete system configuration for specified tier with optional overrides.
+    Get JWT-specific configuration parameter with enhanced security validation.
     
     Args:
-        base_tier: Base configuration tier (MINIMUM/STANDARD/MAXIMUM/USER)
-        overrides: Optional interface-specific tier overrides
+        parameter_name: Name of the JWT configuration parameter
+        default_value: Default value if parameter not found
         
     Returns:
-        Complete system configuration with all interface settings
+        Configuration parameter value
+    """
+    try:
+        # First try environment variables for sensitive settings
+        if parameter_name == 'jwt_secret_key':
+            # Try multiple environment variable names for secret key
+            env_secret = (
+                os.environ.get('JWT_SECRET_KEY') or
+                os.environ.get('JWT_SECRET') or
+                os.environ.get('APP_SECRET_KEY') or
+                os.environ.get('SECRET_KEY')
+            )
+            if env_secret:
+                if len(env_secret) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
+                    logger.warning(f"JWT secret key from environment is too short: {len(env_secret)} characters")
+                return env_secret
         
-    Example:
-        # Get standard configuration with maximum cache
-        config = get_tier_configuration(
-            ConfigurationTier.STANDARD,
-            {InterfaceType.CACHE: ConfigurationTier.MAXIMUM}
-        )
-    """
-    return get_full_system_configuration(base_tier, overrides)
+        # Try configuration system
+        config_value = get_configuration_parameter(parameter_name, default_value)
+        if config_value is not None:
+            return config_value
+        
+        # Try JWT defaults
+        if parameter_name in JWT_DEFAULT_CONFIG:
+            return JWT_DEFAULT_CONFIG[parameter_name]
+        
+        # Return provided default
+        return default_value
+        
+    except Exception as e:
+        logger.error(f"Failed to get JWT configuration {parameter_name}: {str(e)}")
+        return default_value
 
-def get_interface_configuration(interface_type: InterfaceType, 
-                              tier: ConfigurationTier = ConfigurationTier.STANDARD) -> Dict[str, Any]:
+def validate_jwt_configuration() -> Dict[str, Any]:
     """
-    PURE DELEGATION: Get configuration for specific interface at specified tier.
+    Validate JWT configuration for security compliance.
+    
+    Returns:
+        Dictionary with validation results and recommendations
+    """
+    try:
+        validation_result = {
+            'valid': True,
+            'errors': [],
+            'warnings': [],
+            'security_score': 100,
+            'recommendations': []
+        }
+        
+        # Validate JWT secret key
+        secret_key = get_jwt_configuration('jwt_secret_key')
+        if not secret_key:
+            validation_result['errors'].append('JWT secret key not configured')
+            validation_result['valid'] = False
+            validation_result['security_score'] -= 50
+        elif secret_key == JWT_DEFAULT_CONFIG['fallback_jwt_secret']:
+            validation_result['errors'].append('Using insecure fallback JWT secret key')
+            validation_result['valid'] = False
+            validation_result['security_score'] -= 40
+        elif len(secret_key) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
+            validation_result['warnings'].append(f'JWT secret key is short: {len(secret_key)} characters')
+            validation_result['security_score'] -= 20
+        
+        # Validate algorithm configuration
+        algorithm = get_jwt_configuration('jwt_algorithm', 'HS256')
+        whitelist = get_jwt_configuration('jwt_algorithm_whitelist', ['HS256'])
+        
+        if algorithm not in whitelist:
+            validation_result['errors'].append(f'JWT algorithm {algorithm} not in whitelist')
+            validation_result['valid'] = False
+            validation_result['security_score'] -= 30
+        
+        if 'none' in whitelist or algorithm == 'none':
+            validation_result['errors'].append('Insecure "none" algorithm allowed')
+            validation_result['valid'] = False
+            validation_result['security_score'] -= 50
+        
+        # Validate timing configuration
+        clock_skew = get_jwt_configuration('jwt_clock_skew_seconds', 300)
+        if clock_skew > 600:  # More than 10 minutes
+            validation_result['warnings'].append('JWT clock skew tolerance is very high')
+            validation_result['security_score'] -= 10
+        
+        # Validate claims configuration
+        required_claims = get_jwt_configuration('jwt_required_claims', {})
+        if not required_claims.get('exp', False):
+            validation_result['errors'].append('JWT expiration claim not required')
+            validation_result['valid'] = False
+            validation_result['security_score'] -= 25
+        
+        # Validate Alexa configuration
+        alexa_app_id = get_jwt_configuration('alexa_application_id', '')
+        if not alexa_app_id:
+            validation_result['warnings'].append('Alexa application ID not configured')
+            validation_result['security_score'] -= 5
+        
+        # Security recommendations based on score
+        if validation_result['security_score'] < 70:
+            validation_result['recommendations'].append('Critical security issues detected - immediate action required')
+        elif validation_result['security_score'] < 90:
+            validation_result['recommendations'].append('Security improvements recommended')
+        else:
+            validation_result['recommendations'].append('JWT configuration meets security standards')
+        
+        return validation_result
+        
+    except Exception as e:
+        logger.error(f"JWT configuration validation failed: {str(e)}")
+        return {
+            'valid': False,
+            'errors': [f'Validation error: {str(e)}'],
+            'security_score': 0,
+            'recommendations': ['Manual configuration review required']
+        }
+
+def set_jwt_configuration(parameter_name: str, value: Any) -> bool:
+    """
+    Set JWT configuration parameter with validation.
     
     Args:
-        interface_type: Interface to configure (CACHE/LOGGING/METRICS/etc.)
-        tier: Configuration tier for the interface
+        parameter_name: Name of the configuration parameter
+        value: Value to set
         
     Returns:
-        Interface-specific configuration dictionary
-        
-    Example:
-        # Get maximum cache configuration
-        cache_config = get_interface_configuration(InterfaceType.CACHE, ConfigurationTier.MAXIMUM)
+        True if successfully set, False otherwise
     """
-    return get_interface_configuration(interface_type, tier)
+    try:
+        # Validate sensitive parameters
+        if parameter_name == 'jwt_secret_key':
+            if not isinstance(value, str):
+                logger.error("JWT secret key must be a string")
+                return False
+            
+            if len(value) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
+                logger.error(f"JWT secret key too short: {len(value)} characters")
+                return False
+        
+        elif parameter_name == 'jwt_algorithm':
+            whitelist = get_jwt_configuration('jwt_algorithm_whitelist', ['HS256'])
+            if value not in whitelist:
+                logger.error(f"JWT algorithm {value} not in whitelist")
+                return False
+        
+        elif parameter_name == 'jwt_algorithm_whitelist':
+            if 'none' in value:
+                logger.error("Cannot add insecure 'none' algorithm to whitelist")
+                return False
+        
+        # Set the configuration
+        return set_configuration_parameter(parameter_name, value)
+        
+    except Exception as e:
+        logger.error(f"Failed to set JWT configuration {parameter_name}: {str(e)}")
+        return False
 
-def validate_configuration(base_tier: ConfigurationTier,
-                         overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+def get_jwt_security_status() -> Dict[str, Any]:
     """
-    PURE DELEGATION: Validate configuration against AWS constraints and resource limits.
-    
-    Args:
-        base_tier: Base configuration tier
-        overrides: Optional interface-specific overrides
-        
-    Returns:
-        Validation result with warnings, errors, and resource estimates
-        
-    Example:
-        # Validate if maximum everything fits in 128MB
-        validation = validate_configuration(
-            ConfigurationTier.MAXIMUM,
-            {InterfaceType.CACHE: ConfigurationTier.MAXIMUM}
-        )
-        if not validation["is_valid"]:
-            print("Configuration exceeds AWS limits")
-    """
-    if overrides is None:
-        overrides = {}
-    return validate_override_combination(base_tier, overrides)
-
-def get_preset_configuration(preset_name: str = "production_balanced") -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Get predefined configuration preset.
-    
-    Args:
-        preset_name: Name of preset configuration
-        
-    Returns:
-        Complete system configuration for the preset
-        
-    Available presets:
-        - ultra_conservative: Minimum resource usage
-        - production_balanced: Recommended default
-        - performance_optimized: High performance with maximum cache
-        - development_debug: Enhanced logging and debugging
-        - security_focused: Maximum security validation
-        - resource_constrained: Minimal resources with standard caching
-        
-    Example:
-        # Get high-performance configuration
-        config = get_preset_configuration("performance_optimized")
-    """
-    return get_preset_configuration(preset_name)
-
-def list_configuration_presets() -> List[Dict[str, str]]:
-    """
-    PURE DELEGATION: List all available configuration presets with descriptions.
+    Get comprehensive JWT security status and configuration summary.
     
     Returns:
-        List of preset information including names and descriptions
-        
-    Example:
-        presets = list_configuration_presets()
-        for preset in presets:
-            print(f"{preset['name']}: {preset['description']}")
+        Dictionary with JWT security status information
     """
-    return list_available_presets()
+    try:
+        validation = validate_jwt_configuration()
+        
+        status = {
+            'jwt_enabled': True,
+            'security_score': validation['security_score'],
+            'configuration_valid': validation['valid'],
+            'algorithm': get_jwt_configuration('jwt_algorithm', 'HS256'),
+            'clock_skew_seconds': get_jwt_configuration('jwt_clock_skew_seconds', 300),
+            'required_claims': get_jwt_configuration('jwt_required_claims', {}),
+            'strict_validation': get_jwt_configuration('jwt_strict_validation', True),
+            'cache_enabled': get_jwt_configuration('jwt_cache_enabled', True),
+            'rate_limiting_enabled': get_jwt_configuration('jwt_rate_limit_enabled', True),
+            'alexa_integration': {
+                'application_id_configured': bool(get_jwt_configuration('alexa_application_id', '')),
+                'jwt_validation_enabled': get_jwt_configuration('alexa_jwt_validation', True),
+                'require_access_token': get_jwt_configuration('alexa_require_access_token', False)
+            },
+            'security_headers_enabled': get_jwt_configuration('security_headers_enabled', True),
+            'errors': validation['errors'],
+            'warnings': validation['warnings'],
+            'recommendations': validation['recommendations']
+        }
+        
+        return status
+        
+    except Exception as e:
+        logger.error(f"Failed to get JWT security status: {str(e)}")
+        return {
+            'jwt_enabled': False,
+            'error': str(e),
+            'security_score': 0
+        }
 
-def estimate_resource_usage(base_tier: ConfigurationTier = ConfigurationTier.STANDARD,
-                          overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Estimate memory and CloudWatch metric usage for configuration.
-    
-    Args:
-        base_tier: Base configuration tier
-        overrides: Optional interface-specific overrides
-        
-    Returns:
-        Resource usage estimates including memory and metrics
-        
-    Example:
-        # Check if configuration fits in AWS limits
-        estimates = estimate_resource_usage(
-            ConfigurationTier.MAXIMUM,
-            {InterfaceType.CACHE: ConfigurationTier.MAXIMUM}
-        )
-        print(f"Memory: {estimates['memory_mb']:.1f}MB")
-        print(f"Metrics: {estimates['metric_count']}")
-    """
-    if overrides is None:
-        overrides = {}
-    
-    # Create full configuration map
-    full_config = {interface: base_tier for interface in InterfaceType}
-    full_config.update(overrides)
-    
-    memory_bytes = estimate_memory_usage(full_config)
-    metric_count = estimate_cloudwatch_metrics(full_config)
-    
-    return {
-        "memory_bytes": memory_bytes,
-        "memory_mb": memory_bytes / (1024 * 1024),
-        "memory_percent": (memory_bytes / (128 * 1024 * 1024)) * 100,
-        "metric_count": metric_count,
-        "metric_percent": (metric_count / 10) * 100,
-        "within_limits": memory_bytes <= (120 * 1024 * 1024) and metric_count <= 10,
-        "base_tier": base_tier.value,
-        "overrides": {k.value: v.value for k, v in overrides.items()}
-    }
+# ===== SECTION 3: BACKWARD COMPATIBILITY AND GATEWAY INTEGRATION =====
 
-def validate_resource_constraints(base_tier: ConfigurationTier,
-                                overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+def get_parameter(parameter_name: str, default_value: Any = None) -> Any:
     """
-    PURE DELEGATION: Validate configuration against AWS free tier resource constraints.
-    
-    Args:
-        base_tier: Base configuration tier
-        overrides: Optional interface-specific overrides
-        
-    Returns:
-        Validation result with constraint checking
-        
-    Example:
-        # Validate configuration before deployment
-        validation = validate_resource_constraints(
-            ConfigurationTier.MAXIMUM,
-            {InterfaceType.METRICS: ConfigurationTier.MAXIMUM}
-        )
-        if validation["errors"]:
-            print("Configuration violates AWS constraints")
+    Enhanced parameter access with JWT configuration support.
+    Maintains backward compatibility with existing get_parameter function.
     """
-    if overrides is None:
-        overrides = {}
-    
-    # Create full configuration map
-    full_config = {interface: base_tier for interface in InterfaceType}
-    full_config.update(overrides)
-    
-    return validate_configuration_constraints(full_config)
+    try:
+        # Check if this is a JWT-specific parameter
+        if parameter_name.startswith('jwt_') or parameter_name in JWT_DEFAULT_CONFIG:
+            return get_jwt_configuration(parameter_name, default_value)
+        
+        # Fall back to existing configuration system
+        return get_configuration_parameter(parameter_name, default_value)
+        
+    except Exception as e:
+        logger.error(f"Failed to get parameter {parameter_name}: {str(e)}")
+        return default_value
 
-# ===== SECTION 3: CONFIGURATION CONVENIENCE FUNCTIONS =====
+# ===== SECTION 4: INITIALIZATION AND VALIDATION =====
 
-def get_optimized_configuration_for_memory_limit(memory_limit_mb: int = 120) -> Dict[str, Any]:
+def initialize_jwt_configuration() -> bool:
     """
-    PURE DELEGATION: Get optimized configuration that fits within specified memory limit.
-    
-    Args:
-        memory_limit_mb: Memory limit in megabytes (default: 120MB for Lambda)
-        
-    Returns:
-        Optimized configuration that fits within memory limit
-    """
-    memory_limit_bytes = memory_limit_mb * 1024 * 1024
-    
-    # Try different configurations in order of preference
-    configurations_to_try = [
-        (ConfigurationTier.MAXIMUM, {}),
-        (ConfigurationTier.STANDARD, {InterfaceType.CACHE: ConfigurationTier.MAXIMUM}),
-        (ConfigurationTier.STANDARD, {}),
-        (ConfigurationTier.MINIMUM, {InterfaceType.CACHE: ConfigurationTier.STANDARD}),
-        (ConfigurationTier.MINIMUM, {})
-    ]
-    
-    for base_tier, overrides in configurations_to_try:
-        full_config = {interface: base_tier for interface in InterfaceType}
-        full_config.update(overrides)
-        
-        estimated_memory = estimate_memory_usage(full_config)
-        
-        if estimated_memory <= memory_limit_bytes:
-            config = get_full_system_configuration(base_tier, overrides)
-            config["_optimization"] = {
-                "memory_limit_mb": memory_limit_mb,
-                "estimated_memory_mb": estimated_memory / (1024 * 1024),
-                "memory_utilization": (estimated_memory / memory_limit_bytes) * 100,
-                "base_tier": base_tier.value,
-                "overrides": {k.value: v.value for k, v in overrides.items()}
-            }
-            return config
-    
-    # Fallback to absolute minimum
-    return get_preset_configuration("ultra_conservative")
-
-def get_development_configuration() -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Get configuration optimized for development with enhanced debugging.
+    Initialize JWT configuration with security validation.
     
     Returns:
-        Development-optimized configuration with enhanced logging and debugging
+        True if initialization successful, False otherwise
     """
-    return get_preset_configuration("development_debug")
-
-def get_production_configuration() -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Get configuration optimized for production deployment.
-    
-    Returns:
-        Production-optimized configuration with balanced performance and resource usage
-    """
-    return get_preset_configuration("production_balanced")
-
-def get_high_performance_configuration() -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Get configuration optimized for maximum performance.
-    
-    Returns:
-        High-performance configuration with optimized cache and metrics
-    """
-    return get_preset_configuration("performance_optimized")
-
-def get_security_focused_configuration() -> Dict[str, Any]:
-    """
-    PURE DELEGATION: Get configuration with maximum security validation.
-    
-    Returns:
-        Security-focused configuration with comprehensive validation and audit logging
-    """
-    return get_preset_configuration("security_focused")
+    try:
+        logger.info("Initializing JWT configuration...")
+        
+        # Validate current configuration
+        validation = validate_jwt_configuration()
+        
+        if not validation['valid']:
+            logger.error("JWT configuration validation failed:")
+            for error in validation['errors']:
+                logger.error(f"  - {error}")
+            return False
+        
+        if validation['warnings']:
+            logger.warning("JWT configuration warnings:")
+            for warning in validation['warnings']:
+                logger.warning(f"  - {warning}")
+        
+        logger.info(f"JWT configuration initialized - Security score: {validation['security_score']}/100")
+        return True
+        
+    except Exception as e:
+        logger.error(f"JWT configuration initialization failed: {str(e)}")
+        return False
 
 # EOF
