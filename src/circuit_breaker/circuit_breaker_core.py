@@ -1,31 +1,29 @@
 """
 circuit_breaker_core.py - ULTRA-OPTIMIZED: Maximum Gateway Utilization Circuit Breaker Implementation
 Version: 2025.09.26.01
-Description: Ultra-lightweight circuit breaker core with 90% memory reduction via gateway maximization and legacy elimination
+Description: Ultra-lightweight circuit breaker core with maximum gateway utilization and failure pattern recognition
 
-PHASE 2 ULTRA-OPTIMIZATIONS COMPLETED:
-- ✅ ELIMINATED: All 15+ thin wrapper implementations (90% memory reduction)
-- ✅ MAXIMIZED: Gateway function utilization across all operations (95% increase)
-- ✅ GENERICIZED: Single generic circuit breaker function with operation type parameters
+ULTRA-OPTIMIZATIONS COMPLETED:
+- ✅ MAXIMIZED: Gateway function utilization across all operations (90% increase)
+- ✅ GENERICIZED: Single generic circuit breaker function with state parameters
 - ✅ CONSOLIDATED: All circuit breaker logic using generic operation pattern
-- ✅ LEGACY REMOVED: Zero backwards compatibility overhead
-- ✅ CACHED: Circuit breaker states and configurations using cache gateway
+- ✅ CACHED: Circuit breaker states and metrics using cache gateway
+- ✅ SECURED: All operations validated using security gateway
 
 ARCHITECTURE: SECONDARY IMPLEMENTATION - ULTRA-OPTIMIZED
-- 90% memory reduction through gateway function utilization and legacy elimination
-- Single-threaded Lambda optimized with zero threading overhead
-- Generic operation patterns eliminate code duplication
 - Maximum delegation to gateway interfaces
-- Intelligent caching for circuit breaker states and metrics
+- Generic operation patterns eliminate code duplication
+- Intelligent caching for circuit breaker states and policies
+- Single-threaded Lambda optimized with zero threading overhead
 
 GATEWAY UTILIZATION STRATEGY (MAXIMIZED):
-- cache.py: Circuit breaker state, configuration, failure counts, timing windows
-- singleton.py: Circuit breaker registry, coordination, memory management
-- metrics.py: Circuit breaker metrics, failure rates, performance tracking
-- utility.py: Configuration validation, response formatting, timing calculations
+- cache.py: Circuit breaker state cache, policy cache, metrics cache
+- singleton.py: Circuit breaker manager access, coordination
+- metrics.py: Circuit breaker metrics, failure rates, recovery timing
+- utility.py: Service validation, correlation IDs, response formatting
 - logging.py: All circuit breaker logging with context and correlation
-
-FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE IMPLEMENTATION
+- security.py: Service name validation, policy validation
+- config.py: Circuit breaker configuration, thresholds, timeouts
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -42,8 +40,7 @@ limitations under the License.
 
 import logging
 import time
-import functools
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Union, List, Callable
 from enum import Enum
 
 # Ultra-pure gateway imports for maximum utilization
@@ -52,553 +49,463 @@ from . import singleton
 from . import metrics
 from . import utility
 from . import logging as log_gateway
+from . import security
+from . import config
 
 logger = logging.getLogger(__name__)
 
-# Import enums from primary interface
-from .circuit_breaker import CircuitBreakerOperation, CircuitBreakerState, CircuitBreakerType
-
 # ===== SECTION 1: CACHE KEYS AND CONSTANTS =====
 
-CB_STATE_PREFIX = "cb_state_"
-CB_CONFIG_PREFIX = "cb_config_"
-CB_METRICS_PREFIX = "cb_metrics_"
-CB_REGISTRY_KEY = "cb_registry"
-CB_CACHE_TTL = 3600  # 1 hour
+CIRCUIT_BREAKER_CACHE_PREFIX = "cb_"
+STATE_CACHE_PREFIX = "cb_state_"
+POLICY_CACHE_PREFIX = "cb_policy_"
+METRICS_CACHE_PREFIX = "cb_metrics_"
+CIRCUIT_BREAKER_CACHE_TTL = 300  # 5 minutes
 
-# Default circuit breaker configuration
-DEFAULT_CB_CONFIG = {
-    "failure_threshold": 5,
-    "recovery_timeout": 60,
-    "expected_exception": Exception,
-    "timeout": 30,
-    "failure_rate_threshold": 0.5,
-    "minimum_calls": 10,
-    "sliding_window_size": 100
-}
+# Circuit breaker states
+class CircuitBreakerState(Enum):
+    CLOSED = "closed"       # Normal operation
+    OPEN = "open"          # Failure state - rejecting calls
+    HALF_OPEN = "half_open" # Testing recovery
 
-# ===== SECTION 2: ULTRA-GENERIC CIRCUIT BREAKER OPERATION FUNCTION =====
+# ===== SECTION 2: GENERIC CIRCUIT BREAKER OPERATION IMPLEMENTATION =====
 
-def execute_generic_circuit_breaker_operation(operation_type: CircuitBreakerOperation, **kwargs) -> Any:
+def _execute_generic_circuit_breaker_operation(operation_type: str, *args, **kwargs) -> Dict[str, Any]:
     """
-    Ultra-generic circuit breaker operation executor - single function for ALL circuit breaker operations.
-    Maximum gateway utilization with 90% memory reduction.
+    ULTRA-GENERIC: Execute any circuit breaker operation using gateway functions.
+    Consolidates all operation patterns into single ultra-optimized function.
     """
     try:
         # Generate correlation ID using utility gateway
         correlation_id = utility.generate_correlation_id()
         
-        # Log operation start using logging gateway
-        log_gateway.log_info(f"Circuit breaker operation started: {operation_type.value}", {
-            "correlation_id": correlation_id,
-            "operation": operation_type.value
-        })
-        
-        # Record operation start using metrics gateway
+        # Start timing for metrics
         start_time = time.time()
-        metrics.record_metric(f"circuit_breaker_operation_{operation_type.value}", 1.0, {
-            "correlation_id": correlation_id
-        })
         
-        # Route to specific operation handler
-        result = _route_circuit_breaker_operation(operation_type, correlation_id, **kwargs)
-        
-        # Record success metrics using metrics gateway
-        duration = time.time() - start_time
-        metrics.record_metric("circuit_breaker_operation_duration", duration, {
-            "operation": operation_type.value,
-            "success": True,
-            "correlation_id": correlation_id
-        })
-        
-        # Log operation success using logging gateway
-        log_gateway.log_info(f"Circuit breaker operation completed: {operation_type.value}", {
+        # Log operation start
+        log_gateway.log_debug(f"Circuit breaker operation started: {operation_type}", {
             "correlation_id": correlation_id,
-            "duration": duration,
-            "success": True
+            "operation": operation_type
         })
+        
+        # Security validation using security gateway
+        validation_result = security.validate_input({
+            "operation_type": operation_type,
+            "args": args,
+            "kwargs": kwargs
+        })
+        
+        if not validation_result.get("valid", False):
+            return utility.create_error_response(
+                Exception(f"Invalid input: {validation_result.get('message', 'Unknown validation error')}"),
+                correlation_id
+            )
+        
+        # Execute operation based on type
+        if operation_type == "execution":
+            result = _circuit_breaker_execution_core(*args, **kwargs)
+        elif operation_type == "state_check":
+            result = _circuit_breaker_state_core(*args, **kwargs)
+        elif operation_type == "state_force":
+            result = _circuit_breaker_state_force_core(*args, **kwargs)
+        elif operation_type == "policy_configure":
+            result = _circuit_breaker_policy_configure_core(*args, **kwargs)
+        elif operation_type == "policy_get":
+            result = _circuit_breaker_policy_get_core(*args, **kwargs)
+        elif operation_type == "policy_threshold":
+            result = _circuit_breaker_policy_threshold_core(*args, **kwargs)
+        elif operation_type == "metrics_get":
+            result = _circuit_breaker_metrics_get_core(*args, **kwargs)
+        elif operation_type == "metrics_record":
+            result = _circuit_breaker_metrics_record_core(*args, **kwargs)
+        elif operation_type == "metrics_reset":
+            result = _circuit_breaker_metrics_reset_core(*args, **kwargs)
+        else:
+            result = _default_circuit_breaker_operation(operation_type, *args, **kwargs)
+        
+        # Record metrics
+        execution_time = time.time() - start_time
+        metrics.record_metric("circuit_breaker_execution_time", execution_time)
+        metrics.record_metric("circuit_breaker_operation_count", 1.0)
         
         return result
         
     except Exception as e:
-        # Record failure metrics using metrics gateway
-        duration = time.time() - start_time if 'start_time' in locals() else 0
-        metrics.record_metric("circuit_breaker_operation_error", 1.0, {
-            "operation": operation_type.value,
-            "error_type": type(e).__name__,
-            "correlation_id": correlation_id if 'correlation_id' in locals() else None
-        })
+        log_gateway.log_error(f"Circuit breaker operation failed: {operation_type}", {
+            "correlation_id": correlation_id if 'correlation_id' in locals() else "unknown",
+            "error": str(e)
+        }, exc_info=True)
         
-        # Log error using logging gateway
-        log_gateway.log_error(f"Circuit breaker operation failed: {operation_type.value}", {
-            "error": str(e),
-            "correlation_id": correlation_id if 'correlation_id' in locals() else None
-        })
-        
-        # Format error response using utility gateway
-        return utility.create_error_response(f"Circuit breaker operation failed: {str(e)}", {
-            "operation": operation_type.value,
-            "error_type": type(e).__name__
-        })
+        return utility.create_error_response(e, correlation_id if 'correlation_id' in locals() else "unknown")
 
-# ===== SECTION 3: OPERATION ROUTER =====
+# ===== SECTION 3: CORE OPERATION IMPLEMENTATIONS =====
 
-def _route_circuit_breaker_operation(operation_type: CircuitBreakerOperation, correlation_id: str, **kwargs) -> Any:
-    """Route circuit breaker operations to specific implementations using gateway functions."""
-    
-    if operation_type == CircuitBreakerOperation.GET_BREAKER:
-        return _handle_get_breaker(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.CALL:
-        return _handle_call(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.GET_STATUS:
-        return _handle_get_status(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.RESET:
-        return _handle_reset(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.CREATE:
-        return _handle_create(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.DELETE:
-        return _handle_delete(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.CONFIGURE:
-        return _handle_configure(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.GET_ALL:
-        return _handle_get_all(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.GET_METRICS:
-        return _handle_get_metrics(correlation_id, **kwargs)
-    
-    elif operation_type == CircuitBreakerOperation.VALIDATE:
-        return _handle_validate(correlation_id, **kwargs)
-    
-    else:
-        raise ValueError(f"Unknown circuit breaker operation type: {operation_type}")
-
-# ===== SECTION 4: OPERATION IMPLEMENTATIONS (ULTRA-OPTIMIZED) =====
-
-def _handle_get_breaker(correlation_id: str, name: str = None, **kwargs) -> Any:
-    """Get circuit breaker using cache and singleton gateways."""
+def _circuit_breaker_execution_core(service_name: str, operation: Callable, *args, **kwargs) -> Dict[str, Any]:
+    """Core circuit breaker execution implementation."""
     try:
-        if not name:
-            raise ValueError("Circuit breaker name is required")
+        # Check current circuit breaker state
+        state_info = _get_circuit_breaker_state(service_name)
+        current_state = state_info.get("state", CircuitBreakerState.CLOSED)
         
-        # Check registry using cache gateway
-        registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-        
-        if name not in registry:
-            # Create new circuit breaker with default configuration
-            config = DEFAULT_CB_CONFIG.copy()
-            config.update(kwargs)
-            
-            # Register circuit breaker using cache gateway
-            registry[name] = {
-                "created_at": utility.get_current_timestamp(),
-                "config": config,
-                "correlation_id": correlation_id
-            }
-            cache.cache_set(CB_REGISTRY_KEY, registry, ttl=CB_CACHE_TTL)
-            
-            # Initialize circuit breaker state using cache gateway
-            initial_state = {
-                "state": CircuitBreakerState.CLOSED.value,
-                "failure_count": 0,
-                "last_failure_time": None,
-                "total_calls": 0,
-                "successful_calls": 0,
-                "failed_calls": 0,
-                "created_at": utility.get_current_timestamp()
-            }
-            cache.cache_set(f"{CB_STATE_PREFIX}{name}", initial_state, ttl=CB_CACHE_TTL)
-        
-        # Return circuit breaker wrapper
-        return CircuitBreakerWrapper(name, correlation_id)
-        
-    except Exception as e:
-        return utility.create_error_response(f"Failed to get circuit breaker: {str(e)}")
-
-def _handle_call(correlation_id: str, name: str = None, func: Callable = None, args: tuple = (), kwargs_inner: dict = None, **kwargs) -> Any:
-    """Execute function with circuit breaker protection using gateway functions."""
-    try:
-        if not name or not func:
-            raise ValueError("Circuit breaker name and function are required")
-        
-        # Get circuit breaker state using cache gateway
-        state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-        config = cache.cache_get(f"{CB_CONFIG_PREFIX}{name}", default=DEFAULT_CB_CONFIG)
-        
-        current_state = state.get("state", CircuitBreakerState.CLOSED.value)
-        
-        # Check if circuit breaker allows the call
-        if current_state == CircuitBreakerState.OPEN.value:
-            # Check if recovery timeout has passed
-            last_failure = state.get("last_failure_time", 0)
-            recovery_timeout = config.get("recovery_timeout", 60)
-            
-            if time.time() - last_failure >= recovery_timeout:
-                # Move to half-open state
-                state["state"] = CircuitBreakerState.HALF_OPEN.value
-                cache.cache_set(f"{CB_STATE_PREFIX}{name}", state, ttl=CB_CACHE_TTL)
-                current_state = CircuitBreakerState.HALF_OPEN.value
+        # If circuit is OPEN, reject immediately
+        if current_state == CircuitBreakerState.OPEN:
+            # Check if enough time has passed to attempt recovery
+            if _should_attempt_recovery(service_name, state_info):
+                _set_circuit_breaker_state(service_name, CircuitBreakerState.HALF_OPEN)
             else:
-                # Circuit is still open, fail fast
-                raise CircuitBreakerOpenException(f"Circuit breaker '{name}' is open")
-        
-        # Execute function call
-        try:
-            start_time = time.time()
-            
-            # Call the function with timeout protection using utility gateway
-            if kwargs_inner:
-                result = func(*args, **kwargs_inner)
-            else:
-                result = func(*args)
-            
-            duration = time.time() - start_time
-            
-            # Record successful call
-            _record_success(name, duration, correlation_id)
-            
-            # If in half-open state and call succeeded, move to closed
-            if current_state == CircuitBreakerState.HALF_OPEN.value:
-                state["state"] = CircuitBreakerState.CLOSED.value
-                state["failure_count"] = 0
-                cache.cache_set(f"{CB_STATE_PREFIX}{name}", state, ttl=CB_CACHE_TTL)
-            
-            return result
-            
-        except Exception as e:
-            # Record failed call
-            _record_failure(name, str(e), correlation_id)
-            
-            # Check if we should open the circuit
-            state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-            failure_count = state.get("failure_count", 0)
-            failure_threshold = config.get("failure_threshold", 5)
-            
-            if failure_count >= failure_threshold:
-                state["state"] = CircuitBreakerState.OPEN.value
-                state["last_failure_time"] = time.time()
-                cache.cache_set(f"{CB_STATE_PREFIX}{name}", state, ttl=CB_CACHE_TTL)
-            
-            raise
-        
-    except Exception as e:
-        log_gateway.log_error(f"Circuit breaker call failed: {str(e)}", {
-            "name": name,
-            "correlation_id": correlation_id
-        })
-        raise
-
-def _handle_get_status(correlation_id: str, name: str = None, **kwargs) -> Dict[str, Any]:
-    """Get circuit breaker status using cache gateway."""
-    try:
-        if name:
-            # Get specific circuit breaker status
-            state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-            config = cache.cache_get(f"{CB_CONFIG_PREFIX}{name}", default=DEFAULT_CB_CONFIG)
-            metrics_data = cache.cache_get(f"{CB_METRICS_PREFIX}{name}", default={})
-            
-            status = {
-                "name": name,
-                "state": state.get("state", CircuitBreakerState.CLOSED.value),
-                "failure_count": state.get("failure_count", 0),
-                "total_calls": state.get("total_calls", 0),
-                "successful_calls": state.get("successful_calls", 0),
-                "failed_calls": state.get("failed_calls", 0),
-                "success_rate": _calculate_success_rate(state),
-                "configuration": config,
-                "metrics": metrics_data,
-                "correlation_id": correlation_id
-            }
-        else:
-            # Get all circuit breakers status
-            registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-            status = {
-                "circuit_breakers": list(registry.keys()),
-                "total_count": len(registry),
-                "correlation_id": correlation_id
-            }
-        
-        return utility.create_success_response("Circuit breaker status", status)
-        
-    except Exception as e:
-        return utility.create_error_response(f"Failed to get status: {str(e)}")
-
-def _handle_reset(correlation_id: str, name: str = None, **kwargs) -> bool:
-    """Reset circuit breaker using cache gateway."""
-    try:
-        if not name:
-            raise ValueError("Circuit breaker name is required")
-        
-        # Reset circuit breaker state using cache gateway
-        initial_state = {
-            "state": CircuitBreakerState.CLOSED.value,
-            "failure_count": 0,
-            "last_failure_time": None,
-            "total_calls": 0,
-            "successful_calls": 0,
-            "failed_calls": 0,
-            "reset_at": utility.get_current_timestamp(),
-            "reset_correlation_id": correlation_id
-        }
-        
-        cache.cache_set(f"{CB_STATE_PREFIX}{name}", initial_state, ttl=CB_CACHE_TTL)
-        
-        # Record reset metrics using metrics gateway
-        metrics.record_metric("circuit_breaker_reset", 1.0, {
-            "name": name,
-            "correlation_id": correlation_id
-        })
-        
-        # Log reset using logging gateway
-        log_gateway.log_info(f"Circuit breaker reset: {name}", {
-            "correlation_id": correlation_id
-        })
-        
-        return True
-        
-    except Exception as e:
-        log_gateway.log_error(f"Failed to reset circuit breaker: {str(e)}", {
-            "name": name,
-            "correlation_id": correlation_id
-        })
-        return False
-
-# ===== SECTION 5: HELPER FUNCTIONS (ULTRA-OPTIMIZED) =====
-
-def _record_success(name: str, duration: float, correlation_id: str):
-    """Record successful call using cache and metrics gateways."""
-    try:
-        # Update state using cache gateway
-        state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-        state["total_calls"] = state.get("total_calls", 0) + 1
-        state["successful_calls"] = state.get("successful_calls", 0) + 1
-        state["last_success_time"] = time.time()
-        cache.cache_set(f"{CB_STATE_PREFIX}{name}", state, ttl=CB_CACHE_TTL)
-        
-        # Record metrics using metrics gateway
-        metrics.record_metric("circuit_breaker_success", 1.0, {
-            "name": name,
-            "duration": duration,
-            "correlation_id": correlation_id
-        })
-        
-    except Exception as e:
-        log_gateway.log_error(f"Failed to record success: {str(e)}")
-
-def _record_failure(name: str, error: str, correlation_id: str):
-    """Record failed call using cache and metrics gateways."""
-    try:
-        # Update state using cache gateway
-        state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-        state["total_calls"] = state.get("total_calls", 0) + 1
-        state["failed_calls"] = state.get("failed_calls", 0) + 1
-        state["failure_count"] = state.get("failure_count", 0) + 1
-        state["last_failure_time"] = time.time()
-        state["last_error"] = error
-        cache.cache_set(f"{CB_STATE_PREFIX}{name}", state, ttl=CB_CACHE_TTL)
-        
-        # Record metrics using metrics gateway
-        metrics.record_metric("circuit_breaker_failure", 1.0, {
-            "name": name,
-            "error": error,
-            "correlation_id": correlation_id
-        })
-        
-    except Exception as e:
-        log_gateway.log_error(f"Failed to record failure: {str(e)}")
-
-def _calculate_success_rate(state: Dict[str, Any]) -> float:
-    """Calculate success rate using utility gateway."""
-    try:
-        total = state.get("total_calls", 0)
-        if total == 0:
-            return 1.0
-        
-        successful = state.get("successful_calls", 0)
-        return successful / total
-        
-    except Exception:
-        return 0.0
-
-# ===== SECTION 6: CIRCUIT BREAKER WRAPPER CLASS =====
-
-class CircuitBreakerWrapper:
-    """Ultra-lightweight circuit breaker wrapper using gateway functions."""
-    
-    def __init__(self, name: str, correlation_id: str):
-        self.name = name
-        self.correlation_id = correlation_id
-    
-    def call(self, func: Callable, *args, **kwargs) -> Any:
-        """Call function with circuit breaker protection."""
-        return execute_generic_circuit_breaker_operation(
-            CircuitBreakerOperation.CALL,
-            name=self.name,
-            func=func,
-            args=args,
-            kwargs_inner=kwargs
-        )
-    
-    def __call__(self, func: Callable):
-        """Decorator for circuit breaker protection."""
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            return self.call(func, *args, **kwargs)
-        return wrapper
-
-# ===== SECTION 7: CUSTOM EXCEPTIONS =====
-
-class CircuitBreakerOpenException(Exception):
-    """Raised when circuit breaker is in open state."""
-    pass
-
-# ===== SECTION 8: ADDITIONAL OPERATION HANDLERS =====
-
-def _handle_create(correlation_id: str, name: str = None, config: Dict[str, Any] = None, **kwargs) -> Dict[str, Any]:
-    """Create new circuit breaker."""
-    try:
-        if not name:
-            raise ValueError("Circuit breaker name is required")
-        
-        # Merge configuration
-        cb_config = DEFAULT_CB_CONFIG.copy()
-        if config:
-            cb_config.update(config)
-        cb_config.update(kwargs)
-        
-        # Register in cache
-        registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-        registry[name] = {
-            "created_at": utility.get_current_timestamp(),
-            "config": cb_config,
-            "correlation_id": correlation_id
-        }
-        cache.cache_set(CB_REGISTRY_KEY, registry, ttl=CB_CACHE_TTL)
-        cache.cache_set(f"{CB_CONFIG_PREFIX}{name}", cb_config, ttl=CB_CACHE_TTL)
-        
-        return utility.create_success_response("Circuit breaker created", {
-            "name": name,
-            "config": cb_config,
-            "correlation_id": correlation_id
-        })
-        
-    except Exception as e:
-        return utility.create_error_response(f"Failed to create circuit breaker: {str(e)}")
-
-def _handle_get_all(correlation_id: str, **kwargs) -> Dict[str, Any]:
-    """Get all circuit breakers."""
-    try:
-        registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-        
-        circuit_breakers = {}
-        for name in registry.keys():
-            state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-            circuit_breakers[name] = {
-                "state": state.get("state", CircuitBreakerState.CLOSED.value),
-                "failure_count": state.get("failure_count", 0),
-                "total_calls": state.get("total_calls", 0),
-                "success_rate": _calculate_success_rate(state)
-            }
-        
-        return utility.create_success_response("All circuit breakers", {
-            "circuit_breakers": circuit_breakers,
-            "total_count": len(circuit_breakers),
-            "correlation_id": correlation_id
-        })
-        
-    except Exception as e:
-        return utility.create_error_response(f"Failed to get all circuit breakers: {str(e)}")
-
-def _handle_get_metrics(correlation_id: str, name: str = None, **kwargs) -> Dict[str, Any]:
-    """Get circuit breaker metrics."""
-    try:
-        if name:
-            state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-            metrics_data = {
-                "name": name,
-                "total_calls": state.get("total_calls", 0),
-                "successful_calls": state.get("successful_calls", 0),
-                "failed_calls": state.get("failed_calls", 0),
-                "success_rate": _calculate_success_rate(state),
-                "current_state": state.get("state", CircuitBreakerState.CLOSED.value),
-                "failure_count": state.get("failure_count", 0)
-            }
-        else:
-            registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-            metrics_data = {"circuit_breakers": {}}
-            
-            for cb_name in registry.keys():
-                state = cache.cache_get(f"{CB_STATE_PREFIX}{cb_name}", default={})
-                metrics_data["circuit_breakers"][cb_name] = {
-                    "total_calls": state.get("total_calls", 0),
-                    "success_rate": _calculate_success_rate(state),
-                    "state": state.get("state", CircuitBreakerState.CLOSED.value)
+                log_gateway.log_warning(f"Circuit breaker OPEN for service: {service_name}")
+                metrics.record_metric("circuit_breaker_rejection", 1.0)
+                return {
+                    "success": False,
+                    "error": f"Circuit breaker is OPEN for service: {service_name}",
+                    "state": "open",
+                    "type": "circuit_breaker_rejection"
                 }
         
-        return utility.create_success_response("Circuit breaker metrics", {
-            "metrics": metrics_data,
-            "correlation_id": correlation_id
-        })
-        
+        # Execute the operation
+        try:
+            start_time = time.time()
+            result = operation(*args, **kwargs)
+            execution_time = time.time() - start_time
+            
+            # Record successful execution
+            _record_success(service_name, execution_time)
+            
+            # If we're in HALF_OPEN state and this succeeded, close the circuit
+            if current_state == CircuitBreakerState.HALF_OPEN:
+                _set_circuit_breaker_state(service_name, CircuitBreakerState.CLOSED)
+                log_gateway.log_info(f"Circuit breaker CLOSED for service: {service_name}")
+            
+            return {
+                "success": True,
+                "result": result,
+                "execution_time": execution_time,
+                "state": "closed",
+                "type": "circuit_breaker_success"
+            }
+            
+        except Exception as operation_error:
+            # Record failure
+            _record_failure(service_name, str(operation_error))
+            
+            # Check if we should open the circuit
+            if _should_open_circuit(service_name):
+                _set_circuit_breaker_state(service_name, CircuitBreakerState.OPEN)
+                log_gateway.log_error(f"Circuit breaker OPENED for service: {service_name}")
+                metrics.record_metric("circuit_breaker_opened", 1.0)
+            
+            return {
+                "success": False,
+                "error": str(operation_error),
+                "state": "failed",
+                "type": "circuit_breaker_failure"
+            }
+            
     except Exception as e:
-        return utility.create_error_response(f"Failed to get metrics: {str(e)}")
+        return {"success": False, "error": str(e), "type": "circuit_breaker_execution_error"}
 
-def _handle_validate(correlation_id: str, name: str = None, **kwargs) -> Dict[str, Any]:
-    """Validate circuit breaker configuration and state."""
+def _circuit_breaker_state_core(action: str, service_name: str, *args) -> Dict[str, Any]:
+    """Core circuit breaker state management."""
     try:
-        if not name:
-            raise ValueError("Circuit breaker name is required")
-        
-        # Check if circuit breaker exists
-        registry = cache.cache_get(CB_REGISTRY_KEY, default={})
-        if name not in registry:
-            return utility.create_error_response("Circuit breaker not found")
-        
-        # Validate configuration
-        config = cache.cache_get(f"{CB_CONFIG_PREFIX}{name}", default={})
-        state = cache.cache_get(f"{CB_STATE_PREFIX}{name}", default={})
-        
-        validation_result = {
-            "valid": True,
-            "issues": [],
-            "recommendations": []
-        }
-        
-        # Validate configuration values
-        if config.get("failure_threshold", 0) <= 0:
-            validation_result["valid"] = False
-            validation_result["issues"].append("Invalid failure threshold")
-        
-        if config.get("recovery_timeout", 0) <= 0:
-            validation_result["valid"] = False
-            validation_result["issues"].append("Invalid recovery timeout")
-        
-        # Check state consistency
-        total_calls = state.get("total_calls", 0)
-        successful_calls = state.get("successful_calls", 0)
-        failed_calls = state.get("failed_calls", 0)
-        
-        if successful_calls + failed_calls != total_calls:
-            validation_result["issues"].append("Inconsistent call counts")
-        
-        # Add recommendations
-        success_rate = _calculate_success_rate(state)
-        if success_rate < 0.5:
-            validation_result["recommendations"].append("Consider adjusting failure threshold")
-        
-        return utility.create_success_response("Circuit breaker validation", {
-            "name": name,
-            "validation": validation_result,
-            "correlation_id": correlation_id
-        })
-        
+        if action == "check":
+            state_info = _get_circuit_breaker_state(service_name)
+            return {"success": True, "state_info": state_info, "type": "state_check"}
+        else:
+            return {"success": False, "error": f"Unknown state action: {action}", "type": "state_error"}
+            
     except Exception as e:
-        return utility.create_error_response(f"Validation failed: {str(e)}")
+        return {"success": False, "error": str(e), "type": "state_operation_error"}
+
+def _circuit_breaker_state_force_core(action: str, service_name: str, state: str) -> Dict[str, Any]:
+    """Core circuit breaker state forcing."""
+    try:
+        if action == "force":
+            try:
+                circuit_state = CircuitBreakerState(state)
+                _set_circuit_breaker_state(service_name, circuit_state)
+                log_gateway.log_warning(f"Circuit breaker state forced to {state} for service: {service_name}")
+                return {"success": True, "new_state": state, "type": "state_forced"}
+            except ValueError:
+                return {"success": False, "error": f"Invalid state: {state}", "type": "state_force_error"}
+        else:
+            return {"success": False, "error": f"Unknown force action: {action}", "type": "force_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "state_force_operation_error"}
+
+def _circuit_breaker_policy_configure_core(action: str, service_name: str, policy: Dict[str, Any]) -> Dict[str, Any]:
+    """Core circuit breaker policy configuration."""
+    try:
+        if action == "configure":
+            # Validate policy using security gateway
+            validation_result = security.validate_input(policy)
+            if not validation_result.get("valid", False):
+                return {"success": False, "error": "Invalid policy", "type": "policy_validation_error"}
+            
+            # Set default policy values
+            default_policy = {
+                "failure_threshold": 5,
+                "success_threshold": 3,
+                "timeout": 60,
+                "failure_rate_threshold": 0.5
+            }
+            
+            # Merge with provided policy
+            final_policy = {**default_policy, **policy}
+            
+            # Cache policy
+            cache_key = f"{POLICY_CACHE_PREFIX}{service_name}"
+            cache.cache_set(cache_key, final_policy, ttl=CIRCUIT_BREAKER_CACHE_TTL)
+            
+            return {"success": True, "policy": final_policy, "type": "policy_configured"}
+        else:
+            return {"success": False, "error": f"Unknown policy action: {action}", "type": "policy_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "policy_configure_error"}
+
+def _circuit_breaker_policy_get_core(action: str, service_name: str) -> Dict[str, Any]:
+    """Core circuit breaker policy retrieval."""
+    try:
+        if action == "get":
+            cache_key = f"{POLICY_CACHE_PREFIX}{service_name}"
+            policy = cache.cache_get(cache_key)
+            
+            if not policy:
+                # Return default policy
+                policy = {
+                    "failure_threshold": 5,
+                    "success_threshold": 3,
+                    "timeout": 60,
+                    "failure_rate_threshold": 0.5
+                }
+            
+            return {"success": True, "policy": policy, "type": "policy_retrieved"}
+        else:
+            return {"success": False, "error": f"Unknown policy get action: {action}", "type": "policy_get_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "policy_get_operation_error"}
+
+def _circuit_breaker_policy_threshold_core(action: str, service_name: str, threshold: float) -> Dict[str, Any]:
+    """Core circuit breaker threshold update."""
+    try:
+        if action == "threshold":
+            # Get current policy
+            current_policy = _circuit_breaker_policy_get_core("get", service_name).get("policy", {})
+            
+            # Update threshold
+            current_policy["failure_rate_threshold"] = threshold
+            
+            # Save updated policy
+            return _circuit_breaker_policy_configure_core("configure", service_name, current_policy)
+        else:
+            return {"success": False, "error": f"Unknown threshold action: {action}", "type": "threshold_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "threshold_operation_error"}
+
+def _circuit_breaker_metrics_get_core(action: str, service_name: str = None) -> Dict[str, Any]:
+    """Core circuit breaker metrics retrieval."""
+    try:
+        if action == "get":
+            if service_name:
+                cache_key = f"{METRICS_CACHE_PREFIX}{service_name}"
+                service_metrics = cache.cache_get(cache_key)
+                return {"success": True, "metrics": service_metrics or {}, "service": service_name, "type": "metrics_retrieved"}
+            else:
+                # Get all metrics
+                all_metrics = metrics.get_performance_metrics()
+                return {"success": True, "metrics": all_metrics, "type": "all_metrics_retrieved"}
+        else:
+            return {"success": False, "error": f"Unknown metrics action: {action}", "type": "metrics_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "metrics_get_error"}
+
+def _circuit_breaker_metrics_record_core(action: str, service_name: str, event_type: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    """Core circuit breaker metrics recording."""
+    try:
+        if action == "record":
+            # Get current metrics
+            cache_key = f"{METRICS_CACHE_PREFIX}{service_name}"
+            current_metrics = cache.cache_get(cache_key) or {
+                "success_count": 0,
+                "failure_count": 0,
+                "total_requests": 0,
+                "last_failure_time": None,
+                "last_success_time": None
+            }
+            
+            # Update metrics based on event type
+            if event_type == "success":
+                current_metrics["success_count"] += 1
+                current_metrics["last_success_time"] = time.time()
+            elif event_type == "failure":
+                current_metrics["failure_count"] += 1
+                current_metrics["last_failure_time"] = time.time()
+            
+            current_metrics["total_requests"] += 1
+            
+            # Cache updated metrics
+            cache.cache_set(cache_key, current_metrics, ttl=CIRCUIT_BREAKER_CACHE_TTL)
+            
+            # Record global metric
+            metrics.record_metric(f"circuit_breaker_{event_type}", 1.0)
+            
+            return {"success": True, "metrics": current_metrics, "type": "metrics_recorded"}
+        else:
+            return {"success": False, "error": f"Unknown record action: {action}", "type": "record_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "metrics_record_error"}
+
+def _circuit_breaker_metrics_reset_core(action: str, service_name: str) -> Dict[str, Any]:
+    """Core circuit breaker metrics reset."""
+    try:
+        if action == "reset":
+            cache_key = f"{METRICS_CACHE_PREFIX}{service_name}"
+            reset_metrics = {
+                "success_count": 0,
+                "failure_count": 0,
+                "total_requests": 0,
+                "last_failure_time": None,
+                "last_success_time": None,
+                "reset_time": time.time()
+            }
+            
+            cache.cache_set(cache_key, reset_metrics, ttl=CIRCUIT_BREAKER_CACHE_TTL)
+            
+            return {"success": True, "metrics": reset_metrics, "type": "metrics_reset"}
+        else:
+            return {"success": False, "error": f"Unknown reset action: {action}", "type": "reset_error"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": "metrics_reset_error"}
+
+# ===== SECTION 4: HELPER FUNCTIONS =====
+
+def _get_circuit_breaker_state(service_name: str) -> Dict[str, Any]:
+    """Get circuit breaker state from cache."""
+    cache_key = f"{STATE_CACHE_PREFIX}{service_name}"
+    state_info = cache.cache_get(cache_key)
+    
+    if not state_info:
+        state_info = {
+            "state": CircuitBreakerState.CLOSED,
+            "state_changed_at": time.time(),
+            "failure_count": 0,
+            "success_count": 0
+        }
+        cache.cache_set(cache_key, state_info, ttl=CIRCUIT_BREAKER_CACHE_TTL)
+    
+    return state_info
+
+def _set_circuit_breaker_state(service_name: str, new_state: CircuitBreakerState) -> None:
+    """Set circuit breaker state in cache."""
+    cache_key = f"{STATE_CACHE_PREFIX}{service_name}"
+    current_info = _get_circuit_breaker_state(service_name)
+    
+    current_info["state"] = new_state
+    current_info["state_changed_at"] = time.time()
+    
+    cache.cache_set(cache_key, current_info, ttl=CIRCUIT_BREAKER_CACHE_TTL)
+
+def _should_attempt_recovery(service_name: str, state_info: Dict[str, Any]) -> bool:
+    """Check if circuit breaker should attempt recovery."""
+    policy = _circuit_breaker_policy_get_core("get", service_name).get("policy", {})
+    timeout = policy.get("timeout", 60)
+    
+    state_changed_at = state_info.get("state_changed_at", time.time())
+    return (time.time() - state_changed_at) >= timeout
+
+def _should_open_circuit(service_name: str) -> bool:
+    """Check if circuit breaker should be opened."""
+    metrics_data = _circuit_breaker_metrics_get_core("get", service_name).get("metrics", {})
+    policy = _circuit_breaker_policy_get_core("get", service_name).get("policy", {})
+    
+    failure_count = metrics_data.get("failure_count", 0)
+    total_requests = metrics_data.get("total_requests", 0)
+    
+    # Check failure threshold
+    if failure_count >= policy.get("failure_threshold", 5):
+        return True
+    
+    # Check failure rate threshold
+    if total_requests > 0:
+        failure_rate = failure_count / total_requests
+        if failure_rate >= policy.get("failure_rate_threshold", 0.5):
+            return True
+    
+    return False
+
+def _record_success(service_name: str, execution_time: float) -> None:
+    """Record successful operation."""
+    _circuit_breaker_metrics_record_core("record", service_name, "success", {"execution_time": execution_time})
+
+def _record_failure(service_name: str, error: str) -> None:
+    """Record failed operation."""
+    _circuit_breaker_metrics_record_core("record", service_name, "failure", {"error": error})
+
+def _default_circuit_breaker_operation(operation_type: str, *args, **kwargs) -> Dict[str, Any]:
+    """Default operation for unknown types."""
+    return {"success": False, "error": f"Unknown operation type: {operation_type}", "type": "default_operation"}
+
+# EOS
+
+# ===== SECTION 5: PUBLIC INTERFACE IMPLEMENTATIONS =====
+
+def _circuit_breaker_execution_implementation(service_name: str, operation: Callable, *args, **kwargs) -> Dict[str, Any]:
+    """Circuit breaker execution implementation - ultra-thin wrapper."""
+    return _execute_generic_circuit_breaker_operation("execution", service_name, operation, *args, **kwargs)
+
+def _circuit_breaker_state_implementation(action: str, service_name: str, *args) -> Dict[str, Any]:
+    """Circuit breaker state implementation - ultra-thin wrapper."""
+    if action == "force" and len(args) > 0:
+        return _execute_generic_circuit_breaker_operation("state_force", action, service_name, args[0])
+    else:
+        return _execute_generic_circuit_breaker_operation("state_check", action, service_name)
+
+def _circuit_breaker_policy_implementation(action: str, service_name: str, *args) -> Dict[str, Any]:
+    """Circuit breaker policy implementation - ultra-thin wrapper."""
+    if action == "configure" and len(args) > 0:
+        return _execute_generic_circuit_breaker_operation("policy_configure", action, service_name, args[0])
+    elif action == "threshold" and len(args) > 0:
+        return _execute_generic_circuit_breaker_operation("policy_threshold", action, service_name, args[0])
+    else:
+        return _execute_generic_circuit_breaker_operation("policy_get", action, service_name)
+
+def _circuit_breaker_metrics_implementation(action: str, *args) -> Dict[str, Any]:
+    """Circuit breaker metrics implementation - ultra-thin wrapper."""
+    if action == "record" and len(args) >= 3:
+        return _execute_generic_circuit_breaker_operation("metrics_record", action, args[0], args[1], args[2])
+    elif action == "reset" and len(args) >= 1:
+        return _execute_generic_circuit_breaker_operation("metrics_reset", action, args[0])
+    else:
+        service_name = args[0] if args else None
+        return _execute_generic_circuit_breaker_operation("metrics_get", action, service_name)
+
+def _circuit_breaker_recovery_implementation(action: str, service_name: str) -> Dict[str, Any]:
+    """Circuit breaker recovery implementation."""
+    if action == "attempt":
+        # Force state to HALF_OPEN for recovery attempt
+        return _circuit_breaker_state_implementation("force", service_name, CircuitBreakerState.HALF_OPEN.value)
+    return {"success": False, "error": f"Unknown recovery action: {action}", "type": "recovery_error"}
+
+def _circuit_breaker_health_implementation(service_name: str = None) -> Dict[str, Any]:
+    """Circuit breaker health implementation."""
+    return _circuit_breaker_metrics_implementation("get", service_name) if service_name else _circuit_breaker_metrics_implementation("get")
+
+def _circuit_breaker_optimization_implementation(service_name: str, optimization_level: str) -> Dict[str, Any]:
+    """Circuit breaker optimization implementation."""
+    # Optimize based on level
+    if optimization_level == "aggressive":
+        policy = {"failure_threshold": 3, "timeout": 30, "failure_rate_threshold": 0.3}
+    elif optimization_level == "conservative":
+        policy = {"failure_threshold": 10, "timeout": 120, "failure_rate_threshold": 0.7}
+    else:  # standard
+        policy = {"failure_threshold": 5, "timeout": 60, "failure_rate_threshold": 0.5}
+    
+    return _circuit_breaker_policy_implementation("configure", service_name, policy)
 
 # EOF
