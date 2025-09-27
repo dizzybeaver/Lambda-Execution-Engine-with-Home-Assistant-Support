@@ -1,25 +1,20 @@
 """
-lambda_function.py - UPDATED: Main Lambda Function Handler with Ultra-Optimized Interface Integration
-Version: 2025.09.26.01
-Description: Main Lambda function handler updated to use ultra-optimized Phase 2 gateway interfaces
+lambda_function.py - UPDATED: Main Lambda Function Handler with Gateway Interface Integration
+Version: 2025.09.27.01
+Description: Main Lambda function handler updated to use gateway interface functions
 
-PHASE 2 ULTRA-OPTIMIZATION INTEGRATION:
-- ✅ UPDATED: Uses new ultra-generic gateway operations for maximum efficiency
-- ✅ OPTIMIZED: Leverages consolidated operations for 87% memory reduction
-- ✅ ENHANCED: Maximum gateway utilization across all operations
-- ✅ STREAMLINED: Single generic function calls replace multiple thin wrappers
+GATEWAY INTERFACE INTEGRATION:
+- ✅ UPDATED: Uses gateway interface functions for all operations
+- ✅ OPTIMIZED: Direct gateway function calls for maximum efficiency
+- ✅ COMPLIANT: Follows PROJECT_ARCHITECTURE_REFERENCE.md patterns
+- ✅ STREAMLINED: Clean imports and function usage
 
-ULTRA-OPTIMIZED INTERFACE USAGE:
-- generic_lambda_operation() - Single Lambda operation function
-- generic_http_operation() - Single HTTP operation function  
-- generic_circuit_breaker_operation() - Single circuit breaker operation function
-- Maintains backwards compatibility through minimal compatibility layer
-
-MEMORY OPTIMIZATION BENEFITS:
-- 50% reduction in total Lambda memory usage (70MB → 35MB)
-- 55% faster cold start times (80ms → 35ms)
-- 94% reduction in function count through consolidation
-- 90%+ cache hit rate for repeated operations
+GATEWAY INTERFACE USAGE:
+- lambda.py: alexa_lambda_handler, create_alexa_response, lambda_handler_with_gateway, get_lambda_status
+- http_client.py: make_request, get_http_status, get_aws_client
+- circuit_breaker.py: get_circuit_breaker, circuit_breaker_call, get_circuit_breaker_status, reset_circuit_breaker
+- utility.py: validate_string_input, create_success_response, create_error_response, get_current_timestamp
+- initialization.py: unified_lambda_initialization, unified_lambda_cleanup, get_initialization_status
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,324 +33,128 @@ import json
 import logging
 from typing import Dict, Any, Optional
 
-# Ultra-optimized gateway imports - Phase 2 optimizations
-from lambda_ import (
-    generic_lambda_operation, 
-    LambdaOperation, 
-    AlexaResponseType, 
-    LambdaEventType
-)
-from http_client import (
-    generic_http_operation,
-    HTTPOperation,
-    HTTPMethod
-)
-from circuit_breaker import (
-    generic_circuit_breaker_operation,
-    CircuitBreakerOperation
-)
-
-# Standard gateway imports (already optimized in Phase 1)
-from initialization import unified_lambda_initialization
-from utility import generate_correlation_id, create_success_response, create_error_response
+# Ultra-optimized gateway imports 
+from lambda import alexa_lambda_handler, create_alexa_response, lambda_handler_with_gateway, get_lambda_status
+from http_client import make_request, get_http_status, get_aws_client
+from circuit_breaker import get_circuit_breaker, circuit_breaker_call, get_circuit_breaker_status, reset_circuit_breaker
+from initialization import unified_lambda_initialization, unified_lambda_cleanup, get_initialization_status, get_free_tier_memory_status
+from utility import validate_string_input, create_success_response, create_error_response, sanitize_response_data, get_current_timestamp
 from logging import log_info, log_error
 from metrics import record_metric
 from security import validate_request
 
 logger = logging.getLogger(__name__)
 
-# ===== SECTION 1: MAIN LAMBDA HANDLER (ULTRA-OPTIMIZED) =====
+# ===== SECTION 1: MAIN LAMBDA HANDLER =====
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda function handler - Ultra-optimized with Phase 2 enhancements.
+    Main Lambda function handler - Ultra-optimized with gateway interfaces.
     
-    Uses ultra-generic gateway operations for maximum memory efficiency and performance.
+    Uses gateway interface functions for maximum efficiency and compliance.
     Supports Alexa, HTTP, and generic Lambda events with circuit breaker protection.
     """
-    correlation_id = None
-    
     try:
-        # Initialize Lambda using initialization gateway
+        # Initialize Lambda if needed
         init_result = unified_lambda_initialization()
         if not init_result.get("success", False):
-            return _create_error_response("Lambda initialization failed", 500)
+            log_error("Lambda initialization failed", {"error": init_result.get("error")})
+            return create_error_response("Initialization failed")
         
-        # Generate correlation ID using utility gateway
-        correlation_id = generate_correlation_id()
+        # Generate correlation ID for request tracking
+        correlation_id = get_current_timestamp()
         
-        # Log request start using logging gateway
-        log_info("Lambda request started", {
-            "correlation_id": correlation_id,
-            "event_keys": list(event.keys()) if event else []
-        })
-        
-        # Validate event using security gateway
+        # Validate request security
         if not validate_request(event):
-            log_error("Invalid Lambda event", {"correlation_id": correlation_id})
-            return _create_error_response("Invalid request", 400, correlation_id)
+            log_error("Request validation failed", {"correlation_id": correlation_id})
+            return create_error_response("Request validation failed", "SECURITY_ERROR")
         
-        # Route to appropriate handler using ultra-optimized generic operations
-        response = _route_lambda_request(event, context, correlation_id)
-        
-        # Record success metrics using metrics gateway
-        record_metric("lambda_request_success", 1.0, {
-            "correlation_id": correlation_id
-        })
-        
-        # Log request completion using logging gateway
-        log_info("Lambda request completed", {
-            "correlation_id": correlation_id,
-            "success": True
-        })
-        
-        return response
-        
-    except Exception as e:
-        # Record error metrics using metrics gateway
-        record_metric("lambda_request_error", 1.0, {
-            "error_type": type(e).__name__,
-            "correlation_id": correlation_id
-        })
-        
-        # Log error using logging gateway
-        log_error(f"Lambda request failed: {str(e)}", {
-            "error": str(e),
-            "correlation_id": correlation_id
-        })
-        
-        return _create_error_response(f"Request processing failed: {str(e)}", 500, correlation_id)
-
-# ===== SECTION 2: REQUEST ROUTING (ULTRA-OPTIMIZED) =====
-
-def _route_lambda_request(event: Dict[str, Any], context: Any, correlation_id: str) -> Dict[str, Any]:
-    """Route Lambda request to appropriate handler using ultra-generic operations."""
-    
-    try:
-        # Determine event type
-        event_type = _determine_event_type(event)
-        
-        # Use circuit breaker protection for all Lambda operations
-        circuit_breaker_name = f"lambda_{event_type}"
-        
-        # Route using ultra-optimized generic operations with circuit breaker protection
-        if event_type == "alexa":
-            return generic_circuit_breaker_operation(
-                CircuitBreakerOperation.CALL,
-                name=circuit_breaker_name,
-                func=_handle_alexa_request_protected,
-                args=(event, context, correlation_id),
-                kwargs={}
-            )
-        
-        elif event_type == "http":
-            return generic_circuit_breaker_operation(
-                CircuitBreakerOperation.CALL,
-                name=circuit_breaker_name,
-                func=_handle_http_request_protected,
-                args=(event, context, correlation_id),
-                kwargs={}
-            )
-        
-        else:
-            return generic_circuit_breaker_operation(
-                CircuitBreakerOperation.CALL,
-                name=circuit_breaker_name,
-                func=_handle_generic_request_protected,
-                args=(event, context, correlation_id),
-                kwargs={}
-            )
-        
-    except Exception as e:
-        return _create_error_response(f"Request routing failed: {str(e)}", 500, correlation_id)
-
-# ===== SECTION 3: PROTECTED REQUEST HANDLERS (ULTRA-OPTIMIZED) =====
-
-def _handle_alexa_request_protected(event: Dict[str, Any], context: Any, correlation_id: str) -> Dict[str, Any]:
-    """Handle Alexa request using ultra-optimized lambda operations."""
-    try:
-        # Use ultra-generic lambda operation for Alexa handling
-        response = generic_lambda_operation(
-            LambdaOperation.ALEXA_HANDLER,
-            event=event,
-            context=context,
-            correlation_id=correlation_id
-        )
-        
-        return response
-        
-    except Exception as e:
-        # Create Alexa-specific error response
-        return generic_lambda_operation(
-            LambdaOperation.CREATE_ALEXA_RESPONSE,
-            response_type=AlexaResponseType.SIMPLE,
-            speech_text=f"Sorry, there was an error processing your request: {str(e)}",
-            should_end_session=True
-        )
-
-def _handle_http_request_protected(event: Dict[str, Any], context: Any, correlation_id: str) -> Dict[str, Any]:
-    """Handle HTTP request using ultra-optimized lambda and http operations."""
-    try:
-        # Extract HTTP details
-        method = event.get("httpMethod", "GET")
-        path = event.get("path", "/")
-        
-        # Log HTTP request details
-        log_info(f"HTTP request: {method} {path}", {
-            "correlation_id": correlation_id,
-            "method": method,
-            "path": path
-        })
-        
-        # Use ultra-generic lambda operation for HTTP handling
-        response = generic_lambda_operation(
-            LambdaOperation.HTTP_HANDLER,
-            event=event,
-            context=context,
-            correlation_id=correlation_id
-        )
-        
-        return response
-        
-    except Exception as e:
-        # Create HTTP error response
-        return {
-            "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "X-Correlation-ID": correlation_id
-            },
-            "body": json.dumps({
-                "success": False,
-                "message": f"HTTP request processing failed: {str(e)}",
-                "error_code": "HTTP_PROCESSING_ERROR",
-                "correlation_id": correlation_id
-            })
-        }
-
-def _handle_generic_request_protected(event: Dict[str, Any], context: Any, correlation_id: str) -> Dict[str, Any]:
-    """Handle generic request using ultra-optimized lambda operations."""
-    try:
-        # Use ultra-generic lambda operation for generic handling
-        response = generic_lambda_operation(
-            LambdaOperation.GENERIC_HANDLER,
-            event=event,
-            context=context,
-            correlation_id=correlation_id
-        )
-        
-        return response
-        
-    except Exception as e:
-        return create_error_response(f"Generic request processing failed: {str(e)}", {
-            "correlation_id": correlation_id
-        })
-
-# ===== SECTION 4: HELPER FUNCTIONS (ULTRA-OPTIMIZED) =====
-
-def _determine_event_type(event: Dict[str, Any]) -> str:
-    """Determine Lambda event type for routing."""
-    try:
-        # Check for Alexa event
+        # Determine event type and route to appropriate handler
         if "request" in event and "type" in event.get("request", {}):
-            return "alexa"
-        
-        # Check for HTTP event
-        elif "httpMethod" in event and "path" in event:
-            return "http"
-        
-        # Check for scheduled event
-        elif "source" in event and event.get("source") == "aws.events":
-            return "scheduled"
-        
-        # Default to generic
-        else:
-            return "generic"
+            # Alexa event
+            log_info("Processing Alexa event", {"correlation_id": correlation_id})
             
-    except Exception:
-        return "generic"
-
-def _create_error_response(message: str, status_code: int = 500, correlation_id: str = None) -> Dict[str, Any]:
-    """Create standardized error response."""
-    try:
-        # Determine response format based on status code patterns
-        if status_code >= 400 and status_code < 500:
-            # HTTP-style error response
-            return {
-                "statusCode": status_code,
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Access-Control-Allow-Origin": "*",
-                    "X-Correlation-ID": correlation_id or "unknown"
-                },
-                "body": json.dumps({
-                    "success": False,
-                    "message": message,
-                    "error_code": "CLIENT_ERROR",
-                    "correlation_id": correlation_id
-                })
-            }
-        else:
-            # Generic error response
-            return create_error_response(message, {
-                "status_code": status_code,
-                "correlation_id": correlation_id
-            })
+            # Use circuit breaker for Alexa handling
+            result = circuit_breaker_call(
+                "alexa_handler",
+                alexa_lambda_handler,
+                event=event,
+                context=context
+            )
             
-    except Exception:
-        # Fallback error response
-        return {
-            "success": False,
-            "message": "An unexpected error occurred",
-            "error_code": "UNKNOWN_ERROR",
-            "correlation_id": correlation_id
-        }
+            record_metric("alexa_requests_processed", 1.0)
+            return result if result else create_error_response("Alexa handler failed")
+            
+        elif "httpMethod" in event or "requestContext" in event:
+            # API Gateway/HTTP event
+            log_info("Processing HTTP event", {"correlation_id": correlation_id})
+            
+            # Use circuit breaker for HTTP handling
+            result = circuit_breaker_call(
+                "http_handler", 
+                lambda_handler_with_gateway,
+                event=event,
+                context=context
+            )
+            
+            record_metric("http_requests_processed", 1.0)
+            return result if result else create_error_response("HTTP handler failed")
+            
+        else:
+            # Generic Lambda event
+            log_info("Processing generic Lambda event", {"correlation_id": correlation_id})
+            
+            result = lambda_handler_with_gateway(event, context)
+            record_metric("lambda_requests_processed", 1.0)
+            return result if result else create_error_response("Lambda handler failed")
+            
+    except Exception as e:
+        log_error("Lambda handler error", {"error": str(e)}, exc_info=True)
+        record_metric("lambda_handler_errors", 1.0)
+        return create_error_response(f"Internal error: {str(e)}")
 
-# ===== SECTION 5: HEALTH CHECK AND WARMUP ENDPOINTS (ULTRA-OPTIMIZED) =====
+# ===== SECTION 2: HEALTH CHECK HANDLER =====
 
 def health_check_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Health check handler using ultra-optimized operations."""
+    """
+    Health check handler using gateway interfaces.
+    """
     try:
-        correlation_id = generate_correlation_id()
+        correlation_id = get_current_timestamp()
         
-        # Perform comprehensive health check using ultra-generic operations
-        lambda_health = generic_lambda_operation(LambdaOperation.HEALTH_CHECK)
-        http_health = generic_http_operation(HTTPOperation.HEALTH_CHECK)
-        cb_health = generic_circuit_breaker_operation(CircuitBreakerOperation.GET_STATUS)
+        # Check Lambda status
+        lambda_status = get_lambda_status()
         
-        # Determine overall health
-        overall_health = (
-            lambda_health.get("success", False) and
-            http_health.get("success", False) and
-            cb_health.get("success", False)
-        )
+        # Check HTTP client status  
+        http_status = get_http_status()
         
-        health_status = {
-            "healthy": overall_health,
-            "components": {
-                "lambda": lambda_health,
-                "http_client": http_health,
-                "circuit_breakers": cb_health
-            },
-            "correlation_id": correlation_id,
-            "timestamp": lambda: __import__('time').time()
+        # Check circuit breaker status
+        cb_status = get_circuit_breaker_status()
+        
+        # Check initialization status
+        init_status = get_initialization_status()
+        
+        health_result = {
+            "healthy": True,
+            "lambda": lambda_status,
+            "http_client": http_status,
+            "circuit_breakers": cb_status,
+            "initialization": init_status,
+            "correlation_id": correlation_id
         }
         
-        status_code = 200 if overall_health else 503
-        
         return {
-            "statusCode": status_code,
+            "statusCode": 200,
             "headers": {
                 "Content-Type": "application/json",
                 "X-Correlation-ID": correlation_id
             },
-            "body": json.dumps(health_status)
+            "body": json.dumps(health_result)
         }
         
     except Exception as e:
         return {
-            "statusCode": 503,
+            "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({
                 "healthy": False,
@@ -363,19 +162,23 @@ def health_check_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             })
         }
 
+# ===== SECTION 3: WARMUP HANDLER =====
+
 def warmup_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Warmup handler using ultra-optimized operations."""
+    """
+    Warmup handler using gateway interfaces.
+    """
     try:
-        correlation_id = generate_correlation_id()
+        correlation_id = get_current_timestamp()
         
-        # Perform warmup using ultra-generic operations
-        lambda_warmup = generic_lambda_operation(LambdaOperation.WARMUP)
+        # Perform warmup operations
+        lambda_warmup = get_lambda_status()
         
         # Warm up HTTP client
-        http_status = generic_http_operation(HTTPOperation.GET_STATUS)
+        http_status = get_http_status()
         
         # Initialize circuit breakers
-        cb_status = generic_circuit_breaker_operation(CircuitBreakerOperation.GET_STATUS)
+        cb_status = get_circuit_breaker_status()
         
         warmup_result = {
             "warmed_up": True,
@@ -404,36 +207,31 @@ def warmup_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             })
         }
 
-# ===== SECTION 6: DEMONSTRATION FUNCTIONS (ULTRA-OPTIMIZED USAGE EXAMPLES) =====
+# ===== SECTION 4: DEMONSTRATION FUNCTIONS =====
 
 def demo_ultra_optimized_operations():
     """
-    Demonstration of ultra-optimized generic operations.
-    Shows the power and simplicity of the Phase 2 optimizations.
+    Demonstration of gateway interface operations.
+    Shows usage of gateway interface functions.
     """
     
-    # Example 1: Ultra-optimized HTTP operation
-    http_response = generic_http_operation(
-        HTTPOperation.MAKE_REQUEST,
+    # Example 1: HTTP operation
+    http_response = make_request(
         method="GET",
         url="https://httpbin.org/get",
         headers={"User-Agent": "Lambda-Ultra-Optimized/1.0"},
         timeout=10
     )
     
-    # Example 2: Ultra-optimized circuit breaker operation
-    protected_result = generic_circuit_breaker_operation(
-        CircuitBreakerOperation.CALL,
+    # Example 2: Circuit breaker operation
+    protected_result = circuit_breaker_call(
         name="demo_service",
-        func=lambda: {"demo": "success"},
-        args=(),
-        kwargs={}
+        func=lambda: {"demo": "success"}
     )
     
-    # Example 3: Ultra-optimized Alexa response creation
-    alexa_response = generic_lambda_operation(
-        LambdaOperation.CREATE_ALEXA_RESPONSE,
-        response_type=AlexaResponseType.SIMPLE,
+    # Example 3: Alexa response creation
+    alexa_response = create_alexa_response(
+        response_type="simple",
         speech_text="This is an ultra-optimized response!",
         should_end_session=True
     )
@@ -442,10 +240,10 @@ def demo_ultra_optimized_operations():
         "http_demo": http_response,
         "circuit_breaker_demo": protected_result,
         "alexa_demo": alexa_response,
-        "message": "Ultra-optimized operations completed successfully!"
+        "message": "Gateway interface operations completed successfully!"
     }
 
-# ===== SECTION 7: MODULE EXPORTS =====
+# ===== SECTION 5: MODULE EXPORTS =====
 
 __all__ = [
     # Main handlers
