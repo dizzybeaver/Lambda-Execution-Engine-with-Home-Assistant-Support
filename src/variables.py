@@ -469,39 +469,45 @@ def validate_phase2_memory_constraints(cache_tier: ConfigurationTier = Configura
 
 def validate_override_combination(base_tier: ConfigurationTier, 
                                 overrides: Dict[InterfaceType, ConfigurationTier]) -> Dict[str, Any]:
-    """Enhanced validation with Phase 2 interface constraint checking."""
+    """Enhanced validation with Phase 2+3 interface constraint checking."""
     
     # Get effective tiers for each interface
     cache_tier = overrides.get(InterfaceType.CACHE, base_tier)
     logging_tier = overrides.get(InterfaceType.LOGGING, base_tier)
     metrics_tier = overrides.get(InterfaceType.METRICS, base_tier)
     security_tier = overrides.get(InterfaceType.SECURITY, base_tier)
+    circuit_breaker_tier = overrides.get(InterfaceType.CIRCUIT_BREAKER, base_tier)
+    singleton_tier = overrides.get(InterfaceType.SINGLETON, base_tier)
     
-    # Validate Phase 2 constraints
-    phase2_validation = validate_phase2_memory_constraints(cache_tier, logging_tier, metrics_tier, security_tier)
+    # Validate Phase 2+3 constraints
+    phase3_validation = validate_phase3_memory_constraints(
+        circuit_breaker_tier, singleton_tier, cache_tier, logging_tier, metrics_tier, security_tier
+    )
     
     # Calculate comprehensive resource estimates
-    total_memory = phase2_validation["memory_usage"]["system_total_mb"]
-    total_metrics = phase2_validation["metrics_usage"]["metrics_used"]
+    total_memory = phase3_validation["memory_usage"]["system_total_mb"]
+    total_metrics = phase3_validation["metrics_usage"]["metrics_used"]
     
     validation_result = {
-        "is_valid": phase2_validation["is_valid"],
+        "is_valid": phase3_validation["is_valid"],
         "memory_estimate": total_memory,
         "metric_estimate": total_metrics,
         "interface_breakdown": {
-            "cache": {"tier": cache_tier.value, "memory_mb": phase2_validation["memory_usage"]["cache_mb"]},
-            "logging": {"tier": logging_tier.value, "memory_mb": phase2_validation["memory_usage"]["logging_mb"]},
-            "metrics": {"tier": metrics_tier.value, "memory_mb": phase2_validation["memory_usage"]["metrics_mb"]},
-            "security": {"tier": security_tier.value, "memory_mb": phase2_validation["memory_usage"]["security_mb"]}
+            "cache": {"tier": cache_tier.value, "memory_mb": phase3_validation["memory_usage"]["cache_mb"]},
+            "logging": {"tier": logging_tier.value, "memory_mb": phase3_validation["memory_usage"]["logging_mb"]},
+            "metrics": {"tier": metrics_tier.value, "memory_mb": phase3_validation["memory_usage"]["metrics_mb"]},
+            "security": {"tier": security_tier.value, "memory_mb": phase3_validation["memory_usage"]["security_mb"]},
+            "circuit_breaker": {"tier": circuit_breaker_tier.value, "memory_mb": phase3_validation["memory_usage"]["circuit_breaker_mb"]},
+            "singleton": {"tier": singleton_tier.value, "memory_mb": phase3_validation["memory_usage"]["singleton_mb"]}
         },
-        "warnings": phase2_validation["warnings"],
+        "warnings": phase3_validation["warnings"],
         "recommendations": []
     }
     
     # Add intelligent recommendations
-    if not phase2_validation["is_valid"]:
+    if not phase3_validation["is_valid"]:
         if total_memory > 128:
-            validation_result["recommendations"].append("Consider reducing cache or security tiers to lower memory usage")
+            validation_result["recommendations"].append("Consider reducing singleton or circuit breaker tiers to lower memory usage")
         if total_metrics > 10:
             validation_result["recommendations"].append("Reduce metrics tier or enable metric rotation")
     
@@ -602,14 +608,49 @@ CONFIGURATION_PRESETS = {
         "metric_estimate": 10
     },
     
-    "security_hardened": {
+    "circuit_breaker_optimized": {
         "base_tier": ConfigurationTier.MINIMUM,
         "overrides": {
-            InterfaceType.SECURITY: ConfigurationTier.MAXIMUM,
+            InterfaceType.CIRCUIT_BREAKER: ConfigurationTier.MAXIMUM,
+            InterfaceType.CACHE: ConfigurationTier.STANDARD,
         },
-        "description": "Maximum security validation with minimal resource usage",
-        "memory_estimate": 28,
-        "metric_estimate": 4
+        "description": "Advanced circuit breaker protection with standard caching",
+        "memory_estimate": 36,
+        "metric_estimate": 5
+    },
+    
+    "singleton_managed": {
+        "base_tier": ConfigurationTier.MINIMUM,
+        "overrides": {
+            InterfaceType.SINGLETON: ConfigurationTier.MAXIMUM,
+            InterfaceType.SECURITY: ConfigurationTier.STANDARD,
+        },
+        "description": "Advanced singleton coordination with standard security",
+        "memory_estimate": 42,
+        "metric_estimate": 5
+    },
+    
+    "specialized_optimized": {
+        "base_tier": ConfigurationTier.STANDARD,
+        "overrides": {
+            InterfaceType.CIRCUIT_BREAKER: ConfigurationTier.MAXIMUM,
+            InterfaceType.SINGLETON: ConfigurationTier.MAXIMUM,
+        },
+        "description": "Maximum specialized interface performance",
+        "memory_estimate": 72,
+        "metric_estimate": 7
+    },
+    
+    "reliability_focused": {
+        "base_tier": ConfigurationTier.MINIMUM,
+        "overrides": {
+            InterfaceType.CIRCUIT_BREAKER: ConfigurationTier.MAXIMUM,
+            InterfaceType.SECURITY: ConfigurationTier.MAXIMUM,
+            InterfaceType.LOGGING: ConfigurationTier.STANDARD,
+        },
+        "description": "Maximum reliability and security with circuit breaker protection",
+        "memory_estimate": 52,
+        "metric_estimate": 6
     }
 }
 
@@ -630,31 +671,33 @@ def apply_configuration_overrides(base_tier: ConfigurationTier,
                                 overrides: Dict[InterfaceType, ConfigurationTier]) -> Dict[str, Any]:
     """
     Apply interface-specific overrides to base tier configuration.
-    Enhanced for Phase 2 primary interfaces.
+    Enhanced for Phase 2+3 interfaces.
     """
     configuration = {}
     
-    # Apply Cache configuration
+    # Apply Phase 2 configurations
     cache_tier = overrides.get(InterfaceType.CACHE, base_tier)
     configuration["cache"] = get_cache_configuration(cache_tier)
     
-    # Apply Logging configuration  
     logging_tier = overrides.get(InterfaceType.LOGGING, base_tier)
     configuration["logging"] = get_logging_configuration(logging_tier)
     
-    # Apply Metrics configuration
     metrics_tier = overrides.get(InterfaceType.METRICS, base_tier)
     configuration["metrics"] = get_metrics_configuration(metrics_tier)
     
-    # Apply Security configuration
     security_tier = overrides.get(InterfaceType.SECURITY, base_tier)
     configuration["security"] = get_security_configuration(security_tier)
+    
+    # Apply Phase 3 configurations
+    circuit_breaker_tier = overrides.get(InterfaceType.CIRCUIT_BREAKER, base_tier)
+    configuration["circuit_breaker"] = get_circuit_breaker_configuration(circuit_breaker_tier)
+    
+    singleton_tier = overrides.get(InterfaceType.SINGLETON, base_tier)
+    configuration["singleton"] = get_singleton_configuration(singleton_tier)
     
     # Placeholder for future phases - these will be implemented in subsequent phases
     placeholder_config = {"tier": base_tier.value, "status": "placeholder"}
     
-    configuration["circuit_breaker"] = placeholder_config
-    configuration["singleton"] = placeholder_config  
     configuration["lambda"] = placeholder_config
     configuration["http_client"] = placeholder_config
     configuration["utility"] = placeholder_config
@@ -690,9 +733,9 @@ def get_full_system_configuration(base_tier: ConfigurationTier,
         "memory_estimate": validation.get("memory_estimate", 0),
         "metric_estimate": validation.get("metric_estimate", 0),
         "generated_at": "runtime",
-        "phase2_status": "implemented",
-        "interfaces_implemented": ["cache", "logging", "metrics", "security"],
-        "interfaces_pending": ["circuit_breaker", "singleton", "lambda", "http_client", "utility", "initialization"]
+        "phase3_status": "implemented",
+        "interfaces_implemented": ["cache", "logging", "metrics", "security", "circuit_breaker", "singleton"],
+        "interfaces_pending": ["lambda", "http_client", "utility", "initialization"]
     }
     
     return final_config
@@ -702,13 +745,15 @@ def get_full_system_configuration(base_tier: ConfigurationTier,
 def get_interface_configuration(interface: InterfaceType, tier: ConfigurationTier) -> Dict[str, Any]:
     """
     Get configuration for a specific interface at specified tier.
-    Enhanced for Phase 2 primary interfaces.
+    Enhanced for Phase 2+3 interfaces.
     """
     interface_getters = {
         InterfaceType.CACHE: get_cache_configuration,
         InterfaceType.LOGGING: get_logging_configuration,
         InterfaceType.METRICS: get_metrics_configuration,
-        InterfaceType.SECURITY: get_security_configuration
+        InterfaceType.SECURITY: get_security_configuration,
+        InterfaceType.CIRCUIT_BREAKER: get_circuit_breaker_configuration,
+        InterfaceType.SINGLETON: get_singleton_configuration
     }
     
     getter = interface_getters.get(interface)
@@ -787,4 +832,378 @@ def recommend_configuration_for_memory_limit(target_memory_mb: int) -> Dict[str,
         "total_combinations_evaluated": len(recommendations)
     }
 
-# ===== END OF PHASE 2 IMPLEMENTATION =====
+# ===== PHASE 3: SPECIALIZED INTERFACE CONFIGURATIONS =====
+
+# Circuit Breaker Interface Configuration - Service-specific policies and failure pattern recognition
+CIRCUIT_BREAKER_INTERFACE_CONFIG = {
+    ConfigurationTier.MINIMUM: {
+        # Survival mode - basic circuit breaker protection
+        "circuit_breaker_policies": {
+            "cloudwatch_api": {
+                "failure_threshold": 5,
+                "recovery_timeout": 60,
+                "half_open_max_calls": 1,
+                "timeout": 10
+            },
+            "home_assistant_devices": {
+                "failure_threshold": 3,
+                "recovery_timeout": 30,
+                "half_open_max_calls": 1,
+                "timeout": 5
+            },
+            "external_http": {
+                "failure_threshold": 3,
+                "recovery_timeout": 30,
+                "half_open_max_calls": 1,
+                "timeout": 10
+            }
+        },
+        "failure_detection": {
+            "pattern_recognition_enabled": False,
+            "cascade_prevention_enabled": False,
+            "intelligent_recovery_enabled": False,
+            "failure_pattern_analysis": "basic"
+        },
+        "resource_allocation": {
+            "circuit_breaker_memory_mb": 1,
+            "failure_tracking_memory_mb": 0.5,
+            "total_circuit_breaker_memory_mb": 1.5
+        }
+    },
+    
+    ConfigurationTier.STANDARD: {
+        # Production balance - smart circuit breaker policies
+        "circuit_breaker_policies": {
+            "cloudwatch_api": {
+                "failure_threshold": 3,
+                "recovery_timeout": 45,
+                "half_open_max_calls": 2,
+                "timeout": 15,
+                "slow_call_threshold": 10
+            },
+            "home_assistant_devices": {
+                "failure_threshold": 2,
+                "recovery_timeout": 20,
+                "half_open_max_calls": 2,
+                "timeout": 8,
+                "slow_call_threshold": 5
+            },
+            "external_http": {
+                "failure_threshold": 2,
+                "recovery_timeout": 25,
+                "half_open_max_calls": 2,
+                "timeout": 12,
+                "slow_call_threshold": 8
+            }
+        },
+        "failure_detection": {
+            "pattern_recognition_enabled": True,
+            "cascade_prevention_enabled": True,
+            "intelligent_recovery_enabled": True,
+            "failure_pattern_analysis": "standard",
+            "rolling_window_size": 100
+        },
+        "resource_allocation": {
+            "circuit_breaker_memory_mb": 3,
+            "failure_tracking_memory_mb": 2,
+            "pattern_analysis_memory_mb": 1,
+            "total_circuit_breaker_memory_mb": 6
+        }
+    },
+    
+    ConfigurationTier.MAXIMUM: {
+        # Performance mode - advanced circuit breaker intelligence
+        "circuit_breaker_policies": {
+            "cloudwatch_api": {
+                "failure_threshold": 2,
+                "recovery_timeout": 30,
+                "half_open_max_calls": 3,
+                "timeout": 20,
+                "slow_call_threshold": 15,
+                "adaptive_timeout_enabled": True
+            },
+            "home_assistant_devices": {
+                "failure_threshold": 1,
+                "recovery_timeout": 15,
+                "half_open_max_calls": 3,
+                "timeout": 10,
+                "slow_call_threshold": 3,
+                "adaptive_timeout_enabled": True
+            },
+            "external_http": {
+                "failure_threshold": 1,
+                "recovery_timeout": 20,
+                "half_open_max_calls": 3,
+                "timeout": 15,
+                "slow_call_threshold": 5,
+                "adaptive_timeout_enabled": True
+            }
+        },
+        "failure_detection": {
+            "pattern_recognition_enabled": True,
+            "cascade_prevention_enabled": True,
+            "intelligent_recovery_enabled": True,
+            "failure_pattern_analysis": "advanced",
+            "rolling_window_size": 500,
+            "ml_pattern_detection_enabled": True,
+            "predictive_circuit_breaking_enabled": True
+        },
+        "resource_allocation": {
+            "circuit_breaker_memory_mb": 8,
+            "failure_tracking_memory_mb": 6,
+            "pattern_analysis_memory_mb": 4,
+            "ml_detection_memory_mb": 3,
+            "total_circuit_breaker_memory_mb": 21
+        }
+    }
+}
+
+# Singleton Interface Configuration - Memory coordination and lifecycle management
+SINGLETON_INTERFACE_CONFIG = {
+    ConfigurationTier.MINIMUM: {
+        # Survival mode - essential singletons only
+        "singleton_registry": {
+            "max_singletons": 5,
+            "memory_pressure_threshold": 0.95,
+            "cleanup_interval": 60,
+            "emergency_cleanup_enabled": True
+        },
+        "singleton_types": {
+            "cache_manager": {
+                "memory_allocation_mb": 1,
+                "priority": "critical",
+                "cleanup_strategy": "maintain"
+            },
+            "security_validator": {
+                "memory_allocation_mb": 0.5,
+                "priority": "critical", 
+                "cleanup_strategy": "maintain"
+            },
+            "config_manager": {
+                "memory_allocation_mb": 0.3,
+                "priority": "high",
+                "cleanup_strategy": "reduce"
+            }
+        },
+        "memory_coordination": {
+            "pressure_response_enabled": True,
+            "voluntary_reduction_enabled": False,
+            "suspension_enabled": False,
+            "coordinated_cleanup_enabled": True
+        },
+        "resource_allocation": {
+            "singleton_registry_memory_mb": 0.5,
+            "coordination_memory_mb": 0.2,
+            "total_singleton_overhead_mb": 0.7
+        }
+    },
+    
+    ConfigurationTier.STANDARD: {
+        # Production balance - managed singleton coordination
+        "singleton_registry": {
+            "max_singletons": 10,
+            "memory_pressure_threshold": 0.85,
+            "cleanup_interval": 120,
+            "emergency_cleanup_enabled": True,
+            "proactive_management_enabled": True
+        },
+        "singleton_types": {
+            "cache_manager": {
+                "memory_allocation_mb": 2,
+                "priority": "critical",
+                "cleanup_strategy": "maintain"
+            },
+            "security_validator": {
+                "memory_allocation_mb": 1,
+                "priority": "critical",
+                "cleanup_strategy": "maintain"
+            },
+            "config_manager": {
+                "memory_allocation_mb": 0.5,
+                "priority": "high",
+                "cleanup_strategy": "reduce"
+            },
+            "response_processor": {
+                "memory_allocation_mb": 1.5,
+                "priority": "high",
+                "cleanup_strategy": "reduce"
+            },
+            "lambda_optimizer": {
+                "memory_allocation_mb": 1,
+                "priority": "medium",
+                "cleanup_strategy": "suspend"
+            }
+        },
+        "memory_coordination": {
+            "pressure_response_enabled": True,
+            "voluntary_reduction_enabled": True,
+            "suspension_enabled": True,
+            "coordinated_cleanup_enabled": True,
+            "priority_based_management": True
+        },
+        "resource_allocation": {
+            "singleton_registry_memory_mb": 1,
+            "coordination_memory_mb": 1,
+            "management_overhead_mb": 0.5,
+            "total_singleton_overhead_mb": 2.5
+        }
+    },
+    
+    ConfigurationTier.MAXIMUM: {
+        # Performance mode - advanced singleton orchestration
+        "singleton_registry": {
+            "max_singletons": 15,
+            "memory_pressure_threshold": 0.75,
+            "cleanup_interval": 300,
+            "emergency_cleanup_enabled": True,
+            "proactive_management_enabled": True,
+            "predictive_coordination_enabled": True
+        },
+        "singleton_types": {
+            "cache_manager": {
+                "memory_allocation_mb": 4,
+                "priority": "critical",
+                "cleanup_strategy": "maintain"
+            },
+            "security_validator": {
+                "memory_allocation_mb": 2,
+                "priority": "critical",
+                "cleanup_strategy": "maintain"
+            },
+            "config_manager": {
+                "memory_allocation_mb": 1,
+                "priority": "high",
+                "cleanup_strategy": "reduce"
+            },
+            "response_processor": {
+                "memory_allocation_mb": 3,
+                "priority": "high",
+                "cleanup_strategy": "reduce"
+            },
+            "lambda_optimizer": {
+                "memory_allocation_mb": 2,
+                "priority": "medium",
+                "cleanup_strategy": "suspend"
+            },
+            "memory_manager": {
+                "memory_allocation_mb": 2,
+                "priority": "medium",
+                "cleanup_strategy": "suspend"
+            },
+            "metrics_manager": {
+                "memory_allocation_mb": 1.5,
+                "priority": "low",
+                "cleanup_strategy": "suspend"
+            }
+        },
+        "memory_coordination": {
+            "pressure_response_enabled": True,
+            "voluntary_reduction_enabled": True,
+            "suspension_enabled": True,
+            "coordinated_cleanup_enabled": True,
+            "priority_based_management": True,
+            "predictive_memory_management": True,
+            "dynamic_allocation_enabled": True
+        },
+        "resource_allocation": {
+            "singleton_registry_memory_mb": 2,
+            "coordination_memory_mb": 2,
+            "management_overhead_mb": 1,
+            "predictive_system_mb": 1,
+            "total_singleton_overhead_mb": 6
+        }
+    }
+}
+
+# ===== PHASE 3: RESOURCE ESTIMATION FUNCTIONS =====
+
+def estimate_circuit_breaker_memory_usage(tier: ConfigurationTier) -> float:
+    """Estimate memory usage for circuit breaker configuration tier."""
+    config = CIRCUIT_BREAKER_INTERFACE_CONFIG.get(tier, CIRCUIT_BREAKER_INTERFACE_CONFIG[ConfigurationTier.MINIMUM])
+    return config["resource_allocation"]["total_circuit_breaker_memory_mb"]
+
+def estimate_singleton_memory_usage(tier: ConfigurationTier) -> float:
+    """Estimate memory usage for singleton configuration tier."""
+    config = SINGLETON_INTERFACE_CONFIG.get(tier, SINGLETON_INTERFACE_CONFIG[ConfigurationTier.MINIMUM])
+    
+    # Calculate total singleton memory (overhead + individual singleton allocations)
+    overhead_memory = config["resource_allocation"]["total_singleton_overhead_mb"]
+    singleton_memory = sum(
+        singleton_config["memory_allocation_mb"] 
+        for singleton_config in config["singleton_types"].values()
+    )
+    
+    return overhead_memory + singleton_memory
+
+# ===== PHASE 3: INTERFACE CONFIGURATION ACCESS FUNCTIONS =====
+
+def get_circuit_breaker_configuration(tier: ConfigurationTier) -> Dict[str, Any]:
+    """Get circuit breaker interface configuration for specified tier."""
+    return CIRCUIT_BREAKER_INTERFACE_CONFIG.get(tier, CIRCUIT_BREAKER_INTERFACE_CONFIG[ConfigurationTier.MINIMUM]).copy()
+
+def get_singleton_configuration(tier: ConfigurationTier) -> Dict[str, Any]:
+    """Get singleton interface configuration for specified tier."""
+    return SINGLETON_INTERFACE_CONFIG.get(tier, SINGLETON_INTERFACE_CONFIG[ConfigurationTier.MINIMUM]).copy()
+
+# ===== PHASE 3: ENHANCED VALIDATION FUNCTIONS =====
+
+def validate_phase3_memory_constraints(circuit_breaker_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                     singleton_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                     cache_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                     logging_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                     metrics_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                     security_tier: ConfigurationTier = ConfigurationTier.STANDARD) -> Dict[str, Any]:
+    """Validate that Phase 2+3 interface combinations don't exceed 128MB constraint."""
+    
+    # Phase 2 interfaces
+    cache_memory = estimate_cache_memory_usage(cache_tier)
+    logging_memory = estimate_logging_memory_usage(logging_tier)
+    metrics_memory = estimate_metrics_memory_usage(metrics_tier)
+    security_memory = estimate_security_memory_usage(security_tier)
+    
+    # Phase 3 interfaces
+    circuit_breaker_memory = estimate_circuit_breaker_memory_usage(circuit_breaker_tier)
+    singleton_memory = estimate_singleton_memory_usage(singleton_tier)
+    
+    # Reserve memory for remaining interfaces and Lambda runtime
+    reserved_memory = 25  # Reduced reserve as we've implemented more interfaces
+    
+    total_implemented_memory = (cache_memory + logging_memory + metrics_memory + 
+                              security_memory + circuit_breaker_memory + singleton_memory)
+    total_system_memory = total_implemented_memory + reserved_memory
+    
+    metrics_count = estimate_metrics_count(metrics_tier)
+    
+    validation_result = {
+        "is_valid": total_system_memory <= 128 and metrics_count <= 10,
+        "memory_usage": {
+            "cache_mb": cache_memory,
+            "logging_mb": logging_memory,
+            "metrics_mb": metrics_memory,
+            "security_mb": security_memory,
+            "circuit_breaker_mb": circuit_breaker_memory,
+            "singleton_mb": singleton_memory,
+            "implemented_total_mb": total_implemented_memory,
+            "reserved_mb": reserved_memory,
+            "system_total_mb": total_system_memory,
+            "memory_limit_mb": 128
+        },
+        "metrics_usage": {
+            "metrics_used": metrics_count,
+            "metrics_limit": 10
+        },
+        "warnings": []
+    }
+    
+    if total_system_memory > 128:
+        validation_result["warnings"].append(f"Memory usage ({total_system_memory}MB) exceeds 128MB limit")
+    
+    if metrics_count > 10:
+        validation_result["warnings"].append(f"Metrics usage ({metrics_count}) exceeds 10 metric limit")
+    
+    if total_system_memory > 110:
+        validation_result["warnings"].append(f"Memory usage approaching limit: {total_system_memory}MB/128MB")
+    
+    return validation_result
+
+# ===== END OF PHASE 3 IMPLEMENTATION =====
