@@ -1,373 +1,285 @@
 """
-http_client_aws.py - OPTIMIZED: AWS/Boto3 Operations with Memory Efficiency
-Version: 2025.09.24.02
-Description: Optimized AWS operations with singleton integration and legacy elimination
+http_client_aws.py - ULTRA-OPTIMIZED: AWS/Boto3 Operations with Legacy Elimination Complete
+Version: 2025.09.27.01
+Description: Fully optimized AWS operations with all legacy patterns eliminated and maximum gateway utilization
 
-OPTIMIZATIONS APPLIED:
-- ✅ LEGACY BOTO3 ELIMINATION: Removed outdated client creation patterns (30% memory reduction)
-- ✅ SINGLETON CLIENT MANAGEMENT: Uses singleton thread coordinator for client lifecycle
-- ✅ ENHANCED ERROR HANDLING: Comprehensive AWS error management with validation
-- ✅ MEMORY-EFFICIENT CACHING: Smart client caching with automatic cleanup
-- ✅ PRIMARY INTERFACE INTEGRATION: Maximum reuse of security, utility, cache functions
-- ✅ CREDENTIAL OPTIMIZATION: Secure credential handling with validation
+LEGACY ELIMINATION COMPLETED:
+- ✅ REMOVED: @lru_cache decorators (replaced with cache gateway)
+- ✅ REMOVED: Manual threading.RLock() (replaced with singleton gateway)
+- ✅ REMOVED: Legacy boto3 client creation patterns
+- ✅ REMOVED: Direct thread management (delegated to singleton gateway)
+- ✅ REMOVED: Manual memory management (delegated to cache gateway)
+- ✅ MODERNIZED: All patterns use gateway interfaces exclusively
 
-ARCHITECTURE: SECONDARY IMPLEMENTATION - AWS OPERATIONS
-- Thread-safe boto3 client management via singleton interface
-- Memory-optimized client lifecycle with automatic cleanup
-- AWS API call consolidation with enhanced error handling
-- Primary interface integration for maximum efficiency
+ARCHITECTURE: SECONDARY IMPLEMENTATION - LEGACY-FREE
+- 100% gateway interface utilization for thread safety
+- Zero manual thread management or locking
+- Cache gateway for all client caching and memory management
+- Singleton gateway for coordination and lifecycle management
+- Security gateway for all validation and sanitization
 
-FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md
+FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE
 """
 
 import boto3
 import time
 from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
-import threading
-from functools import lru_cache
 
-# ===== INTERFACE IMPORTS =====
-from security import validate_request, ValidationLevel, sanitize_response
-from utility import create_error_response, create_success_response, sanitize_response_data
-from logging import log_error_response
-from cache import cache_get, cache_set, get_cache_manager
-from singleton import execute_with_timeout, get_thread_coordinator, get_memory_manager
-from metrics import record_metric, MetricType
+# Gateway imports for maximum utilization (NO legacy imports)
+from security import validate_request, ValidationLevel, sanitize_response_data
+from utility import create_error_response, create_success_response, get_current_timestamp
+from logging import log_error, log_info
+from cache import cache_get, cache_set, cache_clear
+from singleton import get_singleton, coordinate_operation, get_thread_coordinator
+from metrics import record_metric
 from config import get_parameter
 
-# ===== OPTIMIZED BOTO3 CLIENT MANAGEMENT =====
-
-_client_cache = {}  # Memory-efficient client cache
-_client_lock = threading.RLock()
+# ===== LEGACY-FREE BOTO3 CLIENT MANAGEMENT =====
 
 def boto3_client_optimized_implementation(service_name: str, **kwargs) -> Dict[str, Any]:
     """
-    OPTIMIZED: Thread-safe boto3 client creation with advanced caching and memory management.
-    Eliminates legacy patterns and provides comprehensive error handling.
+    ULTRA-OPTIMIZED: Thread-safe boto3 client creation using pure gateway interfaces.
+    ALL LEGACY PATTERNS ELIMINATED - Uses gateway interfaces exclusively.
     """
+    
+    # Validate using security gateway
+    validation_result = validate_request({
+        'service_name': service_name,
+        'kwargs': kwargs,
+        'component': 'aws_client_creation'
+    }, ValidationLevel.ENHANCED)
+    
+    if not validation_result.get('valid', False):
+        log_error('AWS service validation failed', {
+            'service': service_name,
+            'validation_result': validation_result
+        })
+        return create_error_response(f'AWS service validation failed: {service_name}')
+    
+    # Check cache using cache gateway (NO @lru_cache)
+    cache_key = f"boto3_client_{service_name}_{hash(str(sorted(kwargs.items())))}"
+    cached_client = cache_get(cache_key)
+    
+    if cached_client:
+        record_metric('aws_client_cache_hit', 1.0, {'service': service_name})
+        log_info('AWS client cache hit', {'service': service_name, 'cache_key': cache_key})
+        return create_success_response({'client': cached_client, 'cached': True})
+    
+    # Create client using singleton gateway coordination (NO manual threading)
     def _create_client_operation():
-        """Thread-safe client creation operation."""
+        """Client creation operation coordinated by singleton gateway."""
         try:
-            # Validate service name using primary security interface
-            validation_result = validate_request({
-                'service_name': service_name,
-                'kwargs': kwargs,
-                'component': 'aws_client_creation'
-            }, ValidationLevel.ENHANCED)
+            # Get AWS configuration from config gateway
+            aws_config = {
+                'region_name': get_parameter('aws_region', 'us-east-1'),
+                'retries': get_parameter('aws_retries', {'max_attempts': 3}),
+                'read_timeout': get_parameter('aws_read_timeout', 30),
+                'connect_timeout': get_parameter('aws_connect_timeout', 10)
+            }
             
-            if not validation_result:
-                return create_error_response(f'AWS service validation failed: {service_name}')
+            # Merge with provided configuration
+            aws_config.update(kwargs)
             
-            # Check cache first
-            cache_key = f"boto3_client_{service_name}_{hash(str(sorted(kwargs.items())))}"
-            cached_client = cache_get(cache_key)
-            
-            if cached_client:
-                record_metric(MetricType.AWS_CLIENT_CACHE_HIT, 1, {'service': service_name})
-                return create_success_response({'client': cached_client, 'cached': True})
-            
-            # Create new client with memory optimization
-            client = _create_optimized_boto3_client(service_name, **kwargs)
+            # Create boto3 client
+            client = boto3.client(service_name, **aws_config)
             
             if not client:
-                return create_error_response(f'Failed to create AWS client for service: {service_name}')
+                return None
             
-            # Cache client with TTL (memory management)
+            # Cache client using cache gateway (NO manual memory management)
             cache_ttl = kwargs.get('cache_ttl', 1800)  # 30 minutes default
             cache_set(cache_key, client, ttl=cache_ttl)
             
-            record_metric(MetricType.AWS_CLIENT_CREATED, 1, {'service': service_name})
-            
-            return create_success_response({
-                'client': client,
+            record_metric('aws_client_created', 1.0, {'service': service_name})
+            log_info('AWS client created successfully', {
                 'service': service_name,
-                'cached': False,
                 'cache_ttl': cache_ttl
             })
             
+            return client
+            
         except Exception as e:
-            log_error_response({
+            log_error('AWS client creation failed', {
+                'service': service_name,
                 'error': str(e),
-                'service_name': service_name,
-                'kwargs': str(kwargs)[:200],
-                'component': 'aws_client_creation'
+                'kwargs': str(kwargs)[:200]
             })
-            return create_error_response(f'AWS client creation failed: {str(e)}')
+            return None
     
-    # Execute with thread coordinator
-    coordinator = get_thread_coordinator()
-    return coordinator.execute_operation(
-        _create_client_operation,
-        {'operation': 'create_boto3_client', 'service': service_name}
-    )
-
-def _create_optimized_boto3_client(service_name: str, **kwargs):
-    """Create optimized boto3 client with enhanced configuration."""
-    try:
-        # Get AWS credentials securely
-        aws_config = _get_secure_aws_config(**kwargs)
-        
-        # Create client with optimized configuration
-        client_config = {
-            'service_name': service_name,
-            **aws_config,
-            'config': boto3.session.Config(
-                region_name=aws_config.get('region_name', 'us-east-1'),
-                retries={'max_attempts': 3, 'mode': 'adaptive'},
-                max_pool_connections=10  # Memory optimization
-            )
-        }
-        
-        return boto3.client(**client_config)
-        
-    except NoCredentialsError:
-        log_error_response({
-            'error': 'AWS credentials not found',
-            'service_name': service_name,
-            'component': 'aws_client_creation'
-        })
-        return None
-    except Exception as e:
-        log_error_response({
-            'error': str(e),
-            'service_name': service_name,
-            'component': 'aws_client_creation'
-        })
-        return None
-
-def _get_secure_aws_config(**kwargs) -> Dict[str, Any]:
-    """Get secure AWS configuration with validation."""
-    config = {}
+    # Execute using singleton gateway coordination (NO manual threading)
+    client = coordinate_operation(_create_client_operation, {
+        'operation': 'create_boto3_client',
+        'service': service_name
+    })
     
-    # Get region from multiple sources
-    region = (
-        kwargs.get('region_name') or
-        get_parameter('AWS_DEFAULT_REGION', 'us-east-1')
-    )
-    config['region_name'] = region
+    if not client:
+        return create_error_response(f'Failed to create AWS client for service: {service_name}')
     
-    # Get credentials if provided (prefer environment variables)
-    if 'aws_access_key_id' in kwargs:
-        config['aws_access_key_id'] = kwargs['aws_access_key_id']
-    if 'aws_secret_access_key' in kwargs:
-        config['aws_secret_access_key'] = kwargs['aws_secret_access_key']
-    if 'aws_session_token' in kwargs:
-        config['aws_session_token'] = kwargs['aws_session_token']
-    
-    return config
+    return create_success_response({
+        'client': client,
+        'service': service_name,
+        'cached': False,
+        'timestamp': get_current_timestamp()
+    })
 
-# ===== OPTIMIZED AWS API OPERATIONS =====
-
-def aws_api_call_optimized_implementation(service: str, operation: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+def execute_aws_api_call_implementation(service: str, operation: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    OPTIMIZED: AWS API call with comprehensive error handling and caching.
+    ULTRA-OPTIMIZED: Execute AWS API call using pure gateway interfaces.
+    ALL LEGACY PATTERNS ELIMINATED.
     """
-    start_time = time.time()
+    
+    # Context for logging and metrics
     context = {
         'service': service,
         'operation': operation,
         'component': 'aws_api_call'
     }
     
-    def _execute_api_call():
-        """Execute AWS API call with comprehensive optimization."""
+    # Validate using security gateway
+    validation_result = validate_request({
+        'service': service,
+        'operation': operation,
+        'params': params,
+        'component': 'aws_api_call'
+    }, ValidationLevel.ENHANCED)
+    
+    if not validation_result.get('valid', False):
+        log_error('AWS API call validation failed', context)
+        return create_error_response(f'AWS API call validation failed: {service}.{operation}')
+    
+    # Check cache for idempotent operations using cache gateway
+    if _is_cacheable_operation(service, operation):
+        cache_key = f"aws_api_{service}_{operation}_{hash(str(params) if params else '')}"
+        cached_result = cache_get(cache_key)
+        
+        if cached_result:
+            record_metric('aws_api_cache_hit', 1.0, context)
+            log_info('AWS API cache hit', {**context, 'cache_key': cache_key})
+            return cached_result
+    
+    # Get AWS client using optimized implementation
+    client_result = boto3_client_optimized_implementation(service)
+    if not client_result.get('success', False):
+        return client_result
+    
+    client = client_result.get('data', {}).get('client')
+    if not client:
+        return create_error_response(f'Failed to get AWS client for service: {service}')
+    
+    # Execute API call using singleton gateway coordination
+    def _execute_api_operation():
+        """API execution operation coordinated by singleton gateway."""
         try:
-            # Validate API call parameters
-            validation_result = validate_request({
+            # Get operation method
+            if not hasattr(client, operation):
+                raise AttributeError(f'Operation {operation} not available for service {service}')
+            
+            api_method = getattr(client, operation)
+            
+            # Execute API call
+            if params:
+                result = api_method(**params)
+            else:
+                result = api_method()
+            
+            # Sanitize result using security gateway
+            sanitized_result = sanitize_response_data(result)
+            
+            return create_success_response({
+                'result': sanitized_result,
                 'service': service,
                 'operation': operation,
-                'params': params,
-                'component': 'aws_api_call'
-            }, ValidationLevel.ENHANCED)
-            
-            if not validation_result:
-                return create_error_response(f'AWS API call validation failed: {service}.{operation}')
-            
-            # Check cache for idempotent operations
-            if _is_cacheable_operation(service, operation):
-                cache_key = f"aws_api_{service}_{operation}_{hash(str(params) if params else '')}"
-                cached_result = cache_get(cache_key)
-                
-                if cached_result:
-                    record_metric(MetricType.AWS_API_CACHE_HIT, 1, context)
-                    return cached_result
-            
-            # Get AWS client
-            client_result = boto3_client_optimized_implementation(service)
-            if not client_result.get('success', True):
-                return client_result
-            
-            client = client_result.get('client')
-            if not client:
-                return create_error_response(f'Failed to get AWS client for service: {service}')
-            
-            # Execute API call with timeout
-            api_result = execute_with_timeout(
-                lambda: _execute_aws_operation(client, operation, params or {}),
-                timeout=30,
-                context=context
-            )
-            
-            # Process and sanitize result
-            processed_result = sanitize_response_data(api_result)
-            
-            # Cache successful results for cacheable operations
-            if (processed_result.get('success', False) and 
-                _is_cacheable_operation(service, operation)):
-                cache_ttl = _get_cache_ttl(service, operation)
-                cache_set(cache_key, processed_result, ttl=cache_ttl)
-            
-            record_metric(MetricType.AWS_API_SUCCESS, 1, context)
-            return processed_result
+                'timestamp': get_current_timestamp()
+            })
             
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
             error_message = e.response.get('Error', {}).get('Message', str(e))
             
-            log_error_response({
+            log_error('AWS API ClientError', {
                 **context,
                 'error_code': error_code,
-                'error_message': error_message,
-                'params': str(params)[:200] if params else 'None'
+                'error_message': error_message
             })
             
-            record_metric(MetricType.AWS_API_ERROR, 1, {**context, 'error_code': error_code})
+            record_metric('aws_api_error', 1.0, {**context, 'error_code': error_code})
             return create_error_response(f'AWS API error ({error_code}): {error_message}')
             
-        except BotoCoreError as e:
-            log_error_response({
-                **context,
-                'error': str(e),
-                'error_type': 'BotoCoreError'
-            })
-            record_metric(MetricType.AWS_API_ERROR, 1, context)
-            return create_error_response(f'AWS BotoCore error: {str(e)}')
-            
         except Exception as e:
-            log_error_response({
-                **context,
-                'error': str(e),
-                'error_type': type(e).__name__
-            })
-            record_metric(MetricType.AWS_API_ERROR, 1, context)
-            return create_error_response(f'AWS API call failed: {str(e)}')
+            log_error('AWS API execution failed', {**context, 'error': str(e)})
+            record_metric('aws_api_error', 1.0, {**context, 'error_type': type(e).__name__})
+            return create_error_response(f'AWS API execution failed: {str(e)}')
     
-    # Execute with thread coordinator
-    coordinator = get_thread_coordinator()
-    result = coordinator.execute_operation(_execute_api_call, context)
+    # Execute using singleton gateway coordination
+    api_result = coordinate_operation(_execute_api_operation, context)
     
-    # Record execution time
-    execution_time = time.time() - start_time
-    record_metric(MetricType.AWS_API_EXECUTION_TIME, execution_time, context)
+    # Cache successful results using cache gateway
+    if (api_result.get('success', False) and 
+        _is_cacheable_operation(service, operation)):
+        cache_ttl = _get_cache_ttl(service, operation)
+        cache_set(cache_key, api_result, ttl=cache_ttl)
+        log_info('AWS API result cached', {**context, 'cache_ttl': cache_ttl})
     
-    return result
+    record_metric('aws_api_success', 1.0, context)
+    return api_result
 
-def _execute_aws_operation(client, operation: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute AWS operation with the client."""
+def cleanup_aws_clients_implementation() -> Dict[str, Any]:
+    """
+    ULTRA-OPTIMIZED: Clean up AWS clients using cache gateway.
+    NO manual memory management.
+    """
     try:
-        # Get the operation method from the client
-        if not hasattr(client, operation):
-            return create_error_response(f'Operation {operation} not supported by client')
+        # Clear AWS client cache using cache gateway
+        cache_clear('boto3_client')
+        cache_clear('aws_api')
         
-        operation_method = getattr(client, operation)
-        
-        # Execute the operation
-        result = operation_method(**params)
+        log_info('AWS clients cleaned up successfully')
+        record_metric('aws_cleanup_success', 1.0)
         
         return create_success_response({
-            'result': result,
-            'operation': operation,
-            'service': client.meta.service_model.service_name
+            'cleaned_up': True,
+            'timestamp': get_current_timestamp()
         })
         
     except Exception as e:
-        return create_error_response(f'Operation execution failed: {str(e)}')
+        log_error('AWS cleanup failed', {'error': str(e)})
+        record_metric('aws_cleanup_error', 1.0)
+        return create_error_response(f'AWS cleanup failed: {str(e)}')
 
-# ===== CACHING OPTIMIZATION UTILITIES =====
+# ===== HELPER FUNCTIONS =====
 
 def _is_cacheable_operation(service: str, operation: str) -> bool:
-    """Determine if AWS operation results can be cached."""
+    """Determine if AWS operation is cacheable."""
     # Read-only operations that can be cached
-    cacheable_patterns = {
-        'ec2': ['describe_instances', 'describe_images', 'describe_security_groups'],
-        's3': ['list_buckets', 'get_object', 'head_object'],
-        'lambda': ['list_functions', 'get_function'],
-        'dynamodb': ['describe_table', 'scan', 'query'],
-        'iam': ['list_users', 'list_roles', 'get_user', 'get_role'],
-        'cloudwatch': ['describe_alarms', 'get_metric_statistics']
+    cacheable_operations = {
+        'lambda': ['get_function', 'list_functions', 'get_function_configuration'],
+        's3': ['get_object', 'head_object', 'list_objects_v2'],
+        'dynamodb': ['get_item', 'query', 'scan'],
+        'cloudwatch': ['get_metric_statistics', 'list_metrics']
     }
     
-    service_operations = cacheable_patterns.get(service, [])
-    return operation in service_operations or operation.startswith(('describe_', 'get_', 'list_'))
+    service_operations = cacheable_operations.get(service, [])
+    return operation in service_operations
 
 def _get_cache_ttl(service: str, operation: str) -> int:
-    """Get cache TTL for AWS operation based on data volatility."""
-    # Different TTLs based on data change frequency
-    ttl_mapping = {
-        'ec2': 300,      # 5 minutes (instances change frequently)
-        's3': 1800,      # 30 minutes (objects relatively stable)
-        'lambda': 3600,  # 1 hour (functions change less frequently)
-        'iam': 3600,     # 1 hour (roles/users stable)
-        'dynamodb': 300, # 5 minutes (data changes frequently)
-        'cloudwatch': 600 # 10 minutes (metrics updated regularly)
+    """Get appropriate cache TTL for AWS operation."""
+    # TTL based on operation type
+    ttl_map = {
+        'lambda': 300,    # 5 minutes
+        's3': 600,        # 10 minutes  
+        'dynamodb': 60,   # 1 minute
+        'cloudwatch': 180 # 3 minutes
     }
     
-    return ttl_mapping.get(service, 900)  # Default 15 minutes
+    return ttl_map.get(service, 300)  # Default 5 minutes
 
-# ===== MEMORY OPTIMIZATION AND CLEANUP =====
+# ===== EXPORTED FUNCTIONS =====
 
-def cleanup_aws_clients() -> Dict[str, Any]:
-    """Clean up AWS clients for memory optimization."""
-    try:
-        with _client_lock:
-            cached_count = len(_client_cache)
-            _client_cache.clear()
-            
-            # Clear cache entries
-            cache_manager = get_cache_manager()
-            cleared_entries = 0
-            
-            # This would ideally clear only AWS-related cache entries
-            # For now, we'll rely on TTL expiration
-            
-            record_metric(MetricType.AWS_CLIENT_CLEANUP, 1, {
-                'clients_cleared': cached_count,
-                'cache_entries_cleared': cleared_entries
-            })
-            
-            return create_success_response({
-                'clients_cleared': cached_count,
-                'cache_entries_cleared': cleared_entries,
-                'cleanup_completed': True
-            })
-            
-    except Exception as e:
-        log_error_response({
-            'error': str(e),
-            'component': 'aws_client_cleanup'
-        })
-        return create_error_response(f'AWS client cleanup failed: {str(e)}')
-
-def get_aws_client_stats() -> Dict[str, Any]:
-    """Get AWS client statistics for monitoring."""
-    try:
-        memory_manager = get_memory_manager()
-        
-        return create_success_response({
-            'cached_clients': len(_client_cache),
-            'memory_usage_mb': memory_manager.get_current_memory_usage(),
-            'client_services': list(set(
-                key.split('_')[2] for key in _client_cache.keys()
-                if key.startswith('boto3_client_')
-            )) if _client_cache else []
-        })
-        
-    except Exception as e:
-        log_error_response({
-            'error': str(e),
-            'component': 'aws_client_stats'
-        })
-        return create_error_response(f'Failed to get AWS client stats: {str(e)}')
+__all__ = [
+    'boto3_client_optimized_implementation',
+    'execute_aws_api_call_implementation', 
+    'cleanup_aws_clients_implementation'
+]
 
 # EOF
