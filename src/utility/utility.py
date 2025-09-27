@@ -1,6 +1,6 @@
 """
 utility.py - Testing, Validation, and Debugging Primary Gateway Interface
-Version: 2025.09.27.01
+Version: 2025.09.27.02
 Description: Ultra-pure gateway for utility operations - pure delegation only
 
 ARCHITECTURE: PRIMARY GATEWAY INTERFACE
@@ -9,12 +9,21 @@ ARCHITECTURE: PRIMARY GATEWAY INTERFACE
 - External access point for utility operations
 - Ultra-optimized for 128MB Lambda constraint
 
+UPDATES APPLIED:
+- ✅ ADDED: Import validation functions for circular import detection
+- ✅ UPDATED: Gateway interface exports with new function declarations
+- ✅ MAINTAINED: Pure delegation pattern for all operations
+
 PRIMARY GATEWAY FUNCTIONS:
 - validate_string_input() - String input validation and sanitization
 - create_success_response() - Success response formatting
 - create_error_response() - Error response formatting
 - sanitize_response_data() - Response data sanitization
 - get_current_timestamp() - Timestamp generation
+- detect_circular_imports() - Circular import pattern detection
+- validate_import_architecture() - Import architecture validation
+- monitor_imports_runtime() - Runtime import monitoring
+- apply_immediate_fixes() - Automatic import issue fixes
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -87,14 +96,58 @@ def get_current_timestamp() -> str:
     result = generic_utility_operation(UtilityOperation.GET_TIMESTAMP)
     return result.get("timestamp", "")
 
-# ===== SECTION 2: MODULE EXPORTS =====
+# ===== SECTION 2: IMPORT VALIDATION GATEWAY FUNCTIONS =====
+
+def detect_circular_imports(project_path: str = ".") -> Dict[str, Any]:
+    """
+    Primary gateway function for circular import detection.
+    Pure delegation to utility_import_validation implementation.
+    """
+    return generic_utility_operation(
+        UtilityOperation.DETECT_CIRCULAR_IMPORTS,
+        project_path=project_path
+    )
+
+def validate_import_architecture(project_path: str = ".") -> Dict[str, Any]:
+    """
+    Primary gateway function for import architecture validation.
+    Pure delegation to utility_import_validation implementation.
+    """
+    return generic_utility_operation(
+        UtilityOperation.VALIDATE_IMPORT_ARCHITECTURE,
+        project_path=project_path
+    )
+
+def monitor_imports_runtime() -> Dict[str, Any]:
+    """
+    Primary gateway function for runtime import monitoring.
+    Pure delegation to utility_import_validation implementation.
+    """
+    return generic_utility_operation(
+        UtilityOperation.MONITOR_IMPORTS_RUNTIME
+    )
+
+def apply_immediate_fixes() -> Dict[str, Any]:
+    """
+    Primary gateway function for immediate import issue fixes.
+    Pure delegation to utility_import_validation implementation.
+    """
+    return generic_utility_operation(
+        UtilityOperation.APPLY_IMMEDIATE_FIXES
+    )
+
+# ===== SECTION 3: MODULE EXPORTS =====
 
 __all__ = [
     'validate_string_input',
     'create_success_response',
     'create_error_response', 
     'sanitize_response_data',
-    'get_current_timestamp'
+    'get_current_timestamp',
+    'detect_circular_imports',
+    'validate_import_architecture',
+    'monitor_imports_runtime',
+    'apply_immediate_fixes'
 ]
 
 # EOF
