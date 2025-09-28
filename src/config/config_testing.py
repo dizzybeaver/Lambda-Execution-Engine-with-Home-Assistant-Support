@@ -531,3 +531,5 @@ if __name__ == "__main__":
     # Run tests when script is executed directly
     success = run_configuration_tests()
     exit(0 if success else 1)
+
+# EOF
