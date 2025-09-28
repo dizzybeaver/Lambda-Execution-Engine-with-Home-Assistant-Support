@@ -139,7 +139,8 @@ import scipy                   # ❌ Requires layer
 ### 🚪 PRIMARY GATEWAYS (External Access Points) - 11 Total
 ```
 cache.py                   # Cache operations, cache management - Pure delegation only
-singleton.py               # Singleton management, thread safety - Core singleton operations
+debug.py                   # Debug, Testing, and Validation operations - Pure delegation only
+singleton.py               # Singleton management, thread safety - Core singleton operations - Pure delegation only
 security.py                # Security validation, authentication, authorization - Pure delegation only
 logging.py                 # Error tracking, health monitoring - Pure delegation only
 metrics.py                 # CloudWatch, performance tracking, cost protection - Pure delegation only
@@ -162,6 +163,11 @@ config.py                  # Project variables and configuration management - Sp
 #### 📊 **Cache Primary Gateway Interface**
 ```
 cache_core.py                          # Internal cache-focused interface functions and generic cache operations - INTERNAL ACCESS ONLY
+```
+
+#### 📊 **Debug Primary Gateway Interface**
+```
+Debug_core.py                          # Internal debug, testing, validation focused interface functions and generic debug, testing, and validation operations - INTERNAL ACCESS ONLY
 ```
 
 #### 📄 **Singleton Primary Gateway Interface**
