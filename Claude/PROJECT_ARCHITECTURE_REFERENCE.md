@@ -139,7 +139,7 @@ import scipy                   # ❌ Requires layer
 ### 🚪 PRIMARY GATEWAYS (External Access Points) - 11 Total
 ```
 cache.py                   # Cache operations, cache management - Pure delegation only
-debug.py                   # Debug, Testing, and Validation operations - Pure delegation only
+debug.py                   # Debug, Testing, and Validation operations - Special Status
 singleton.py               # Singleton management, thread safety - Core singleton operations - Pure delegation only
 security.py                # Security validation, authentication, authorization - Pure delegation only
 logging.py                 # Error tracking, health monitoring - Pure delegation only
@@ -158,6 +158,11 @@ config.py                  # Project variables and configuration management - Sp
 ```
 **Note:** Config.py contains all project variables and configuration. It follows gateway patterns but has special status as the central configuration repository.
 
+```
+debug.py                  # Project troubleshooting, testing, and validation management - Special status
+```
+**Note:** debug.py contains all project testing, validation, and troubleshooting functions. It follows gateway patterns but has special status as the central configuration repository.
+
 ### 🔧 SECONDARY IMPLEMENTATION (Internal Network)
 
 #### 📊 **Cache Primary Gateway Interface**
@@ -167,7 +172,10 @@ cache_core.py                          # Internal cache-focused interface functi
 
 #### 📊 **Debug Primary Gateway Interface**
 ```
-Debug_core.py                          # Internal debug, testing, validation focused interface functions and generic debug, testing, and validation operations - INTERNAL ACCESS ONLY
+debug_core.py                          # Internal debug, testing, validation focused interface functions for generic debug, testing, and validation operations - INTERNAL ACCESS ONLY
+debug_test.py                          # Internal non-generic testing focused interface functions and non-generic operations - INTERNAL ACCESS ONLY
+debug_validation.py                    # Internal non-generic validation focused interface functions and non-generic operations - INTERNAL ACCESS ONLY
+debug_validation.py                    # Internal non-generic troubleshooting focused interface functions and non-generic operations - INTERNAL ACCESS ONLY
 ```
 
 #### 📄 **Singleton Primary Gateway Interface**
@@ -430,6 +438,11 @@ validate_memory_constraints(base_tier: ConfigurationTier, overrides: Dict = None
 optimize_for_memory(target_mb: int = 64) → Dict[str, Any]
 optimize_for_performance(min_response_time: int = 100) → Dict[str, Any]
 optimize_for_cost(max_monthly_cost: float = 0) → Dict[str, Any]
+```
+
+### 🗃️ **debug.py - PRIMARY GATEWAY (SPECIAL STATUS)**
+```python
+# Debug/Testing/Validation Operations and management (ONLY USE THESE)
 ```
 
 ---
