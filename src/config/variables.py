@@ -718,3 +718,5 @@ __all__ = [
     # Presets and constraints
     'CONFIGURATION_PRESETS', 'AWS_LAMBDA_CONSTRAINTS', 'OPTIMIZATION_TARGETS'
 ]
+
+# EOF
