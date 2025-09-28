@@ -1,355 +1,604 @@
 """
-config.py - ULTRA-OPTIMIZED: Enhanced JWT Configuration Support
-Version: 2025.09.27.01
-Description: Configuration enhancements to support proper JWT signature verification
+config.py - Ultra-Optimized Configuration System Gateway Interface
+Version: 2025.09.28.03
+Description: Primary gateway interface for ultra-optimized four-tier configuration management
 
-SECURITY ENHANCEMENTS FOR ISSUE #9:
-- ✅ JWT SECRET KEY MANAGEMENT: Secure secret key configuration with validation
-- ✅ JWT ALGORITHM CONFIGURATION: Algorithm whitelist and security settings
-- ✅ JWT CLAIMS VALIDATION: Required claims configuration for enhanced security
-- ✅ JWT TIMING CONFIGURATION: Clock skew tolerance and expiration settings
-- ✅ ALEXA INTEGRATION CONFIG: Enhanced Alexa skill configuration for JWT
-- ✅ FALLBACK SECURITY: Secure fallback mechanisms for missing configurations
+ULTRA-OPTIMIZED GATEWAY INTERFACE - SPECIAL STATUS
+- Central configuration repository with gateway pattern compliance
+- Pure delegation to config_core.py and variables_utils.py implementations
+- Complete Variables System Simplified Configuration Reference compliance
+- Four-tier system with presets, overrides, and intelligent optimization
+- AWS Lambda 128MB constraint validation and cost protection
 
-ARCHITECTURE: SPECIAL STATUS - CENTRAL CONFIGURATION REPOSITORY
-- Enhanced JWT security configuration parameters
-- Maintains gateway patterns with special configuration status
-- Backward compatible with existing configuration system
-- Memory-optimized for AWS Lambda 128MB compliance
+CONFIGURATION SYSTEM FEATURES:
+- Four-tier configuration system (MINIMUM, STANDARD, MAXIMUM, USER)
+- 11 configuration presets for common use cases
+- Interface-specific overrides with constraint validation
+- Memory and cost optimization with AWS free tier protection
+- Real-time performance analysis and optimization recommendations
 
-FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE IMPLEMENTATION
+GATEWAY ARCHITECTURE COMPLIANCE:
+- Primary gateway interface - external files access ONLY through this interface
+- Pure delegation pattern - no implementation code in gateway
+- All implementation delegated to config_core.py and variables_utils.py
+- Maintains ultra-optimization status with maximum gateway utilization
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 """
 
-import os
-import logging
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, List, Optional, Union
+from enum import Enum
 
-logger = logging.getLogger(__name__)
+# Import configuration enums and types from variables.py data structures
+from .variables import ConfigurationTier, InterfaceType
 
-# Import existing configuration system
-from .config_core import get_configuration_parameter, set_configuration_parameter, validate_configuration
+# Import all implementation functions from config_core.py and variables_utils.py
+from .config_core import (
+    _get_parameter_implementation,
+    _set_parameter_implementation,
+    _get_all_parameters_for_type_implementation,
+    _get_configuration_types_implementation,
+    _create_configuration_type_implementation,
+    _clear_configuration_cache_implementation
+)
 
-# ===== SECTION 1: JWT SECURITY CONFIGURATION PARAMETERS =====
+from .variables_utils import (
+    # Resource estimation functions
+    estimate_cache_memory_usage,
+    estimate_logging_memory_usage,
+    estimate_metrics_memory_usage,
+    estimate_security_memory_usage,
+    estimate_circuit_breaker_memory_usage,
+    estimate_singleton_memory_usage,
+    estimate_metrics_count,
+    
+    # Configuration access functions
+    get_cache_configuration,
+    get_logging_configuration,
+    get_metrics_configuration,
+    get_security_configuration,
+    get_circuit_breaker_configuration,
+    get_singleton_configuration,
+    
+    # Configuration management functions
+    validate_override_combination,
+    apply_configuration_overrides,
+    get_full_system_configuration,
+    validate_phase3_memory_constraints,
+    
+    # Preset management functions
+    get_preset_configuration,
+    list_configuration_presets,
+    
+    # Analysis functions
+    get_tier_memory_breakdown
+)
 
-# JWT Security Configuration Defaults
-JWT_DEFAULT_CONFIG = {
-    # JWT Algorithm and Security Settings
-    'jwt_algorithm': 'HS256',
-    'jwt_algorithm_whitelist': ['HS256', 'HS384', 'HS512'],
-    'jwt_clock_skew_seconds': 300,  # 5 minutes
-    'jwt_maximum_token_age_seconds': 86400,  # 24 hours
-    'jwt_minimum_secret_length': 32,  # Minimum 32 characters for security
-    
-    # JWT Required Claims Configuration
-    'jwt_required_claims': {
-        'iss': None,  # Issuer - set to required issuer or None to skip
-        'aud': None,  # Audience - set to required audience or None to skip
-        'exp': True,  # Expiration - always required
-        'iat': True,  # Issued at - always required
-        'nbf': False, # Not before - optional
-        'sub': False, # Subject - optional
-        'jti': False  # JWT ID - optional
-    },
-    
-    # JWT Validation Settings
-    'jwt_strict_validation': True,  # Enable strict validation
-    'jwt_require_issued_at': True,  # Require iat claim
-    'jwt_require_expiration': True, # Require exp claim
-    'jwt_allow_none_algorithm': False,  # Never allow 'none' algorithm
-    
-    # JWT Caching Configuration
-    'jwt_cache_enabled': True,
-    'jwt_cache_ttl_seconds': 300,  # 5 minutes
-    'jwt_failed_cache_ttl_seconds': 30,  # 30 seconds for failed attempts
-    
-    # Security Headers Configuration (for HTTP responses)
-    'security_headers_enabled': True,
-    'security_headers': {
-        'X-Frame-Options': 'DENY',
-        'X-Content-Type-Options': 'nosniff',
-        'X-XSS-Protection': '1; mode=block',
-        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
-        'Referrer-Policy': 'strict-origin-when-cross-origin'
-    },
-    
-    # Enhanced Alexa Configuration
-    'alexa_application_id': '',  # Must be set for Alexa skill validation
-    'alexa_require_access_token': False,  # Whether to require access token
-    'alexa_jwt_validation': True,  # Enable JWT validation for Alexa tokens
-    
-    # Rate Limiting Configuration (enhanced for JWT)
-    'jwt_rate_limit_enabled': True,
-    'jwt_rate_limit_requests_per_minute': 60,
-    'jwt_rate_limit_burst_requests': 10,
-    
-    # Error Handling Configuration
-    'jwt_detailed_errors': False,  # Set to False in production
-    'jwt_log_failed_attempts': True,
-    'jwt_sanitize_error_responses': True,
-    
-    # Fallback Configuration
-    'fallback_jwt_secret': 'INSECURE_FALLBACK_KEY_CHANGE_IN_PRODUCTION',
-    'emergency_jwt_bypass': False,  # Emergency bypass - NEVER enable in production
-}
+# ===== SECTION 1: CORE CONFIGURATION PARAMETER MANAGEMENT =====
 
-# ===== SECTION 2: JWT CONFIGURATION ACCESS FUNCTIONS =====
-
-def get_jwt_configuration(parameter_name: str, default_value: Any = None) -> Any:
+def get_parameter(key: str, default_value: Any = None, config_type: str = "default") -> Any:
     """
-    Get JWT-specific configuration parameter with enhanced security validation.
-    
-    Args:
-        parameter_name: Name of the JWT configuration parameter
-        default_value: Default value if parameter not found
-        
-    Returns:
-        Configuration parameter value
+    Get configuration parameter with caching and validation.
+    GATEWAY: Delegates to config_core._get_parameter_implementation
     """
-    try:
-        # First try environment variables for sensitive settings
-        if parameter_name == 'jwt_secret_key':
-            # Try multiple environment variable names for secret key
-            env_secret = (
-                os.environ.get('JWT_SECRET_KEY') or
-                os.environ.get('JWT_SECRET') or
-                os.environ.get('APP_SECRET_KEY') or
-                os.environ.get('SECRET_KEY')
-            )
-            if env_secret:
-                if len(env_secret) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
-                    logger.warning(f"JWT secret key from environment is too short: {len(env_secret)} characters")
-                return env_secret
-        
-        # Try configuration system
-        config_value = get_configuration_parameter(parameter_name, default_value)
-        if config_value is not None:
-            return config_value
-        
-        # Try JWT defaults
-        if parameter_name in JWT_DEFAULT_CONFIG:
-            return JWT_DEFAULT_CONFIG[parameter_name]
-        
-        # Return provided default
-        return default_value
-        
-    except Exception as e:
-        logger.error(f"Failed to get JWT configuration {parameter_name}: {str(e)}")
-        return default_value
+    return _get_parameter_implementation(key, default_value, config_type)
 
-def validate_jwt_configuration() -> Dict[str, Any]:
+def set_parameter(key: str, value: Any, config_type: str = "default", persistent: bool = False) -> bool:
     """
-    Validate JWT configuration for security compliance.
+    Set configuration parameter with validation and caching.
+    GATEWAY: Delegates to config_core._set_parameter_implementation
+    """
+    return _set_parameter_implementation(key, value, config_type, persistent)
+
+def get_all_parameters(config_type: str = "default") -> Dict[str, Any]:
+    """
+    Get all parameters for a configuration type.
+    GATEWAY: Delegates to config_core._get_all_parameters_for_type_implementation
+    """
+    return _get_all_parameters_for_type_implementation(config_type)
+
+def get_configuration_types() -> List[str]:
+    """
+    Get available configuration types.
+    GATEWAY: Delegates to config_core._get_configuration_types_implementation
+    """
+    return _get_configuration_types_implementation()
+
+def create_configuration_type(config_type: str) -> Dict[str, Any]:
+    """
+    Create new configuration type.
+    GATEWAY: Delegates to config_core._create_configuration_type_implementation
+    """
+    return _create_configuration_type_implementation(config_type)
+
+def clear_configuration_cache(config_type: str = None) -> Dict[str, Any]:
+    """
+    Clear configuration cache.
+    GATEWAY: Delegates to config_core._clear_configuration_cache_implementation
+    """
+    return _clear_configuration_cache_implementation(config_type)
+
+# ===== SECTION 2: CONFIGURATION TIER MANAGEMENT =====
+
+def get_interface_configuration(interface: InterfaceType, tier: ConfigurationTier) -> Dict[str, Any]:
+    """
+    Get configuration for specific interface and tier.
+    GATEWAY: Delegates to appropriate variables_utils interface configuration function
+    """
+    if interface == InterfaceType.CACHE:
+        return get_cache_configuration(tier)
+    elif interface == InterfaceType.LOGGING:
+        return get_logging_configuration(tier)
+    elif interface == InterfaceType.METRICS:
+        return get_metrics_configuration(tier)
+    elif interface == InterfaceType.SECURITY:
+        return get_security_configuration(tier)
+    elif interface == InterfaceType.CIRCUIT_BREAKER:
+        return get_circuit_breaker_configuration(tier)
+    elif interface == InterfaceType.SINGLETON:
+        return get_singleton_configuration(tier)
+    else:
+        # Placeholder for future interfaces
+        return {"tier": tier.value, "status": "placeholder", "interface": interface.value}
+
+def get_system_configuration(base_tier: ConfigurationTier, 
+                           overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+    """
+    Get complete system configuration with tier inheritance and overrides.
+    GATEWAY: Delegates to variables_utils.get_full_system_configuration
+    """
+    return get_full_system_configuration(base_tier, overrides)
+
+def validate_configuration(base_tier: ConfigurationTier, 
+                         overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+    """
+    Validate configuration combination against AWS constraints.
+    GATEWAY: Delegates to variables_utils.validate_override_combination
+    """
+    return validate_override_combination(base_tier, overrides or {})
+
+def apply_configuration_overrides_to_base(base_tier: ConfigurationTier, 
+                                        overrides: Dict[InterfaceType, ConfigurationTier]) -> Dict[str, Any]:
+    """
+    Apply interface-specific overrides to base tier configuration.
+    GATEWAY: Delegates to variables_utils.apply_configuration_overrides
+    """
+    return apply_configuration_overrides(base_tier, overrides)
+
+# ===== SECTION 3: CONFIGURATION PRESETS =====
+
+def get_available_presets() -> List[Dict[str, Any]]:
+    """
+    Get list of all available configuration presets.
+    GATEWAY: Delegates to variables_utils.list_configuration_presets
+    """
+    return list_configuration_presets()
+
+def get_preset_details(preset_name: str) -> Dict[str, Any]:
+    """
+    Get detailed information about a specific preset.
+    GATEWAY: Delegates to variables_utils.get_preset_configuration
+    """
+    return get_preset_configuration(preset_name)
+
+def apply_preset(preset_name: str) -> Dict[str, Any]:
+    """
+    Apply a configuration preset and return the complete configuration.
+    GATEWAY: Delegates to variables_utils.get_preset_configuration
+    """
+    return get_preset_configuration(preset_name)
+
+def list_preset_names() -> List[str]:
+    """
+    Get list of available preset names.
+    GATEWAY: Delegates to variables_utils.list_configuration_presets and extracts names
+    """
+    presets = list_configuration_presets()
+    return [preset["name"] for preset in presets]
+
+# ===== SECTION 4: RESOURCE ESTIMATION AND CONSTRAINT VALIDATION =====
+
+def estimate_memory_usage(tier: ConfigurationTier, interface: InterfaceType = None) -> float:
+    """
+    Estimate memory usage for configuration tier and optional interface.
+    GATEWAY: Delegates to appropriate variables_utils estimation functions
+    """
+    if interface is None:
+        # Estimate total system memory
+        breakdown = get_tier_memory_breakdown(tier)
+        return sum(breakdown.values())
     
-    Returns:
-        Dictionary with validation results and recommendations
+    # Estimate specific interface memory
+    if interface == InterfaceType.CACHE:
+        return estimate_cache_memory_usage(tier)
+    elif interface == InterfaceType.LOGGING:
+        return estimate_logging_memory_usage(tier)
+    elif interface == InterfaceType.METRICS:
+        return estimate_metrics_memory_usage(tier)
+    elif interface == InterfaceType.SECURITY:
+        return estimate_security_memory_usage(tier)
+    elif interface == InterfaceType.CIRCUIT_BREAKER:
+        return estimate_circuit_breaker_memory_usage(tier)
+    elif interface == InterfaceType.SINGLETON:
+        return estimate_singleton_memory_usage(tier)
+    else:
+        return 0.0
+
+def estimate_metrics_usage(tier: ConfigurationTier) -> int:
     """
-    try:
-        validation_result = {
-            'valid': True,
-            'errors': [],
-            'warnings': [],
-            'security_score': 100,
-            'recommendations': []
-        }
+    Estimate CloudWatch metrics usage for configuration tier.
+    GATEWAY: Delegates to variables_utils.estimate_metrics_count
+    """
+    return estimate_metrics_count(tier)
+
+def get_memory_allocation_summary(base_tier: ConfigurationTier = ConfigurationTier.STANDARD,
+                                overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+    """
+    Get detailed memory allocation summary for configuration.
+    GATEWAY: Delegates to variables_utils validation and combines with breakdown
+    """
+    validation = validate_configuration(base_tier, overrides)
+    return {
+        "total_memory_mb": validation.get("memory_estimate", 0),
+        "memory_limit_mb": 128,
+        "memory_available_mb": 128 - validation.get("memory_estimate", 0),
+        "utilization_percent": (validation.get("memory_estimate", 0) / 128) * 100,
+        "interface_breakdown": validation.get("interface_breakdown", {}),
+        "within_constraints": validation.get("is_valid", False),
+        "warnings": validation.get("warnings", []),
+        "recommendations": validation.get("recommendations", [])
+    }
+
+def validate_aws_constraints(base_tier: ConfigurationTier,
+                           overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+    """
+    Validate configuration against all AWS Lambda constraints.
+    GATEWAY: Delegates to variables_utils.validate_override_combination with enhanced validation
+    """
+    validation = validate_configuration(base_tier, overrides)
+    
+    # Enhanced constraint checking
+    memory_mb = validation.get("memory_estimate", 0)
+    metrics_count = validation.get("metric_estimate", 0)
+    
+    constraints = {
+        "memory_constraint": {
+            "limit_mb": 128,
+            "usage_mb": memory_mb,
+            "within_limit": memory_mb <= 128,
+            "utilization_percent": (memory_mb / 128) * 100
+        },
+        "metrics_constraint": {
+            "limit_count": 10,
+            "usage_count": metrics_count,
+            "within_limit": metrics_count <= 10,
+            "utilization_percent": (metrics_count / 10) * 100
+        },
+        "overall_compliance": validation.get("is_valid", False)
+    }
+    
+    return {
+        "constraints": constraints,
+        "validation_details": validation,
+        "compliance_status": "compliant" if constraints["overall_compliance"] else "non_compliant"
+    }
+
+# ===== SECTION 5: OPTIMIZATION FUNCTIONS =====
+
+def optimize_for_memory_constraint(target_memory_mb: float = 64,
+                                 preserve_interfaces: List[InterfaceType] = None) -> Dict[str, Any]:
+    """
+    Optimize configuration to meet memory constraint while preserving functionality.
+    GATEWAY: Implements optimization logic using existing validation functions
+    """
+    preserve_interfaces = preserve_interfaces or []
+    
+    # Start with minimum tier and gradually increase until constraint met
+    for base_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
+        # Try base tier first
+        validation = validate_configuration(base_tier, {})
+        if validation["memory_estimate"] <= target_memory_mb:
+            config = get_system_configuration(base_tier, {})
+            return {
+                "optimized_configuration": config,
+                "optimization_result": "success",
+                "memory_usage_mb": validation["memory_estimate"],
+                "target_memory_mb": target_memory_mb,
+                "optimization_strategy": f"base_tier_{base_tier.value}"
+            }
         
-        # Validate JWT secret key
-        secret_key = get_jwt_configuration('jwt_secret_key')
-        if not secret_key:
-            validation_result['errors'].append('JWT secret key not configured')
-            validation_result['valid'] = False
-            validation_result['security_score'] -= 50
-        elif secret_key == JWT_DEFAULT_CONFIG['fallback_jwt_secret']:
-            validation_result['errors'].append('Using insecure fallback JWT secret key')
-            validation_result['valid'] = False
-            validation_result['security_score'] -= 40
-        elif len(secret_key) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
-            validation_result['warnings'].append(f'JWT secret key is short: {len(secret_key)} characters')
-            validation_result['security_score'] -= 20
+        # Try selective upgrades for preserved interfaces
+        best_overrides = {}
+        for interface in preserve_interfaces:
+            test_overrides = best_overrides.copy()
+            test_overrides[interface] = ConfigurationTier.STANDARD
+            test_validation = validate_configuration(base_tier, test_overrides)
+            if test_validation["memory_estimate"] <= target_memory_mb:
+                best_overrides = test_overrides
         
-        # Validate algorithm configuration
-        algorithm = get_jwt_configuration('jwt_algorithm', 'HS256')
-        whitelist = get_jwt_configuration('jwt_algorithm_whitelist', ['HS256'])
-        
-        if algorithm not in whitelist:
-            validation_result['errors'].append(f'JWT algorithm {algorithm} not in whitelist')
-            validation_result['valid'] = False
-            validation_result['security_score'] -= 30
-        
-        if 'none' in whitelist or algorithm == 'none':
-            validation_result['errors'].append('Insecure "none" algorithm allowed')
-            validation_result['valid'] = False
-            validation_result['security_score'] -= 50
-        
-        # Validate timing configuration
-        clock_skew = get_jwt_configuration('jwt_clock_skew_seconds', 300)
-        if clock_skew > 600:  # More than 10 minutes
-            validation_result['warnings'].append('JWT clock skew tolerance is very high')
-            validation_result['security_score'] -= 10
-        
-        # Validate claims configuration
-        required_claims = get_jwt_configuration('jwt_required_claims', {})
-        if not required_claims.get('exp', False):
-            validation_result['errors'].append('JWT expiration claim not required')
-            validation_result['valid'] = False
-            validation_result['security_score'] -= 25
-        
-        # Validate Alexa configuration
-        alexa_app_id = get_jwt_configuration('alexa_application_id', '')
-        if not alexa_app_id:
-            validation_result['warnings'].append('Alexa application ID not configured')
-            validation_result['security_score'] -= 5
-        
-        # Security recommendations based on score
-        if validation_result['security_score'] < 70:
-            validation_result['recommendations'].append('Critical security issues detected - immediate action required')
-        elif validation_result['security_score'] < 90:
-            validation_result['recommendations'].append('Security improvements recommended')
-        else:
-            validation_result['recommendations'].append('JWT configuration meets security standards')
-        
-        return validation_result
-        
-    except Exception as e:
-        logger.error(f"JWT configuration validation failed: {str(e)}")
+        if best_overrides:
+            config = get_system_configuration(base_tier, best_overrides)
+            final_validation = validate_configuration(base_tier, best_overrides)
+            return {
+                "optimized_configuration": config,
+                "optimization_result": "success_with_overrides",
+                "memory_usage_mb": final_validation["memory_estimate"],
+                "target_memory_mb": target_memory_mb,
+                "optimization_strategy": f"base_{base_tier.value}_with_overrides",
+                "preserved_interfaces": [iface.value for iface in preserve_interfaces],
+                "applied_overrides": {k.value: v.value for k, v in best_overrides.items()}
+            }
+    
+    # Fallback to ultra conservative
+    config = apply_preset("ultra_conservative")
+    return {
+        "optimized_configuration": config,
+        "optimization_result": "fallback_ultra_conservative",
+        "memory_usage_mb": config.get("memory_estimate", 8),
+        "target_memory_mb": target_memory_mb,
+        "optimization_strategy": "emergency_fallback"
+    }
+
+def optimize_for_performance(priority_interfaces: List[InterfaceType] = None) -> Dict[str, Any]:
+    """
+    Optimize configuration for maximum performance within constraints.
+    GATEWAY: Implements performance optimization using existing functions
+    """
+    priority_interfaces = priority_interfaces or [InterfaceType.CACHE, InterfaceType.METRICS]
+    
+    # Start with performance_optimized preset
+    config = apply_preset("performance_optimized")
+    validation = validate_configuration(ConfigurationTier.STANDARD, config.get("overrides", {}))
+    
+    if validation["is_valid"]:
         return {
-            'valid': False,
-            'errors': [f'Validation error: {str(e)}'],
-            'security_score': 0,
-            'recommendations': ['Manual configuration review required']
+            "optimized_configuration": config,
+            "optimization_result": "preset_performance_optimized",
+            "memory_usage_mb": validation["memory_estimate"],
+            "optimization_strategy": "preset_based"
         }
-
-def set_jwt_configuration(parameter_name: str, value: Any) -> bool:
-    """
-    Set JWT configuration parameter with validation.
     
-    Args:
-        parameter_name: Name of the configuration parameter
-        value: Value to set
-        
-    Returns:
-        True if successfully set, False otherwise
-    """
-    try:
-        # Validate sensitive parameters
-        if parameter_name == 'jwt_secret_key':
-            if not isinstance(value, str):
-                logger.error("JWT secret key must be a string")
-                return False
-            
-            if len(value) < JWT_DEFAULT_CONFIG['jwt_minimum_secret_length']:
-                logger.error(f"JWT secret key too short: {len(value)} characters")
-                return False
-        
-        elif parameter_name == 'jwt_algorithm':
-            whitelist = get_jwt_configuration('jwt_algorithm_whitelist', ['HS256'])
-            if value not in whitelist:
-                logger.error(f"JWT algorithm {value} not in whitelist")
-                return False
-        
-        elif parameter_name == 'jwt_algorithm_whitelist':
-            if 'none' in value:
-                logger.error("Cannot add insecure 'none' algorithm to whitelist")
-                return False
-        
-        # Set the configuration
-        return set_configuration_parameter(parameter_name, value)
-        
-    except Exception as e:
-        logger.error(f"Failed to set JWT configuration {parameter_name}: {str(e)}")
-        return False
-
-def get_jwt_security_status() -> Dict[str, Any]:
-    """
-    Get comprehensive JWT security status and configuration summary.
+    # Try selective maximum upgrades for priority interfaces
+    base_tier = ConfigurationTier.STANDARD
+    overrides = {}
     
-    Returns:
-        Dictionary with JWT security status information
+    for interface in priority_interfaces:
+        test_overrides = overrides.copy()
+        test_overrides[interface] = ConfigurationTier.MAXIMUM
+        test_validation = validate_configuration(base_tier, test_overrides)
+        if test_validation["is_valid"]:
+            overrides = test_overrides
+    
+    config = get_system_configuration(base_tier, overrides)
+    final_validation = validate_configuration(base_tier, overrides)
+    
+    return {
+        "optimized_configuration": config,
+        "optimization_result": "selective_maximum_upgrade",
+        "memory_usage_mb": final_validation["memory_estimate"],
+        "optimization_strategy": "priority_based",
+        "upgraded_interfaces": [iface.value for iface in priority_interfaces if iface in overrides]
+    }
+
+def optimize_for_cost_protection() -> Dict[str, Any]:
     """
-    try:
-        validation = validate_jwt_configuration()
-        
-        status = {
-            'jwt_enabled': True,
-            'security_score': validation['security_score'],
-            'configuration_valid': validation['valid'],
-            'algorithm': get_jwt_configuration('jwt_algorithm', 'HS256'),
-            'clock_skew_seconds': get_jwt_configuration('jwt_clock_skew_seconds', 300),
-            'required_claims': get_jwt_configuration('jwt_required_claims', {}),
-            'strict_validation': get_jwt_configuration('jwt_strict_validation', True),
-            'cache_enabled': get_jwt_configuration('jwt_cache_enabled', True),
-            'rate_limiting_enabled': get_jwt_configuration('jwt_rate_limit_enabled', True),
-            'alexa_integration': {
-                'application_id_configured': bool(get_jwt_configuration('alexa_application_id', '')),
-                'jwt_validation_enabled': get_jwt_configuration('alexa_jwt_validation', True),
-                'require_access_token': get_jwt_configuration('alexa_require_access_token', False)
-            },
-            'security_headers_enabled': get_jwt_configuration('security_headers_enabled', True),
-            'errors': validation['errors'],
-            'warnings': validation['warnings'],
-            'recommendations': validation['recommendations']
-        }
-        
-        return status
-        
-    except Exception as e:
-        logger.error(f"Failed to get JWT security status: {str(e)}")
+    Optimize configuration for AWS free tier cost protection.
+    GATEWAY: Applies cost-focused optimization using existing presets
+    """
+    # Use resource_constrained preset for maximum cost protection
+    config = apply_preset("resource_constrained")
+    validation = validate_configuration(ConfigurationTier.MINIMUM, config.get("overrides", {}))
+    
+    return {
+        "optimized_configuration": config,
+        "optimization_result": "cost_protection_optimized",
+        "memory_usage_mb": validation["memory_estimate"],
+        "metrics_usage": validation["metric_estimate"],
+        "optimization_strategy": "free_tier_protection",
+        "cost_protection_features": [
+            "minimal_memory_usage",
+            "reduced_metrics_count",
+            "aggressive_resource_conservation"
+        ]
+    }
+
+def get_optimization_recommendations(current_config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Get intelligent optimization recommendations based on current configuration.
+    GATEWAY: Analyzes configuration and provides recommendations
+    """
+    if current_config is None:
+        current_config = apply_preset("production_balanced")
+    
+    recommendations = []
+    
+    # Analyze memory usage
+    memory_usage = current_config.get("memory_estimate", 32)
+    if memory_usage > 100:
+        recommendations.append({
+            "type": "memory_optimization",
+            "priority": "high",
+            "recommendation": "Consider reducing configuration tiers to lower memory usage",
+            "action": "optimize_for_memory_constraint",
+            "estimated_savings_mb": memory_usage - 64
+        })
+    elif memory_usage < 20:
+        recommendations.append({
+            "type": "performance_opportunity",
+            "priority": "medium", 
+            "recommendation": "Memory headroom available - consider upgrading cache or metrics tiers",
+            "action": "optimize_for_performance",
+            "available_memory_mb": 128 - memory_usage
+        })
+    
+    # Analyze metrics usage
+    metrics_usage = current_config.get("metric_estimate", 6)
+    if metrics_usage > 8:
+        recommendations.append({
+            "type": "metrics_optimization",
+            "priority": "high",
+            "recommendation": "Approaching CloudWatch metrics limit - prioritize critical metrics",
+            "action": "reduce_metrics_tier",
+            "metrics_over_limit": metrics_usage - 10
+        })
+    
+    # Preset recommendations
+    if not recommendations:
+        recommendations.append({
+            "type": "configuration_status",
+            "priority": "info",
+            "recommendation": "Current configuration is well-balanced",
+            "action": "monitor_performance",
+            "status": "optimal"
+        })
+    
+    return recommendations
+
+# ===== SECTION 6: ANALYSIS AND MONITORING =====
+
+def analyze_configuration_compliance(base_tier: ConfigurationTier,
+                                   overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
+    """
+    Comprehensive configuration compliance analysis.
+    GATEWAY: Combines validation with detailed analysis
+    """
+    validation = validate_configuration(base_tier, overrides)
+    constraints = validate_aws_constraints(base_tier, overrides)
+    memory_summary = get_memory_allocation_summary(base_tier, overrides)
+    
+    return {
+        "compliance_status": constraints["compliance_status"],
+        "validation_results": validation,
+        "constraint_analysis": constraints,
+        "memory_analysis": memory_summary,
+        "recommendations": get_optimization_recommendations({
+            "memory_estimate": validation.get("memory_estimate", 0),
+            "metric_estimate": validation.get("metric_estimate", 0)
+        }),
+        "analysis_timestamp": "runtime_generated"
+    }
+
+def get_configuration_health_status() -> Dict[str, Any]:
+    """
+    Get overall configuration system health status.
+    GATEWAY: Provides system health analysis
+    """
+    # Analyze current default configuration
+    default_config = apply_preset("production_balanced")
+    validation = validate_configuration(ConfigurationTier.STANDARD, {})
+    
+    health_status = "healthy"
+    if validation["memory_estimate"] > 100:
+        health_status = "warning"
+    if validation["memory_estimate"] > 120:
+        health_status = "critical"
+    
+    return {
+        "health_status": health_status,
+        "system_configuration": default_config,
+        "resource_utilization": {
+            "memory_utilization_percent": (validation["memory_estimate"] / 128) * 100,
+            "metrics_utilization_percent": (validation["metric_estimate"] / 10) * 100
+        },
+        "available_presets": len(list_configuration_presets()),
+        "supported_interfaces": [iface.value for iface in InterfaceType],
+        "system_version": "2025.09.28.03"
+    }
+
+# ===== SECTION 7: UTILITY AND CONVENIENCE FUNCTIONS =====
+
+def create_custom_configuration(name: str, base_tier: ConfigurationTier,
+                               overrides: Dict[InterfaceType, ConfigurationTier],
+                               description: str = "") -> Dict[str, Any]:
+    """
+    Create custom configuration with validation and save capability.
+    GATEWAY: Creates custom configuration using existing functions
+    """
+    validation = validate_configuration(base_tier, overrides)
+    
+    if not validation["is_valid"]:
         return {
-            'jwt_enabled': False,
-            'error': str(e),
-            'security_score': 0
+            "creation_result": "failed",
+            "error": "Configuration validation failed",
+            "validation_details": validation
         }
-
-# ===== SECTION 3: BACKWARD COMPATIBILITY AND GATEWAY INTEGRATION =====
-
-def get_parameter(parameter_name: str, default_value: Any = None) -> Any:
-    """
-    Enhanced parameter access with JWT configuration support.
-    Maintains backward compatibility with existing get_parameter function.
-    """
-    try:
-        # Check if this is a JWT-specific parameter
-        if parameter_name.startswith('jwt_') or parameter_name in JWT_DEFAULT_CONFIG:
-            return get_jwt_configuration(parameter_name, default_value)
-        
-        # Fall back to existing configuration system
-        return get_configuration_parameter(parameter_name, default_value)
-        
-    except Exception as e:
-        logger.error(f"Failed to get parameter {parameter_name}: {str(e)}")
-        return default_value
-
-# ===== SECTION 4: INITIALIZATION AND VALIDATION =====
-
-def initialize_jwt_configuration() -> bool:
-    """
-    Initialize JWT configuration with security validation.
     
-    Returns:
-        True if initialization successful, False otherwise
-    """
-    try:
-        logger.info("Initializing JWT configuration...")
-        
-        # Validate current configuration
-        validation = validate_jwt_configuration()
-        
-        if not validation['valid']:
-            logger.error("JWT configuration validation failed:")
-            for error in validation['errors']:
-                logger.error(f"  - {error}")
-            return False
-        
-        if validation['warnings']:
-            logger.warning("JWT configuration warnings:")
-            for warning in validation['warnings']:
-                logger.warning(f"  - {warning}")
-        
-        logger.info(f"JWT configuration initialized - Security score: {validation['security_score']}/100")
-        return True
-        
-    except Exception as e:
-        logger.error(f"JWT configuration initialization failed: {str(e)}")
-        return False
+    config = get_system_configuration(base_tier, overrides)
+    custom_config = {
+        "name": name,
+        "description": description,
+        "base_tier": base_tier,
+        "overrides": overrides,
+        "configuration": config,
+        "validation": validation,
+        "created_at": "runtime"
+    }
+    
+    return {
+        "creation_result": "success",
+        "custom_configuration": custom_config,
+        "memory_estimate": validation["memory_estimate"],
+        "metric_estimate": validation["metric_estimate"]
+    }
 
-# EOF
+def compare_configurations(config1: Dict[str, Any], config2: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compare two configurations and highlight differences.
+    GATEWAY: Provides configuration comparison analysis
+    """
+    comparison = {
+        "memory_difference_mb": config1.get("memory_estimate", 0) - config2.get("memory_estimate", 0),
+        "metric_difference": config1.get("metric_estimate", 0) - config2.get("metric_estimate", 0),
+        "tier_differences": {},
+        "performance_impact": "neutral"
+    }
+    
+    # Determine performance impact
+    if comparison["memory_difference_mb"] > 0:
+        comparison["performance_impact"] = "config1_higher_performance"
+    elif comparison["memory_difference_mb"] < 0:
+        comparison["performance_impact"] = "config2_higher_performance"
+    
+    return comparison
+
+# ===== EXPORTED FUNCTIONS =====
+
+__all__ = [
+    # Core parameter management
+    'get_parameter', 'set_parameter', 'get_all_parameters',
+    'get_configuration_types', 'create_configuration_type', 'clear_configuration_cache',
+    
+    # Configuration tier management
+    'get_interface_configuration', 'get_system_configuration', 'validate_configuration',
+    'apply_configuration_overrides_to_base',
+    
+    # Preset management
+    'get_available_presets', 'get_preset_details', 'apply_preset', 'list_preset_names',
+    
+    # Resource estimation and validation
+    'estimate_memory_usage', 'estimate_metrics_usage', 'get_memory_allocation_summary',
+    'validate_aws_constraints',
+    
+    # Optimization functions
+    'optimize_for_memory_constraint', 'optimize_for_performance', 'optimize_for_cost_protection',
+    'get_optimization_recommendations',
+    
+    # Analysis and monitoring
+    'analyze_configuration_compliance', 'get_configuration_health_status',
+    
+    # Utility functions
+    'create_custom_configuration', 'compare_configurations',
+    
+    # Configuration enums and types
+    'ConfigurationTier', 'InterfaceType'
+]
