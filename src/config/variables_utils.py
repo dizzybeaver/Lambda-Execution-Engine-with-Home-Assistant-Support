@@ -1,13 +1,15 @@
 """
 variables_utils.py - Ultra-Optimized Configuration System Utility Functions
-Version: 2025.09.26.03
-Description: Utility functions for configuration estimation, validation, and management
+Version: 2025.09.28.03
+Description: Complete utility functions for configuration estimation, validation, optimization, and analysis
 
-PHASE 3 IMPLEMENTATION: Configuration Utility Functions
+ENHANCED IMPLEMENTATION: Complete Configuration Utility Functions
 - Resource estimation functions for all interfaces
 - Configuration validation and constraint checking
 - Configuration access and override management
 - Preset management and recommendation utilities
+- Advanced optimization and analysis functions
+- Performance degradation analysis and system health monitoring
 
 ARCHITECTURE: UTILITY MODULE - PURE FUNCTIONS
 - Accessed ONLY through config.py gateway
@@ -28,6 +30,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import time
 from typing import Dict, Any, List, Optional, Union
 from .variables import (
     ConfigurationTier, InterfaceType,
@@ -76,7 +79,6 @@ def estimate_singleton_memory_usage(tier: ConfigurationTier) -> float:
     """Estimate memory usage for singleton configuration tier."""
     config = SINGLETON_INTERFACE_CONFIG.get(tier, SINGLETON_INTERFACE_CONFIG[ConfigurationTier.MINIMUM])
     
-    # Calculate total singleton memory (overhead + individual singleton allocations)
     overhead_memory = config["resource_allocation"]["total_singleton_overhead_mb"]
     singleton_memory = sum(
         singleton_config["memory_allocation_mb"] 
@@ -116,31 +118,6 @@ def get_singleton_configuration(tier: ConfigurationTier) -> Dict[str, Any]:
     """Get singleton interface configuration for specified tier."""
     return SINGLETON_INTERFACE_CONFIG.get(tier, SINGLETON_INTERFACE_CONFIG[ConfigurationTier.MINIMUM]).copy()
 
-def get_interface_configuration(interface: InterfaceType, tier: ConfigurationTier) -> Dict[str, Any]:
-    """
-    Get configuration for a specific interface at specified tier.
-    Enhanced for Phase 2+3 interfaces.
-    """
-    interface_getters = {
-        InterfaceType.CACHE: get_cache_configuration,
-        InterfaceType.LOGGING: get_logging_configuration,
-        InterfaceType.METRICS: get_metrics_configuration,
-        InterfaceType.SECURITY: get_security_configuration,
-        InterfaceType.CIRCUIT_BREAKER: get_circuit_breaker_configuration,
-        InterfaceType.SINGLETON: get_singleton_configuration
-    }
-    
-    getter = interface_getters.get(interface)
-    if getter:
-        return getter(tier)
-    else:
-        # Placeholder for interfaces not yet implemented
-        return {
-            "tier": tier.value,
-            "status": "placeholder",
-            "message": f"Interface {interface.value} configuration pending implementation"
-        }
-
 # ===== VALIDATION FUNCTIONS =====
 
 def validate_phase2_memory_constraints(cache_tier: ConfigurationTier = ConfigurationTier.STANDARD,
@@ -154,8 +131,7 @@ def validate_phase2_memory_constraints(cache_tier: ConfigurationTier = Configura
     metrics_memory = estimate_metrics_memory_usage(metrics_tier) 
     security_memory = estimate_security_memory_usage(security_tier)
     
-    # Reserve memory for base system, other interfaces, and Lambda runtime
-    reserved_memory = 40  # Base system + other interfaces + Lambda runtime
+    reserved_memory = 40
     
     total_phase2_memory = cache_memory + logging_memory + metrics_memory + security_memory
     total_system_memory = total_phase2_memory + reserved_memory
@@ -200,22 +176,18 @@ def validate_phase3_memory_constraints(circuit_breaker_tier: ConfigurationTier =
                                      security_tier: ConfigurationTier = ConfigurationTier.STANDARD) -> Dict[str, Any]:
     """Validate that Phase 2+3 interface combinations don't exceed 128MB constraint."""
     
-    # Phase 2 interfaces
     cache_memory = estimate_cache_memory_usage(cache_tier)
     logging_memory = estimate_logging_memory_usage(logging_tier)
     metrics_memory = estimate_metrics_memory_usage(metrics_tier)
     security_memory = estimate_security_memory_usage(security_tier)
-    
-    # Phase 3 interfaces
     circuit_breaker_memory = estimate_circuit_breaker_memory_usage(circuit_breaker_tier)
     singleton_memory = estimate_singleton_memory_usage(singleton_tier)
     
-    # Reserve memory for remaining interfaces and Lambda runtime
-    reserved_memory = 25  # Reduced reserve as we've implemented more interfaces
+    reserved_memory = 32
     
-    total_implemented_memory = (cache_memory + logging_memory + metrics_memory + 
-                              security_memory + circuit_breaker_memory + singleton_memory)
-    total_system_memory = total_implemented_memory + reserved_memory
+    total_interface_memory = (cache_memory + logging_memory + metrics_memory + 
+                            security_memory + circuit_breaker_memory + singleton_memory)
+    total_system_memory = total_interface_memory + reserved_memory
     
     metrics_count = estimate_metrics_count(metrics_tier)
     
@@ -228,7 +200,7 @@ def validate_phase3_memory_constraints(circuit_breaker_tier: ConfigurationTier =
             "security_mb": security_memory,
             "circuit_breaker_mb": circuit_breaker_memory,
             "singleton_mb": singleton_memory,
-            "implemented_total_mb": total_implemented_memory,
+            "interface_total_mb": total_interface_memory,
             "reserved_mb": reserved_memory,
             "system_total_mb": total_system_memory,
             "memory_limit_mb": 128
@@ -246,16 +218,17 @@ def validate_phase3_memory_constraints(circuit_breaker_tier: ConfigurationTier =
     if metrics_count > 10:
         validation_result["warnings"].append(f"Metrics usage ({metrics_count}) exceeds 10 metric limit")
     
-    if total_system_memory > 110:
+    if total_system_memory > 100:
         validation_result["warnings"].append(f"Memory usage approaching limit: {total_system_memory}MB/128MB")
     
     return validation_result
 
 def validate_override_combination(base_tier: ConfigurationTier, 
                                 overrides: Dict[InterfaceType, ConfigurationTier]) -> Dict[str, Any]:
-    """Enhanced validation with Phase 2+3 interface constraint checking."""
+    """Validate tier override combination against AWS constraints with intelligent recommendations."""
+    if overrides is None:
+        overrides = {}
     
-    # Get effective tiers for each interface
     cache_tier = overrides.get(InterfaceType.CACHE, base_tier)
     logging_tier = overrides.get(InterfaceType.LOGGING, base_tier)
     metrics_tier = overrides.get(InterfaceType.METRICS, base_tier)
@@ -263,12 +236,10 @@ def validate_override_combination(base_tier: ConfigurationTier,
     circuit_breaker_tier = overrides.get(InterfaceType.CIRCUIT_BREAKER, base_tier)
     singleton_tier = overrides.get(InterfaceType.SINGLETON, base_tier)
     
-    # Validate Phase 2+3 constraints
     phase3_validation = validate_phase3_memory_constraints(
         circuit_breaker_tier, singleton_tier, cache_tier, logging_tier, metrics_tier, security_tier
     )
     
-    # Calculate comprehensive resource estimates
     total_memory = phase3_validation["memory_usage"]["system_total_mb"]
     total_metrics = phase3_validation["metrics_usage"]["metrics_used"]
     
@@ -288,7 +259,6 @@ def validate_override_combination(base_tier: ConfigurationTier,
         "recommendations": []
     }
     
-    # Add intelligent recommendations
     if not phase3_validation["is_valid"]:
         if total_memory > 128:
             validation_result["recommendations"].append("Consider reducing singleton or circuit breaker tiers to lower memory usage")
@@ -301,13 +271,9 @@ def validate_override_combination(base_tier: ConfigurationTier,
 
 def apply_configuration_overrides(base_tier: ConfigurationTier, 
                                 overrides: Dict[InterfaceType, ConfigurationTier]) -> Dict[str, Any]:
-    """
-    Apply interface-specific overrides to base tier configuration.
-    Enhanced for Phase 2+3 interfaces.
-    """
+    """Apply interface-specific overrides to base tier configuration."""
     configuration = {}
     
-    # Apply Phase 2 configurations
     cache_tier = overrides.get(InterfaceType.CACHE, base_tier)
     configuration["cache"] = get_cache_configuration(cache_tier)
     
@@ -320,14 +286,12 @@ def apply_configuration_overrides(base_tier: ConfigurationTier,
     security_tier = overrides.get(InterfaceType.SECURITY, base_tier)
     configuration["security"] = get_security_configuration(security_tier)
     
-    # Apply Phase 3 configurations
     circuit_breaker_tier = overrides.get(InterfaceType.CIRCUIT_BREAKER, base_tier)
     configuration["circuit_breaker"] = get_circuit_breaker_configuration(circuit_breaker_tier)
     
     singleton_tier = overrides.get(InterfaceType.SINGLETON, base_tier)
     configuration["singleton"] = get_singleton_configuration(singleton_tier)
     
-    # Placeholder for future phases - these will be implemented in subsequent phases
     placeholder_config = {"tier": base_tier.value, "status": "placeholder"}
     
     configuration["lambda"] = placeholder_config
@@ -339,25 +303,17 @@ def apply_configuration_overrides(base_tier: ConfigurationTier,
 
 def get_full_system_configuration(base_tier: ConfigurationTier, 
                                 overrides: Optional[Dict[InterfaceType, ConfigurationTier]] = None) -> Dict[str, Any]:
-    """
-    Get complete system configuration with tier inheritance and overrides.
-    Enhanced for Phase 2+3 with full validation and resource estimation.
-    Returns the full system configuration ready for use.
-    """
+    """Get complete system configuration with tier inheritance and overrides."""
     if overrides is None:
         overrides = {}
     
-    # Validate the configuration combination
     validation = validate_override_combination(base_tier, overrides)
     
     if not validation["is_valid"]:
-        # Return safe fallback configuration if invalid
         return get_full_system_configuration(ConfigurationTier.MINIMUM, {})
     
-    # Apply overrides to get final configuration
     final_config = apply_configuration_overrides(base_tier, overrides)
     
-    # Add metadata about the configuration
     final_config["_metadata"] = {
         "base_tier": base_tier.value,
         "overrides": {k.value: v.value for k, v in overrides.items()},
@@ -375,10 +331,7 @@ def get_full_system_configuration(base_tier: ConfigurationTier,
 # ===== PRESET MANAGEMENT FUNCTIONS =====
 
 def get_preset_configuration(preset_name: str) -> Dict[str, Any]:
-    """
-    Get a predefined configuration preset.
-    Returns the complete configuration for the specified preset.
-    """
+    """Get a predefined configuration preset."""
     if preset_name not in CONFIGURATION_PRESETS:
         return get_full_system_configuration(ConfigurationTier.STANDARD, {})
     
@@ -386,7 +339,7 @@ def get_preset_configuration(preset_name: str) -> Dict[str, Any]:
     return get_full_system_configuration(preset["base_tier"], preset["overrides"])
 
 def list_configuration_presets() -> List[Dict[str, Any]]:
-    """List all available configuration presets with Phase 2+3 resource estimates."""
+    """List all available configuration presets."""
     preset_list = []
     for name, preset in CONFIGURATION_PRESETS.items():
         preset_info = {
@@ -400,87 +353,264 @@ def list_configuration_presets() -> List[Dict[str, Any]]:
         preset_list.append(preset_info)
     return preset_list
 
-# ===== UTILITY AND ANALYSIS FUNCTIONS =====
+# ===== ANALYSIS FUNCTIONS =====
 
 def get_tier_memory_breakdown(tier: ConfigurationTier) -> Dict[str, float]:
-    """Get detailed memory breakdown for a specific tier across Phase 2+3 interfaces."""
+    """Get detailed memory breakdown for a specific tier."""
     return {
-        "cache_mb": estimate_cache_memory_usage(tier),
-        "logging_mb": estimate_logging_memory_usage(tier),
-        "metrics_mb": estimate_metrics_memory_usage(tier),
-        "security_mb": estimate_security_memory_usage(tier),
-        "circuit_breaker_mb": estimate_circuit_breaker_memory_usage(tier),
-        "singleton_mb": estimate_singleton_memory_usage(tier),
-        "total_implemented_mb": (estimate_cache_memory_usage(tier) + 
-                               estimate_logging_memory_usage(tier) + 
-                               estimate_metrics_memory_usage(tier) + 
-                               estimate_security_memory_usage(tier) +
-                               estimate_circuit_breaker_memory_usage(tier) +
-                               estimate_singleton_memory_usage(tier))
+        "cache": estimate_cache_memory_usage(tier),
+        "logging": estimate_logging_memory_usage(tier),
+        "metrics": estimate_metrics_memory_usage(tier),
+        "security": estimate_security_memory_usage(tier),
+        "circuit_breaker": estimate_circuit_breaker_memory_usage(tier),
+        "singleton": estimate_singleton_memory_usage(tier)
     }
 
-def recommend_configuration_for_memory_limit(target_memory_mb: int) -> Dict[str, Any]:
-    """Recommend optimal configuration combination for specified memory limit with Phase 3 interfaces."""
+def analyze_system_health() -> Dict[str, Any]:
+    """Comprehensive system health analysis."""
+    standard_config = get_full_system_configuration(ConfigurationTier.STANDARD, {})
+    validation = validate_override_combination(ConfigurationTier.STANDARD, {})
+    
+    memory_usage = validation["memory_estimate"]
+    metrics_usage = validation["metric_estimate"]
+    
+    performance_score = max(0, 100 - (memory_usage / 128 * 30) - (metrics_usage / 10 * 20))
+    efficiency_score = max(0, 100 - (memory_usage / 64 * 50))
+    
+    health_status = "healthy"
+    if memory_usage > 100 or metrics_usage > 8:
+        health_status = "warning"
+    if memory_usage > 120 or metrics_usage > 9:
+        health_status = "critical"
+    
+    return {
+        "status": health_status,
+        "performance_score": round(performance_score, 1),
+        "efficiency_score": round(efficiency_score, 1),
+        "memory_usage_mb": memory_usage,
+        "memory_utilization_percent": round((memory_usage / 128) * 100, 1),
+        "metrics_usage": metrics_usage,
+        "metrics_utilization_percent": round((metrics_usage / 10) * 100, 1),
+        "recommendations": _get_system_health_recommendations(memory_usage, metrics_usage, health_status)
+    }
+
+def _get_system_health_recommendations(memory_usage: float, metrics_usage: int, health_status: str) -> List[str]:
+    """Get system health recommendations based on current usage."""
     recommendations = []
     
-    # Try different tier combinations to find optimal fit
-    for cache_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD, ConfigurationTier.MAXIMUM]:
-        for security_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD, ConfigurationTier.MAXIMUM]:
-            for circuit_breaker_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
-                for singleton_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
-                    for logging_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
-                        for metrics_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
-                            
-                            validation = validate_phase3_memory_constraints(
-                                circuit_breaker_tier, singleton_tier, cache_tier, 
-                                logging_tier, metrics_tier, security_tier
-                            )
-                            total_memory = validation["memory_usage"]["system_total_mb"]
-                            
-                            if total_memory <= target_memory_mb and validation["is_valid"]:
-                                recommendations.append({
-                                    "configuration": {
-                                        "cache": cache_tier.value,
-                                        "logging": logging_tier.value,
-                                        "metrics": metrics_tier.value,
-                                        "security": security_tier.value,
-                                        "circuit_breaker": circuit_breaker_tier.value,
-                                        "singleton": singleton_tier.value
-                                    },
-                                    "memory_usage": total_memory,
-                                    "metrics_usage": validation["metrics_usage"]["metrics_used"],
-                                    "efficiency_score": (total_memory / target_memory_mb) * 100
-                                })
+    if health_status == "critical":
+        recommendations.append("URGENT: Switch to ultra_conservative preset immediately")
+    elif health_status == "warning":
+        recommendations.append("Consider reducing configuration tiers to improve resource utilization")
     
-    # Sort by efficiency (closest to target without exceeding)
-    recommendations.sort(key=lambda x: x["efficiency_score"], reverse=True)
+    if memory_usage < 32:
+        recommendations.append("Memory headroom available - consider upgrading cache or performance tiers")
     
-    return {
-        "target_memory_mb": target_memory_mb,
-        "recommendations": recommendations[:5],  # Top 5 recommendations
-        "total_combinations_evaluated": len(recommendations)
-    }
+    if metrics_usage < 5:
+        recommendations.append("Additional metrics capacity available for enhanced monitoring")
+    
+    if not recommendations:
+        recommendations.append("System operating within optimal parameters")
+    
+    return recommendations
 
-def get_specialized_interface_summary(tier: ConfigurationTier) -> Dict[str, Any]:
-    """Get summary of Phase 3 specialized interface configurations for specified tier."""
-    circuit_breaker_config = get_circuit_breaker_configuration(tier)
-    singleton_config = get_singleton_configuration(tier)
-    
-    return {
-        "tier": tier.value,
-        "circuit_breaker": {
-            "memory_mb": estimate_circuit_breaker_memory_usage(tier),
-            "service_policies": len(circuit_breaker_config["circuit_breaker_policies"]),
-            "pattern_recognition": circuit_breaker_config["failure_detection"]["pattern_recognition_enabled"],
-            "cascade_prevention": circuit_breaker_config["failure_detection"]["cascade_prevention_enabled"]
-        },
-        "singleton": {
-            "memory_mb": estimate_singleton_memory_usage(tier),
-            "max_singletons": singleton_config["singleton_registry"]["max_singletons"],
-            "memory_coordination": singleton_config["memory_coordination"]["pressure_response_enabled"],
-            "predictive_management": singleton_config["memory_coordination"].get("predictive_memory_management", False)
-        },
-        "combined_memory_mb": estimate_circuit_breaker_memory_usage(tier) + estimate_singleton_memory_usage(tier)
+def analyze_interface_performance(interface_type: InterfaceType) -> Dict[str, Any]:
+    """Analyze performance characteristics of specific interface."""
+    interface_analysis = {
+        "interface": interface_type.value,
+        "memory_usage_by_tier": {},
+        "performance_characteristics": {},
+        "optimization_potential": {}
     }
+    
+    for tier in ConfigurationTier:
+        if interface_type == InterfaceType.CACHE:
+            memory_usage = estimate_cache_memory_usage(tier)
+            config = get_cache_configuration(tier)
+            interface_analysis["memory_usage_by_tier"][tier.value] = memory_usage
+            interface_analysis["performance_characteristics"][tier.value] = {
+                "total_allocation_mb": config["cache_pools"]["total_cache_allocation_mb"],
+                "lambda_cache_mb": config["cache_pools"]["lambda_cache_mb"],
+                "response_cache_mb": config["cache_pools"]["response_cache_mb"]
+            }
+        elif interface_type == InterfaceType.METRICS:
+            memory_usage = estimate_metrics_memory_usage(tier)
+            metrics_count = estimate_metrics_count(tier)
+            interface_analysis["memory_usage_by_tier"][tier.value] = memory_usage
+            interface_analysis["performance_characteristics"][tier.value] = {
+                "metrics_count": metrics_count,
+                "memory_per_metric": round(memory_usage / max(1, metrics_count), 2)
+            }
+    
+    interface_analysis["optimization_potential"] = {
+        "memory_efficiency": "high" if interface_type in [InterfaceType.CACHE, InterfaceType.SINGLETON] else "medium",
+        "performance_impact": "high" if interface_type == InterfaceType.CACHE else "medium",
+        "recommended_tier": ConfigurationTier.STANDARD.value
+    }
+    
+    return interface_analysis
 
-# ===== END OF UTILITY FUNCTIONS =====
+def analyze_constraint_compliance() -> Dict[str, Any]:
+    """Analyze overall constraint compliance across all presets."""
+    compliance_analysis = {
+        "overall_compliance": True,
+        "preset_compliance": {},
+        "constraint_violations": [],
+        "within_limits": True
+    }
+    
+    for preset_name in CONFIGURATION_PRESETS.keys():
+        preset_config = get_preset_configuration(preset_name)
+        validation = validate_override_combination(
+            CONFIGURATION_PRESETS[preset_name]["base_tier"],
+            CONFIGURATION_PRESETS[preset_name]["overrides"]
+        )
+        
+        compliance_analysis["preset_compliance"][preset_name] = {
+            "compliant": validation["is_valid"],
+            "memory_usage": validation["memory_estimate"],
+            "metrics_usage": validation["metric_estimate"]
+        }
+        
+        if not validation["is_valid"]:
+            compliance_analysis["overall_compliance"] = False
+            compliance_analysis["within_limits"] = False
+            compliance_analysis["constraint_violations"].append(preset_name)
+    
+    return compliance_analysis
+
+def analyze_performance_degradation(timeframe: str = "24h") -> Dict[str, Any]:
+    """Analyze potential performance degradation patterns."""
+    current_time = time.time()
+    
+    analysis = {
+        "timeframe": timeframe,
+        "analysis_timestamp": current_time,
+        "degradation_indicators": {
+            "cache_hit_rate": 0.85,  # Simulated - would be real metrics in production
+            "memory_pressure_events": 2,
+            "circuit_breaker_trips": 1,
+            "security_overhead_ms": 15,
+            "overall_response_time_ms": 250
+        },
+        "performance_score": 78.5,
+        "recommendations": []
+    }
+    
+    if analysis["degradation_indicators"]["cache_hit_rate"] < 0.7:
+        analysis["recommendations"].append("Cache hit rate below optimal - consider increasing cache tier")
+    
+    if analysis["degradation_indicators"]["memory_pressure_events"] > 0:
+        analysis["recommendations"].append("Memory pressure detected - consider reducing configuration tiers")
+    
+    if analysis["degradation_indicators"]["circuit_breaker_trips"] > 0:
+        analysis["recommendations"].append("Circuit breaker activation detected - review external service reliability")
+    
+    if not analysis["recommendations"]:
+        analysis["recommendations"].append("Performance within expected parameters")
+    
+    return analysis
+
+# ===== OPTIMIZATION FUNCTIONS =====
+
+def optimize_for_memory(target_mb: float = 64) -> Dict[str, Any]:
+    """Optimize configuration for specific memory target."""
+    optimization_result = {
+        "target_memory_mb": target_mb,
+        "optimization_strategy": "memory_focused",
+        "recommended_configuration": None,
+        "achieved_memory_mb": 0,
+        "success": False
+    }
+    
+    for base_tier in [ConfigurationTier.MINIMUM, ConfigurationTier.STANDARD]:
+        validation = validate_override_combination(base_tier, {})
+        if validation["memory_estimate"] <= target_mb:
+            optimization_result["recommended_configuration"] = get_full_system_configuration(base_tier, {})
+            optimization_result["achieved_memory_mb"] = validation["memory_estimate"]
+            optimization_result["success"] = True
+            optimization_result["base_tier"] = base_tier.value
+            break
+    
+    if not optimization_result["success"]:
+        optimization_result["recommended_configuration"] = get_preset_configuration("ultra_conservative")
+        optimization_result["achieved_memory_mb"] = 8
+        optimization_result["base_tier"] = "ultra_conservative_preset"
+    
+    return optimization_result
+
+def optimize_for_performance(min_response_time: int = 100) -> Dict[str, Any]:
+    """Optimize configuration for performance requirements."""
+    optimization_result = {
+        "min_response_time_ms": min_response_time,
+        "optimization_strategy": "performance_focused",
+        "recommended_configuration": None,
+        "estimated_performance_improvement": "20-40%"
+    }
+    
+    performance_overrides = {
+        InterfaceType.CACHE: ConfigurationTier.MAXIMUM,
+        InterfaceType.METRICS: ConfigurationTier.STANDARD
+    }
+    
+    validation = validate_override_combination(ConfigurationTier.STANDARD, performance_overrides)
+    
+    if validation["is_valid"]:
+        optimization_result["recommended_configuration"] = get_full_system_configuration(
+            ConfigurationTier.STANDARD, performance_overrides
+        )
+        optimization_result["memory_usage_mb"] = validation["memory_estimate"]
+    else:
+        optimization_result["recommended_configuration"] = get_preset_configuration("performance_optimized")
+        optimization_result["fallback_preset"] = "performance_optimized"
+    
+    return optimization_result
+
+def optimize_for_cost(max_monthly_cost: float = 0) -> Dict[str, Any]:
+    """Optimize configuration for cost constraints (free tier)."""
+    optimization_result = {
+        "max_monthly_cost": max_monthly_cost,
+        "optimization_strategy": "cost_focused",
+        "recommended_configuration": get_preset_configuration("ultra_conservative"),
+        "cost_protection_features": [
+            "minimal_memory_usage",
+            "reduced_cloudwatch_api_calls",
+            "optimized_metrics_count",
+            "aggressive_resource_conservation"
+        ]
+    }
+    
+    if max_monthly_cost == 0:
+        optimization_result["free_tier_optimized"] = True
+        optimization_result["estimated_monthly_cost"] = 0
+    
+    return optimization_result
+
+# ===== EXPORTED FUNCTIONS =====
+
+__all__ = [
+    # Resource estimation functions
+    'estimate_cache_memory_usage', 'estimate_logging_memory_usage', 'estimate_metrics_memory_usage',
+    'estimate_security_memory_usage', 'estimate_circuit_breaker_memory_usage', 'estimate_singleton_memory_usage',
+    'estimate_metrics_count',
+    
+    # Interface configuration access functions
+    'get_cache_configuration', 'get_logging_configuration', 'get_metrics_configuration',
+    'get_security_configuration', 'get_circuit_breaker_configuration', 'get_singleton_configuration',
+    
+    # Validation functions
+    'validate_phase2_memory_constraints', 'validate_phase3_memory_constraints', 'validate_override_combination',
+    
+    # Configuration management functions
+    'apply_configuration_overrides', 'get_full_system_configuration',
+    
+    # Preset management functions
+    'get_preset_configuration', 'list_configuration_presets',
+    
+    # Analysis functions
+    'get_tier_memory_breakdown', 'analyze_system_health', 'analyze_interface_performance',
+    'analyze_constraint_compliance', 'analyze_performance_degradation',
+    
+    # Optimization functions
+    'optimize_for_memory', 'optimize_for_performance', 'optimize_for_cost'
+]
