@@ -1,34 +1,26 @@
 """
 utility_core.py - ULTRA-OPTIMIZED: Maximum Gateway Utilization Utility Implementation
-Version: 2025.09.27.02
+Version: 2025.09.28.03
 Description: Ultra-lightweight utility core with maximum gateway utilization and validation consolidation
 
-UPDATES APPLIED:
-- ✅ ADDED: Import validation operations to UtilityOperation enum
-- ✅ INTEGRATED: utility_import_validation.py functions into core operations
-- ✅ MAINTAINED: Generic operation pattern for all utility functions
-- ✅ OPTIMIZED: Import validation with caching and gateway utilization
-
-ULTRA-OPTIMIZATIONS COMPLETED:
-- ✅ MAXIMIZED: Gateway function utilization across all operations (90% increase)
-- ✅ GENERICIZED: Single generic utility function with operation type parameters
-- ✅ CONSOLIDATED: All utility logic using generic operation pattern
-- ✅ CACHED: Validation results and system diagnostics using cache gateway
-- ✅ SECURED: All inputs validated using security gateway
+CORRECTIONS APPLIED (2025.09.28.03):
+- ✅ RENAMED: VALIDATE_CONFIGURATION → VALIDATE_INPUT_CONFIGURATION (clarifies input-level validation)
+- ✅ REMOVED: GET_DIAGNOSTIC_INFO (moved to debug_core.py per special status)
+- ✅ CLARIFIED: Utility handles basic/generic operations, debug handles system diagnostics
 
 ARCHITECTURE: SECONDARY IMPLEMENTATION - ULTRA-OPTIMIZED
 - Maximum delegation to gateway interfaces
 - Generic operation patterns eliminate code duplication
-- Intelligent caching for validation results and diagnostics
+- Intelligent caching for validation results
 - Single-threaded Lambda optimized with zero threading overhead
 
 GATEWAY UTILIZATION STRATEGY (MAXIMIZED):
-- cache.py: Validation result caching, diagnostic cache, correlation ID cache
+- cache.py: Validation result caching, correlation ID cache
 - singleton.py: Utility manager access, system coordination
-- metrics.py: Utility metrics, validation timing, diagnostic performance
+- metrics.py: Utility metrics, validation timing
 - logging.py: All utility logging with context and correlation
 - security.py: Input validation, data sanitization
-- config.py: Utility configuration, validation rules, debug settings
+- config.py: Utility configuration, validation rules
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -66,7 +58,6 @@ logger = logging.getLogger(__name__)
 
 UTILITY_CACHE_PREFIX = "util_"
 VALIDATION_CACHE_PREFIX = "valid_"
-DIAGNOSTIC_CACHE_PREFIX = "diag_"
 IMPORT_VALIDATION_CACHE_PREFIX = "import_"
 UTILITY_CACHE_TTL = 300  # 5 minutes
 
@@ -78,7 +69,7 @@ UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 # ===== SECTION 2: UTILITY OPERATION ENUM =====
 
 class UtilityOperation(Enum):
-    """Ultra-generic utility operations."""
+    """Ultra-generic utility operations for basic/generic utilities."""
     # Core utility operations
     VALIDATE_STRING = "validate_string"
     CREATE_SUCCESS_RESPONSE = "create_success_response"
@@ -92,12 +83,11 @@ class UtilityOperation(Enum):
     MONITOR_IMPORTS_RUNTIME = "monitor_imports_runtime"
     APPLY_IMMEDIATE_FIXES = "apply_immediate_fixes"
     
-    # Additional utility operations
+    # Additional utility operations (basic input-level)
     VALIDATE_INPUT = "validate_input"
     SANITIZE_RESPONSE = "sanitize_response"
     GENERATE_CORRELATION_ID = "generate_correlation_id"
-    VALIDATE_CONFIGURATION = "validate_configuration"
-    GET_DIAGNOSTIC_INFO = "get_diagnostic_info"
+    VALIDATE_INPUT_CONFIGURATION = "validate_input_configuration"  # RENAMED: Input-level validation only
 
 # ===== SECTION 3: GENERIC UTILITY OPERATION FUNCTION =====
 
@@ -147,6 +137,8 @@ def generic_utility_operation(operation: UtilityOperation, **kwargs) -> Any:
             result = _monitor_imports_runtime_implementation(**kwargs)
         elif operation == UtilityOperation.APPLY_IMMEDIATE_FIXES:
             result = _apply_immediate_fixes_implementation(**kwargs)
+        elif operation == UtilityOperation.VALIDATE_INPUT_CONFIGURATION:  # RENAMED
+            result = _validate_input_configuration_implementation(**kwargs)
         else:
             result = _default_utility_operation(operation, **kwargs)
         
@@ -309,13 +301,10 @@ def _validate_import_architecture_implementation(**kwargs) -> Dict[str, Any]:
     project_path = kwargs.get("project_path", ".")
     
     try:
-        # Import the validation module
         from .utility_import_validation import validate_import_architecture
         
-        # Execute validation
         result = validate_import_architecture(project_path)
         
-        # Add metadata
         result["operation"] = "validate_import_architecture"
         result["timestamp"] = _get_timestamp_value()
         result["correlation_id"] = _generate_correlation_id_core()
@@ -325,22 +314,19 @@ def _validate_import_architecture_implementation(**kwargs) -> Dict[str, Any]:
     except Exception as e:
         log_gateway.log_error(f"Import architecture validation failed: {str(e)}")
         return {
-            "compliance_status": "ERROR",
+            "architecture_valid": False,
             "error": str(e),
             "operation": "validate_import_architecture",
             "timestamp": _get_timestamp_value()
         }
 
 def _monitor_imports_runtime_implementation(**kwargs) -> Dict[str, Any]:
-    """Monitor runtime imports using utility_import_validation."""
+    """Monitor imports at runtime using utility_import_validation."""
     try:
-        # Import the monitoring module
         from .utility_import_validation import monitor_imports_runtime
         
-        # Execute monitoring
         result = monitor_imports_runtime()
         
-        # Add metadata
         result["operation"] = "monitor_imports_runtime"
         result["timestamp"] = _get_timestamp_value()
         result["correlation_id"] = _generate_correlation_id_core()
@@ -350,8 +336,8 @@ def _monitor_imports_runtime_implementation(**kwargs) -> Dict[str, Any]:
     except Exception as e:
         log_gateway.log_error(f"Runtime import monitoring failed: {str(e)}")
         return {
+            "monitoring_active": False,
             "error": str(e),
-            "status": "monitoring_failed",
             "operation": "monitor_imports_runtime",
             "timestamp": _get_timestamp_value()
         }
@@ -359,13 +345,10 @@ def _monitor_imports_runtime_implementation(**kwargs) -> Dict[str, Any]:
 def _apply_immediate_fixes_implementation(**kwargs) -> Dict[str, Any]:
     """Apply immediate fixes using utility_import_validation."""
     try:
-        # Import the fixes module
         from .utility_import_validation import apply_immediate_fixes
         
-        # Execute fixes
         result = apply_immediate_fixes()
         
-        # Add metadata
         result["operation"] = "apply_immediate_fixes"
         result["timestamp"] = _get_timestamp_value()
         result["correlation_id"] = _generate_correlation_id_core()
@@ -375,16 +358,50 @@ def _apply_immediate_fixes_implementation(**kwargs) -> Dict[str, Any]:
     except Exception as e:
         log_gateway.log_error(f"Immediate fixes application failed: {str(e)}")
         return {
+            "fixes_applied": False,
             "error": str(e),
-            "status": "failed",
             "operation": "apply_immediate_fixes",
+            "timestamp": _get_timestamp_value()
+        }
+
+def _validate_input_configuration_implementation(**kwargs) -> Dict[str, Any]:
+    """
+    Validate input-level configuration data structures.
+    RENAMED from validate_configuration - handles basic input validation only.
+    For system-level configuration validation, use debug.py functions.
+    """
+    config_data = kwargs.get("config_data", {})
+    
+    try:
+        # Basic input validation
+        if not isinstance(config_data, dict):
+            return {
+                "valid": False,
+                "error": "Configuration must be a dictionary",
+                "timestamp": _get_timestamp_value()
+            }
+        
+        # Validate required structure using security gateway
+        validation_result = security.validate_input(config_data, input_type="config")
+        
+        return {
+            "valid": validation_result.get("valid", True),
+            "validation_type": "input_configuration",
+            "timestamp": _get_timestamp_value(),
+            "note": "For system configuration validation, use debug.validate_system_configuration()"
+        }
+        
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": f"Input configuration validation failed: {str(e)}",
             "timestamp": _get_timestamp_value()
         }
 
 # ===== SECTION 6: HELPER FUNCTIONS =====
 
 def _generate_correlation_id_core() -> str:
-    """Generate correlation ID for tracking."""
+    """Generate unique correlation ID."""
     return f"util-{int(time.time() * 1000)}-{str(uuid.uuid4())[:8]}"
 
 def _get_timestamp_value() -> str:
