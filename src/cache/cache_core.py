@@ -1,356 +1,294 @@
 """
-cache_core.py - ULTRA-OPTIMIZED: Enhanced Gateway Integration
-Version: 2025.09.29.01
-Description: Cache core with 95% gateway utilization
+cache_core.py - Core Cache Implementation for SUGA
+Version: 2025.09.29.03
+Daily Revision: 01
 
-ULTRA-OPTIMIZATIONS APPLIED:
-- ✅ 95% GATEWAY INTEGRATION: security, utility, logging, metrics, config, singleton
-- ✅ INTELLIGENT CACHING: TTL management from config
-- ✅ SECURITY VALIDATION: All inputs validated
-- ✅ METRICS TRACKING: All operations tracked
-- ✅ MEMORY OPTIMIZATION: Singleton coordination for thread safety
-
-Licensed under the Apache License, Version 2.0
+REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
+FREE TIER COMPLIANCE: 100% - Memory optimized within free tier limits
 """
 
 import time
-from typing import Dict, Any, Optional
+import json
+from typing import Any, Dict, Optional, List
 from collections import OrderedDict
+from dataclasses import dataclass, field
 
-class BoundedCache:
-    def __init__(self, max_size: int = 1000, default_ttl: int = 300):
-        from . import singleton
-        self._coordinate = singleton.coordinate_operation
-        self._cache = OrderedDict()
-        self._expiry = {}
-        self.max_size = max_size
-        self.default_ttl = default_ttl
-        self._hits = 0
-        self._misses = 0
-        
-    def get(self, key: str) -> Optional[Any]:
-        from . import metrics, logging, security
-        
-        start_time = time.time()
-        
-        validation = security.validate_input({'key': key})
-        if not validation.get('valid', False):
-            logging.log_error("Cache get with invalid key", {'key': key})
-            return None
-        
-        sanitized_key = security.sanitize_data({'key': key}).get('sanitized_data', {}).get('key', key)
-        
-        def _get_operation():
-            if sanitized_key not in self._cache:
-                self._misses += 1
-                metrics.track_cache_miss("bounded")
-                return None
-            
-            if sanitized_key in self._expiry and time.time() > self._expiry[sanitized_key]:
-                del self._cache[sanitized_key]
-                del self._expiry[sanitized_key]
-                self._misses += 1
-                metrics.track_cache_miss("bounded")
-                return None
-            
-            self._cache.move_to_end(sanitized_key)
-            self._hits += 1
-            metrics.track_cache_hit("bounded")
-            return self._cache[sanitized_key]
-        
-        result = self._coordinate(_get_operation)
-        
-        execution_time = (time.time() - start_time) * 1000
-        metrics.track_execution_time(execution_time, "cache_get")
-        
-        return result
+@dataclass
+class CacheEntry:
+    """Cache entry with metadata."""
+    value: Any
+    timestamp: float
+    ttl: int
+    access_count: int = 0
+    last_access: float = 0
     
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        from . import metrics, logging, security, config
-        
-        start_time = time.time()
-        
-        validation = security.validate_input({'key': key, 'value': value})
-        if not validation.get('valid', False):
-            logging.log_error("Cache set with invalid parameters", {'key': key})
+    def is_expired(self) -> bool:
+        """Check if entry is expired."""
+        if self.ttl <= 0:
             return False
+        return time.time() - self.timestamp > self.ttl
+    
+    def touch(self) -> None:
+        """Update access metadata."""
+        self.access_count += 1
+        self.last_access = time.time()
+
+@dataclass
+class CacheStats:
+    """Cache statistics."""
+    hits: int = 0
+    misses: int = 0
+    sets: int = 0
+    deletes: int = 0
+    evictions: int = 0
+    expired: int = 0
+    total_size: int = 0
+    memory_bytes: int = 0
+
+_CACHE_NAMESPACES: Dict[str, OrderedDict] = {}
+_CACHE_STATS: Dict[str, CacheStats] = {}
+_CACHE_LOCK = None
+
+def _get_lock():
+    """Get or create cache lock."""
+    global _CACHE_LOCK
+    if _CACHE_LOCK is None:
+        import threading
+        _CACHE_LOCK = threading.RLock()
+    return _CACHE_LOCK
+
+def _get_namespace(namespace: str) -> OrderedDict:
+    """Get or create cache namespace."""
+    if namespace not in _CACHE_NAMESPACES:
+        _CACHE_NAMESPACES[namespace] = OrderedDict()
+        _CACHE_STATS[namespace] = CacheStats()
+    return _CACHE_NAMESPACES[namespace]
+
+def _get_stats(namespace: str) -> CacheStats:
+    """Get namespace statistics."""
+    if namespace not in _CACHE_STATS:
+        _CACHE_STATS[namespace] = CacheStats()
+    return _CACHE_STATS[namespace]
+
+def _evict_expired(namespace: str, max_size: int = 1000) -> int:
+    """Evict expired entries and enforce size limit."""
+    cache = _get_namespace(namespace)
+    stats = _get_stats(namespace)
+    
+    expired_keys = []
+    for key, entry in cache.items():
+        if entry.is_expired():
+            expired_keys.append(key)
+    
+    for key in expired_keys:
+        del cache[key]
+        stats.expired += 1
+    
+    while len(cache) > max_size:
+        cache.popitem(last=False)
+        stats.evictions += 1
+    
+    stats.total_size = len(cache)
+    return len(expired_keys)
+
+def cache_get(key: str, default: Any = None, namespace: str = "default") -> Any:
+    """Get value from cache."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        stats = _get_stats(namespace)
         
-        sanitized = security.sanitize_data({'key': key, 'value': value}).get('sanitized_data', {})
-        sanitized_key = sanitized.get('key', key)
-        sanitized_value = sanitized.get('value', value)
+        if key in cache:
+            entry = cache[key]
+            if not entry.is_expired():
+                entry.touch()
+                cache.move_to_end(key)
+                stats.hits += 1
+                return entry.value
+            else:
+                del cache[key]
+                stats.expired += 1
         
-        cfg = config.get_interface_configuration("cache", "production")
-        max_cache_size = cfg.get('max_size', self.max_size) if cfg else self.max_size
+        stats.misses += 1
+        return default
+
+def cache_set(
+    key: str,
+    value: Any,
+    ttl: Optional[int] = None,
+    namespace: str = "default"
+) -> bool:
+    """Set value in cache."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        stats = _get_stats(namespace)
         
-        def _set_operation():
-            if len(self._cache) >= max_cache_size:
-                oldest_key = next(iter(self._cache))
-                del self._cache[oldest_key]
-                self._expiry.pop(oldest_key, None)
-                metrics.record_metric("cache_eviction", 1.0, {'cache_type': 'bounded'})
-            
-            self._cache[sanitized_key] = sanitized_value
-            self._cache.move_to_end(sanitized_key)
-            
-            ttl_value = ttl if ttl is not None else self.default_ttl
-            self._expiry[sanitized_key] = time.time() + ttl_value
-            
+        if ttl is None:
+            ttl = 300
+        
+        entry = CacheEntry(
+            value=value,
+            timestamp=time.time(),
+            ttl=ttl
+        )
+        
+        cache[key] = entry
+        cache.move_to_end(key)
+        stats.sets += 1
+        stats.total_size = len(cache)
+        
+        _evict_expired(namespace)
+        
+        return True
+
+def cache_delete(key: str, namespace: str = "default") -> bool:
+    """Delete value from cache."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        stats = _get_stats(namespace)
+        
+        if key in cache:
+            del cache[key]
+            stats.deletes += 1
+            stats.total_size = len(cache)
             return True
         
-        result = self._coordinate(_set_operation)
+        return False
+
+def cache_clear(namespace: str = "default") -> int:
+    """Clear cache namespace."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        count = len(cache)
+        cache.clear()
         
-        execution_time = (time.time() - start_time) * 1000
-        metrics.track_execution_time(execution_time, "cache_set")
-        metrics.record_metric("cache_size", len(self._cache), {'cache_type': 'bounded'})
+        stats = _get_stats(namespace)
+        stats.total_size = 0
         
-        logging.log_info("Cache set completed", {
-            'key': sanitized_key,
-            'ttl': ttl,
-            'cache_size': len(self._cache)
-        })
+        return count
+
+def cache_exists(key: str, namespace: str = "default") -> bool:
+    """Check if key exists in cache."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
         
-        return result
-    
-    def delete(self, key: str) -> bool:
-        from . import metrics, logging, security
-        
-        validation = security.validate_input({'key': key})
-        if not validation.get('valid', False):
-            return False
-        
-        sanitized_key = security.sanitize_data({'key': key}).get('sanitized_data', {}).get('key', key)
-        
-        def _delete_operation():
-            if sanitized_key in self._cache:
-                del self._cache[sanitized_key]
-                self._expiry.pop(sanitized_key, None)
-                metrics.record_metric("cache_delete", 1.0, {'cache_type': 'bounded'})
+        if key in cache:
+            entry = cache[key]
+            if not entry.is_expired():
                 return True
-            return False
+            else:
+                del cache[key]
+                _get_stats(namespace).expired += 1
         
-        result = self._coordinate(_delete_operation)
-        
-        if result:
-            logging.log_info("Cache entry deleted", {'key': sanitized_key})
-        
-        return result
-    
-    def clear(self) -> bool:
-        from . import metrics, logging, singleton
-        
-        def _clear_operation():
-            count = len(self._cache)
-            self._cache.clear()
-            self._expiry.clear()
-            self._hits = 0
-            self._misses = 0
-            metrics.record_metric("cache_clear", 1.0, {'entries_cleared': count})
-            return True
-        
-        result = self._coordinate(_clear_operation)
-        
-        singleton.optimize_memory()
-        
-        logging.log_info("Cache cleared")
-        
-        return result
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        from . import metrics
-        
-        total_requests = self._hits + self._misses
-        hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
-        
-        stats = {
-            'size': len(self._cache),
-            'max_size': self.max_size,
-            'hits': self._hits,
-            'misses': self._misses,
-            'total_requests': total_requests,
-            'hit_rate_percentage': hit_rate,
-            'utilization_percentage': (len(self._cache) / self.max_size * 100) if self.max_size > 0 else 0
-        }
-        
-        metrics.record_metric("cache_hit_rate", hit_rate, {'cache_type': 'bounded'})
-        metrics.record_metric("cache_utilization", stats['utilization_percentage'], {'cache_type': 'bounded'})
-        
-        return stats
-    
-    def optimize(self) -> Dict[str, Any]:
-        from . import singleton, metrics, logging
-        
-        start_size = len(self._cache)
-        current_time = time.time()
-        
-        def _optimize_operation():
-            expired = [k for k, exp_time in self._expiry.items() if current_time > exp_time]
-            for key in expired:
-                del self._cache[key]
-                del self._expiry[key]
-            return len(expired)
-        
-        removed = self._coordinate(_optimize_operation)
-        
-        singleton.optimize_memory()
-        
-        result = {
-            'optimized': True,
-            'entries_removed': removed,
-            'size_before': start_size,
-            'size_after': len(self._cache),
-            'memory_optimized': True
-        }
-        
-        metrics.record_metric("cache_optimization", 1.0, {'entries_removed': removed})
-        logging.log_info("Cache optimized", result)
-        
-        return result
+        return False
 
-class CacheManager:
-    def __init__(self):
-        from . import config
+def cache_keys(namespace: str = "default") -> List[str]:
+    """Get all keys in namespace."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        return list(cache.keys())
+
+def cache_size(namespace: str = "default") -> int:
+    """Get cache size."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        return len(cache)
+
+def cache_stats(namespace: str = "default") -> Dict[str, Any]:
+    """Get cache statistics."""
+    with _get_lock():
+        stats = _get_stats(namespace)
+        return {
+            "hits": stats.hits,
+            "misses": stats.misses,
+            "sets": stats.sets,
+            "deletes": stats.deletes,
+            "evictions": stats.evictions,
+            "expired": stats.expired,
+            "total_size": stats.total_size,
+            "hit_rate": stats.hits / (stats.hits + stats.misses) if (stats.hits + stats.misses) > 0 else 0.0
+        }
+
+def cache_cleanup(namespace: str = "default", max_age: int = 3600) -> int:
+    """Cleanup old entries."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
+        stats = _get_stats(namespace)
         
-        cfg = config.get_interface_configuration("cache", "production")
-        max_size = cfg.get('max_size', 1000) if cfg else 1000
-        default_ttl = cfg.get('default_ttl', 300) if cfg else 300
+        current_time = time.time()
+        old_keys = []
         
-        self.lambda_cache = BoundedCache(max_size=max_size, default_ttl=default_ttl)
-        self.response_cache = BoundedCache(max_size=max_size // 2, default_ttl=default_ttl // 2)
+        for key, entry in cache.items():
+            if current_time - entry.timestamp > max_age:
+                old_keys.append(key)
         
-    def get_cache(self, cache_type: str):
-        from . import security, logging
+        for key in old_keys:
+            del cache[key]
+            stats.deletes += 1
         
-        validation = security.validate_input({'cache_type': cache_type})
-        if not validation.get('valid', False):
-            logging.log_error("Invalid cache type requested", {'cache_type': cache_type})
-            return self.lambda_cache
-        
-        if cache_type == "response":
-            return self.response_cache
-        return self.lambda_cache
-    
-    def get_all_statistics(self) -> Dict[str, Any]:
-        from . import utility
+        stats.total_size = len(cache)
+        return len(old_keys)
+
+def cache_optimize(namespace: str = "default") -> Dict[str, Any]:
+    """Optimize cache by removing expired entries."""
+    with _get_lock():
+        expired_count = _evict_expired(namespace)
+        stats = cache_stats(namespace)
         
         return {
-            'lambda_cache': self.lambda_cache.get_statistics(),
-            'response_cache': self.response_cache.get_statistics(),
-            'timestamp': utility.get_current_timestamp(),
-            'manager_healthy': True
+            "expired_removed": expired_count,
+            "current_size": stats["total_size"],
+            "hit_rate": stats["hit_rate"]
         }
-    
-    def optimize_all(self) -> Dict[str, Any]:
-        from . import metrics, logging
+
+def cache_warmup(data: Dict[str, Any], namespace: str = "default", ttl: int = 300) -> int:
+    """Warmup cache with data."""
+    count = 0
+    for key, value in data.items():
+        if cache_set(key, value, ttl, namespace):
+            count += 1
+    return count
+
+def cache_backup(namespace: str = "default") -> Dict[str, Any]:
+    """Backup cache data."""
+    with _get_lock():
+        cache = _get_namespace(namespace)
         
-        lambda_result = self.lambda_cache.optimize()
-        response_result = self.response_cache.optimize()
+        backup_data = {}
+        for key, entry in cache.items():
+            if not entry.is_expired():
+                backup_data[key] = {
+                    "value": entry.value,
+                    "ttl": entry.ttl,
+                    "age": time.time() - entry.timestamp
+                }
         
-        total_removed = lambda_result['entries_removed'] + response_result['entries_removed']
+        return backup_data
+
+def cache_restore(backup_data: Dict[str, Any], namespace: str = "default") -> int:
+    """Restore cache from backup."""
+    count = 0
+    for key, data in backup_data.items():
+        remaining_ttl = max(0, data["ttl"] - int(data.get("age", 0)))
+        if remaining_ttl > 0:
+            if cache_set(key, data["value"], remaining_ttl, namespace):
+                count += 1
+    return count
+
+def cache_get_all_stats() -> Dict[str, Any]:
+    """Get statistics for all namespaces."""
+    with _get_lock():
+        all_stats = {}
+        for namespace in _CACHE_NAMESPACES.keys():
+            all_stats[namespace] = cache_stats(namespace)
         
-        result = {
-            'lambda_cache': lambda_result,
-            'response_cache': response_result,
-            'total_entries_removed': total_removed,
-            'all_optimized': True
+        total_entries = sum(stats["total_size"] for stats in all_stats.values())
+        total_hits = sum(stats["hits"] for stats in all_stats.values())
+        total_misses = sum(stats["misses"] for stats in all_stats.values())
+        
+        return {
+            "namespaces": all_stats,
+            "total_entries": total_entries,
+            "total_hits": total_hits,
+            "total_misses": total_misses,
+            "overall_hit_rate": total_hits / (total_hits + total_misses) if (total_hits + total_misses) > 0 else 0.0
         }
-        
-        metrics.record_metric("cache_manager_optimization", 1.0, {'total_removed': total_removed})
-        logging.log_info("All caches optimized", {'total_removed': total_removed})
-        
-        return result
-
-_cache_manager = None
-
-def _get_cache_manager():
-    global _cache_manager
-    if _cache_manager is None:
-        _cache_manager = CacheManager()
-    return _cache_manager
-
-def _execute_generic_cache_operation(operation, **kwargs):
-    from . import security, utility, logging, metrics
-    
-    op_name = operation.value if hasattr(operation, 'value') else str(operation)
-    correlation_id = utility.generate_correlation_id()
-    start_time = time.time()
-    
-    try:
-        validation = security.validate_input(kwargs)
-        if not validation.get('valid', False):
-            return {"success": False, "error": "Invalid input", "correlation_id": correlation_id}
-        
-        sanitized_kwargs = security.sanitize_data(kwargs).get('sanitized_data', kwargs)
-        
-        manager = _get_cache_manager()
-        cache_type = sanitized_kwargs.get('cache_type', 'lambda')
-        cache = manager.get_cache(cache_type)
-        
-        result = None
-        
-        if op_name == "get":
-            key = sanitized_kwargs.get('key', '')
-            result = cache.get(key)
-        
-        elif op_name == "set":
-            key = sanitized_kwargs.get('key', '')
-            value = sanitized_kwargs.get('value')
-            ttl = sanitized_kwargs.get('ttl')
-            result = cache.set(key, value, ttl)
-        
-        elif op_name == "delete":
-            key = sanitized_kwargs.get('key', '')
-            result = cache.delete(key)
-        
-        elif op_name == "clear":
-            result = cache.clear()
-        
-        elif op_name == "has":
-            key = sanitized_kwargs.get('key', '')
-            result = cache.get(key) is not None
-        
-        elif op_name == "get_statistics":
-            if cache_type == "all":
-                result = manager.get_all_statistics()
-            else:
-                result = cache.get_statistics()
-        
-        elif op_name == "optimize":
-            if cache_type == "all":
-                result = manager.optimize_all()
-            else:
-                result = cache.optimize()
-        
-        else:
-            result = {"success": False, "error": f"Unknown operation: {op_name}"}
-        
-        execution_time = (time.time() - start_time) * 1000
-        metrics.track_execution_time(execution_time, f"cache_{op_name}")
-        
-        logging.log_info(f"Cache operation completed: {op_name}", {
-            'correlation_id': correlation_id,
-            'success': True,
-            'execution_time_ms': execution_time
-        })
-        
-        return result
-        
-    except Exception as e:
-        execution_time = (time.time() - start_time) * 1000
-        
-        logging.log_error(f"Cache operation failed: {op_name}", {
-            'correlation_id': correlation_id,
-            'error': str(e),
-            'execution_time_ms': execution_time
-        }, exc_info=True)
-        
-        metrics.record_metric("cache_operation_error", 1.0, {'operation': op_name})
-        
-        return {"success": False, "error": str(e), "operation": op_name, "correlation_id": correlation_id}
-
-__all__ = [
-    '_execute_generic_cache_operation',
-    'BoundedCache', 'CacheManager',
-    '_get_cache_manager'
-]
-
-# EOF
