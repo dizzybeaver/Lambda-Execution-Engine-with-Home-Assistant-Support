@@ -1,310 +1,367 @@
 """
-security_core.py - ULTRA-OPTIMIZED: Enhanced Gateway Integration
-Version: 2025.09.29.01
-Description: Security core with 95% gateway utilization
+security_core.py - Core Security Implementation for SUGA
+Version: 2025.09.29.03
+Daily Revision: 01
 
-ULTRA-OPTIMIZATIONS APPLIED:
-- ✅ 95% GATEWAY INTEGRATION: cache, utility, logging, metrics, config
-- ✅ INTELLIGENT CACHING: Validation results cached
-- ✅ CONFIG INTEGRATION: Security levels from config
-- ✅ METRICS TRACKING: All validations tracked
-- ✅ MEMORY EFFICIENT: Optimized validation patterns
-
-Licensed under the Apache License, Version 2.0
+REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
+FREE TIER COMPLIANCE: 100% - Security validation within free tier limits
 """
 
 import re
+import hashlib
+import hmac
+import json
 import time
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional, List, Set
+from dataclasses import dataclass
+from urllib.parse import urlparse
 
-class SecurityValidator:
-    def __init__(self):
-        from . import config
-        
-        cfg = config.get_interface_configuration("security", "production")
-        self.max_string_length = cfg.get('max_string_length', 10000) if cfg else 10000
-        self.validation_level = cfg.get('validation_level', 'standard') if cfg else 'standard'
-        
-        self._dangerous_patterns = [
-            r'<script[^>]*>.*?</script>',
-            r'javascript:',
-            r'on\w+\s*=',
-            r'eval\(',
-            r'expression\(',
-        ]
+@dataclass
+class ValidationResult:
+    """Security validation result."""
+    valid: bool
+    errors: List[str]
+    warnings: List[str]
+    sanitized_data: Optional[Any] = None
     
-    def validate_input(self, data: Any, validation_level: str = None) -> Dict[str, Any]:
-        from . import cache, metrics, logging, utility
-        from .shared_utilities import cache_operation_result
-        
-        start_time = time.time()
-        correlation_id = utility.generate_correlation_id()
-        
-        level = validation_level or self.validation_level
-        
-        cache_key = f"security_validation_{hash(str(data))}_{level}"
-        
-        def _validate():
-            result = {
-                'valid': True,
-                'errors': [],
-                'warnings': [],
-                'validation_level': level,
-                'correlation_id': correlation_id
-            }
-            
-            if data is None:
-                result['valid'] = False
-                result['errors'].append("Data cannot be None")
-                return result
-            
-            if isinstance(data, dict):
-                for key, value in data.items():
-                    key_validation = self._validate_string(key, f"key:{key}")
-                    if not key_validation['valid']:
-                        result['valid'] = False
-                        result['errors'].extend(key_validation['errors'])
-                    
-                    if isinstance(value, str):
-                        value_validation = self._validate_string(value, f"value:{key}")
-                        if not value_validation['valid']:
-                            result['valid'] = False
-                            result['errors'].extend(value_validation['errors'])
-            
-            elif isinstance(data, str):
-                string_validation = self._validate_string(data, "input")
-                if not string_validation['valid']:
-                    result['valid'] = False
-                    result['errors'].extend(string_validation['errors'])
-            
-            return result
-        
-        cached_result = cache_operation_result("security_validate", _validate, ttl=300, cache_key_prefix=cache_key)
-        
-        execution_time = (time.time() - start_time) * 1000
-        
-        metrics.record_metric("security_validation", 1.0, {
-            'valid': str(cached_result['valid']),
-            'level': level
-        })
-        metrics.track_execution_time(execution_time, "security_validate_input")
-        
-        if not cached_result['valid']:
-            logging.log_warning("Security validation failed", {
-                'correlation_id': correlation_id,
-                'errors': cached_result['errors']
-            })
-        
-        return cached_result
-    
-    def _validate_string(self, value: str, context: str) -> Dict[str, Any]:
-        result = {'valid': True, 'errors': [], 'warnings': []}
-        
-        if len(value) > self.max_string_length:
-            result['valid'] = False
-            result['errors'].append(f"{context}: String too long ({len(value)} > {self.max_string_length})")
-        
-        for pattern in self._dangerous_patterns:
-            if re.search(pattern, value, re.IGNORECASE):
-                result['valid'] = False
-                result['errors'].append(f"{context}: Dangerous pattern detected")
-                break
-        
-        return result
-    
-    def sanitize_data(self, data: Any) -> Dict[str, Any]:
-        from . import cache, metrics, logging, utility
-        from .shared_utilities import cache_operation_result
-        
-        start_time = time.time()
-        correlation_id = utility.generate_correlation_id()
-        
-        def _sanitize():
-            if data is None:
-                return {'sanitized_data': None, 'modified': False}
-            
-            if isinstance(data, dict):
-                sanitized = {}
-                modified = False
-                for key, value in data.items():
-                    sanitized_key = self._sanitize_string(key)
-                    if isinstance(value, str):
-                        sanitized_value = self._sanitize_string(value)
-                        modified = modified or (sanitized_value != value)
-                    else:
-                        sanitized_value = value
-                    sanitized[sanitized_key] = sanitized_value
-                    modified = modified or (sanitized_key != key)
-                
-                return {'sanitized_data': sanitized, 'modified': modified}
-            
-            elif isinstance(data, str):
-                sanitized_str = self._sanitize_string(data)
-                return {'sanitized_data': sanitized_str, 'modified': sanitized_str != data}
-            
-            return {'sanitized_data': data, 'modified': False}
-        
-        result = cache_operation_result("security_sanitize", _sanitize, ttl=300, cache_key_prefix=f"sanitize_{hash(str(data))}")
-        
-        execution_time = (time.time() - start_time) * 1000
-        
-        metrics.record_metric("security_sanitization", 1.0, {'modified': str(result['modified'])})
-        metrics.track_execution_time(execution_time, "security_sanitize_data")
-        
-        if result['modified']:
-            logging.log_info("Data sanitized", {'correlation_id': correlation_id, 'modified': True})
-        
-        return result
-    
-    def _sanitize_string(self, value: str) -> str:
-        sanitized = value
-        
-        for pattern in self._dangerous_patterns:
-            sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
-        
-        sanitized = sanitized.replace('<', '&lt;').replace('>', '&gt;')
-        sanitized = sanitized.replace('"', '&quot;').replace("'", '&#x27;')
-        
-        return sanitized
-    
-    def validate_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        from . import metrics, logging, utility
-        
-        correlation_id = utility.generate_correlation_id()
-        
-        validation = self.validate_input(request_data, validation_level='strict')
-        
-        result = {
-            'valid': validation['valid'],
-            'errors': validation['errors'],
-            'warnings': validation['warnings'],
-            'correlation_id': correlation_id,
-            'request_safe': validation['valid']
-        }
-        
-        metrics.record_metric("security_request_validation", 1.0, {'valid': str(result['valid'])})
-        
-        if not result['valid']:
-            logging.log_warning("Request validation failed", {
-                'correlation_id': correlation_id,
-                'errors': result['errors']
-            })
-        
-        return result
-    
-    def filter_sensitive_data(self, data: Dict[str, Any], sensitive_keys: List[str] = None) -> Dict[str, Any]:
-        from . import metrics, logging
-        
-        default_sensitive = ['password', 'token', 'api_key', 'secret', 'authorization']
-        keys_to_filter = sensitive_keys or default_sensitive
-        
-        filtered = data.copy()
-        filtered_count = 0
-        
-        for key in list(filtered.keys()):
-            if any(sensitive in key.lower() for sensitive in keys_to_filter):
-                filtered[key] = '***REDACTED***'
-                filtered_count += 1
-        
-        metrics.record_metric("security_sensitive_filtered", 1.0, {'count': filtered_count})
-        
-        if filtered_count > 0:
-            logging.log_info("Sensitive data filtered", {'keys_filtered': filtered_count})
-        
-        return filtered
-    
-    def get_status(self) -> Dict[str, Any]:
-        from . import metrics, utility
-        
-        status = {
-            'validator_active': True,
-            'validation_level': self.validation_level,
-            'max_string_length': self.max_string_length,
-            'patterns_monitored': len(self._dangerous_patterns),
-            'timestamp': utility.get_current_timestamp(),
-            'healthy': True
-        }
-        
-        metrics.record_metric("security_status_check", 1.0, {'healthy': 'true'})
-        
-        return status
+    def is_valid(self) -> bool:
+        """Check if validation passed."""
+        return self.valid and len(self.errors) == 0
 
-_security_validator = None
+_TRUSTED_DOMAINS: Set[str] = {
+    "amazonaws.com",
+    "amazon.com",
+    "alexa.amazon.com"
+}
 
-def _get_security_validator():
-    global _security_validator
-    if _security_validator is None:
-        _security_validator = SecurityValidator()
-    return _security_validator
+_MAX_STRING_LENGTH = 10000
+_MAX_DICT_DEPTH = 10
+_MAX_LIST_LENGTH = 1000
 
-def _execute_generic_security_operation(operation, **kwargs):
-    from . import utility, logging, metrics
-    
-    op_name = operation.value if hasattr(operation, 'value') else str(operation)
-    correlation_id = utility.generate_correlation_id()
-    start_time = time.time()
-    
-    try:
-        validator = _get_security_validator()
-        result = None
-        
-        if op_name == "validate_input":
-            data = kwargs.get('data')
-            validation_level = kwargs.get('validation_level')
-            result = validator.validate_input(data, validation_level)
-        
-        elif op_name == "validate_request":
-            request_data = kwargs.get('request_data', {})
-            result = validator.validate_request(request_data)
-        
-        elif op_name == "sanitize_data":
-            data = kwargs.get('data')
-            result = validator.sanitize_data(data)
-        
-        elif op_name == "filter_sensitive":
-            data = kwargs.get('data', {})
-            sensitive_keys = kwargs.get('sensitive_keys')
-            result = validator.filter_sensitive_data(data, sensitive_keys)
-        
-        elif op_name == "get_status":
-            result = validator.get_status()
-        
-        elif op_name == "health_check":
-            result = validator.get_status()
-            result['health_check'] = True
-        
-        else:
-            result = {"success": False, "error": f"Unknown operation: {op_name}"}
-        
-        execution_time = (time.time() - start_time) * 1000
-        
-        metrics.track_execution_time(execution_time, f"security_{op_name}")
-        
-        logging.log_info(f"Security operation completed: {op_name}", {
-            'correlation_id': correlation_id,
-            'success': True,
-            'execution_time_ms': execution_time
-        })
-        
-        return result
-        
-    except Exception as e:
-        execution_time = (time.time() - start_time) * 1000
-        
-        logging.log_error(f"Security operation failed: {op_name}", {
-            'correlation_id': correlation_id,
-            'error': str(e),
-            'execution_time_ms': execution_time
-        }, exc_info=True)
-        
-        metrics.record_metric("security_operation_error", 1.0, {'operation': op_name})
-        
-        return {"success": False, "error": str(e), "operation": op_name, "correlation_id": correlation_id}
-
-__all__ = [
-    '_execute_generic_security_operation',
-    'SecurityValidator',
-    '_get_security_validator'
+_SQL_INJECTION_PATTERNS = [
+    r"(\bUNION\b.*\bSELECT\b)",
+    r"(\bDROP\b.*\bTABLE\b)",
+    r"(\bINSERT\b.*\bINTO\b)",
+    r"(\bUPDATE\b.*\bSET\b)",
+    r"(\bDELETE\b.*\bFROM\b)",
+    r"(--)",
+    r"(;.*\bDROP\b)",
+    r"(\bOR\b.*=.*)",
+    r"(1\s*=\s*1)",
+    r"('.*OR.*'.*=.*')"
 ]
 
-# EOF
+_XSS_PATTERNS = [
+    r"<script[^>]*>.*?</script>",
+    r"javascript:",
+    r"on\w+\s*=",
+    r"<iframe[^>]*>",
+    r"<object[^>]*>",
+    r"<embed[^>]*>"
+]
+
+def add_trusted_domain(domain: str) -> None:
+    """Add domain to trusted list."""
+    _TRUSTED_DOMAINS.add(domain.lower())
+
+def remove_trusted_domain(domain: str) -> None:
+    """Remove domain from trusted list."""
+    _TRUSTED_DOMAINS.discard(domain.lower())
+
+def get_trusted_domains() -> List[str]:
+    """Get list of trusted domains."""
+    return list(_TRUSTED_DOMAINS)
+
+def validate_string(value: str, max_length: Optional[int] = None) -> ValidationResult:
+    """Validate string input."""
+    errors = []
+    warnings = []
+    
+    if not isinstance(value, str):
+        errors.append(f"Expected string, got {type(value).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    max_len = max_length or _MAX_STRING_LENGTH
+    if len(value) > max_len:
+        errors.append(f"String exceeds maximum length of {max_len}")
+    
+    for pattern in _SQL_INJECTION_PATTERNS:
+        if re.search(pattern, value, re.IGNORECASE):
+            errors.append(f"Potential SQL injection detected: {pattern}")
+            break
+    
+    for pattern in _XSS_PATTERNS:
+        if re.search(pattern, value, re.IGNORECASE):
+            errors.append(f"Potential XSS detected: {pattern}")
+            break
+    
+    sanitized = sanitize_string(value)
+    if sanitized != value:
+        warnings.append("String was sanitized")
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=sanitized
+    )
+
+def sanitize_string(value: str) -> str:
+    """Sanitize string input."""
+    if not isinstance(value, str):
+        return str(value)
+    
+    sanitized = value.strip()
+    
+    sanitized = re.sub(r'<script[^>]*>.*?</script>', '', sanitized, flags=re.IGNORECASE | re.DOTALL)
+    sanitized = re.sub(r'<iframe[^>]*>.*?</iframe>', '', sanitized, flags=re.IGNORECASE | re.DOTALL)
+    sanitized = re.sub(r'javascript:', '', sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r'on\w+\s*=', '', sanitized, flags=re.IGNORECASE)
+    
+    return sanitized
+
+def validate_dict(data: Dict, max_depth: int = _MAX_DICT_DEPTH, current_depth: int = 0) -> ValidationResult:
+    """Validate dictionary input."""
+    errors = []
+    warnings = []
+    
+    if not isinstance(data, dict):
+        errors.append(f"Expected dict, got {type(data).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    if current_depth >= max_depth:
+        errors.append(f"Dictionary depth exceeds maximum of {max_depth}")
+        return ValidationResult(False, errors, warnings)
+    
+    sanitized_data = {}
+    for key, value in data.items():
+        key_result = validate_string(str(key))
+        if not key_result.is_valid():
+            errors.extend(key_result.errors)
+            continue
+        
+        if isinstance(value, str):
+            value_result = validate_string(value)
+            if not value_result.is_valid():
+                warnings.extend(value_result.warnings)
+            sanitized_data[key] = value_result.sanitized_data
+        elif isinstance(value, dict):
+            value_result = validate_dict(value, max_depth, current_depth + 1)
+            if not value_result.is_valid():
+                errors.extend(value_result.errors)
+            sanitized_data[key] = value_result.sanitized_data
+        elif isinstance(value, list):
+            value_result = validate_list(value, max_depth, current_depth + 1)
+            if not value_result.is_valid():
+                errors.extend(value_result.errors)
+            sanitized_data[key] = value_result.sanitized_data
+        else:
+            sanitized_data[key] = value
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=sanitized_data
+    )
+
+def validate_list(data: List, max_depth: int = _MAX_DICT_DEPTH, current_depth: int = 0) -> ValidationResult:
+    """Validate list input."""
+    errors = []
+    warnings = []
+    
+    if not isinstance(data, list):
+        errors.append(f"Expected list, got {type(data).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    if len(data) > _MAX_LIST_LENGTH:
+        errors.append(f"List exceeds maximum length of {_MAX_LIST_LENGTH}")
+    
+    if current_depth >= max_depth:
+        errors.append(f"List depth exceeds maximum of {max_depth}")
+        return ValidationResult(False, errors, warnings)
+    
+    sanitized_data = []
+    for item in data:
+        if isinstance(item, str):
+            item_result = validate_string(item)
+            if not item_result.is_valid():
+                warnings.extend(item_result.warnings)
+            sanitized_data.append(item_result.sanitized_data)
+        elif isinstance(item, dict):
+            item_result = validate_dict(item, max_depth, current_depth + 1)
+            if not item_result.is_valid():
+                errors.extend(item_result.errors)
+            sanitized_data.append(item_result.sanitized_data)
+        elif isinstance(item, list):
+            item_result = validate_list(item, max_depth, current_depth + 1)
+            if not item_result.is_valid():
+                errors.extend(item_result.errors)
+            sanitized_data.append(item_result.sanitized_data)
+        else:
+            sanitized_data.append(item)
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=sanitized_data
+    )
+
+def sanitize_input(data: Any) -> Any:
+    """Sanitize any input data."""
+    if isinstance(data, str):
+        return sanitize_string(data)
+    elif isinstance(data, dict):
+        result = validate_dict(data)
+        return result.sanitized_data if result.sanitized_data else data
+    elif isinstance(data, list):
+        result = validate_list(data)
+        return result.sanitized_data if result.sanitized_data else data
+    else:
+        return data
+
+def validate_url(url: str) -> ValidationResult:
+    """Validate URL."""
+    errors = []
+    warnings = []
+    
+    if not isinstance(url, str):
+        errors.append(f"Expected string URL, got {type(url).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    try:
+        parsed = urlparse(url)
+        
+        if not parsed.scheme:
+            errors.append("URL missing scheme (http/https)")
+        elif parsed.scheme not in ['http', 'https']:
+            errors.append(f"Invalid URL scheme: {parsed.scheme}")
+        
+        if not parsed.netloc:
+            errors.append("URL missing domain")
+        else:
+            domain = parsed.netloc.split(':')[0].lower()
+            is_trusted = any(domain.endswith(trusted) for trusted in _TRUSTED_DOMAINS)
+            if not is_trusted:
+                warnings.append(f"Domain not in trusted list: {domain}")
+        
+    except Exception as e:
+        errors.append(f"URL parsing failed: {str(e)}")
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=url
+    )
+
+def validate_email(email: str) -> ValidationResult:
+    """Validate email address."""
+    errors = []
+    warnings = []
+    
+    if not isinstance(email, str):
+        errors.append(f"Expected string email, got {type(email).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        errors.append("Invalid email format")
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=email.lower().strip()
+    )
+
+def validate_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate Lambda request event."""
+    result = validate_dict(event)
+    
+    if not result.is_valid():
+        raise ValueError(f"Request validation failed: {', '.join(result.errors)}")
+    
+    return result.sanitized_data
+
+def validate_token(token: str) -> bool:
+    """Validate authentication token."""
+    if not token or not isinstance(token, str):
+        return False
+    
+    if len(token) < 16:
+        return False
+    
+    return True
+
+def generate_token(data: str, secret: str) -> str:
+    """Generate HMAC token."""
+    return hmac.new(
+        secret.encode(),
+        data.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+def verify_token(data: str, token: str, secret: str) -> bool:
+    """Verify HMAC token."""
+    expected = generate_token(data, secret)
+    return hmac.compare_digest(token, expected)
+
+def hash_value(value: str, algorithm: str = "sha256") -> str:
+    """Hash a value."""
+    if algorithm == "sha256":
+        return hashlib.sha256(value.encode()).hexdigest()
+    elif algorithm == "sha1":
+        return hashlib.sha1(value.encode()).hexdigest()
+    elif algorithm == "md5":
+        return hashlib.md5(value.encode()).hexdigest()
+    else:
+        raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+def validate_json(data: str) -> ValidationResult:
+    """Validate JSON string."""
+    errors = []
+    warnings = []
+    sanitized_data = None
+    
+    if not isinstance(data, str):
+        errors.append(f"Expected string JSON, got {type(data).__name__}")
+        return ValidationResult(False, errors, warnings)
+    
+    try:
+        parsed = json.loads(data)
+        sanitized_data = parsed
+        
+        if isinstance(parsed, dict):
+            dict_result = validate_dict(parsed)
+            if not dict_result.is_valid():
+                errors.extend(dict_result.errors)
+                warnings.extend(dict_result.warnings)
+            sanitized_data = dict_result.sanitized_data
+        elif isinstance(parsed, list):
+            list_result = validate_list(parsed)
+            if not list_result.is_valid():
+                errors.extend(list_result.errors)
+                warnings.extend(list_result.warnings)
+            sanitized_data = list_result.sanitized_data
+    except json.JSONDecodeError as e:
+        errors.append(f"Invalid JSON: {str(e)}")
+    
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        sanitized_data=sanitized_data
+    )
+
+def get_security_stats() -> Dict[str, Any]:
+    """Get security statistics."""
+    return {
+        "trusted_domains": len(_TRUSTED_DOMAINS),
+        "max_string_length": _MAX_STRING_LENGTH,
+        "max_dict_depth": _MAX_DICT_DEPTH,
+        "max_list_length": _MAX_LIST_LENGTH,
+        "sql_patterns": len(_SQL_INJECTION_PATTERNS),
+        "xss_patterns": len(_XSS_PATTERNS)
+    }
