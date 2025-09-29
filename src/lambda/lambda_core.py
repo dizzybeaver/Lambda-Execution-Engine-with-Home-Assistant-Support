@@ -1,297 +1,174 @@
 """
-lambda_core.py - ULTRA-OPTIMIZED: Maximum Gateway Utilization Lambda Implementation
-Version: 2025.09.26.01
-Description: Ultra-lightweight Lambda core with maximum gateway utilization and operation consolidation
+lambda_core.py - Core Lambda Implementation for SUGA
+Version: 2025.09.29.03
+Daily Revision: 01
 
-ULTRA-OPTIMIZATIONS COMPLETED:
-- ✅ MAXIMIZED: Gateway function utilization across all operations (90% increase)
-- ✅ GENERICIZED: Single generic Lambda function with operation type parameters
-- ✅ CONSOLIDATED: All Lambda logic using generic operation pattern
-- ✅ CACHED: Lambda responses and configuration using cache gateway
-- ✅ SECURED: All inputs validated using security gateway
-
-ARCHITECTURE: SECONDARY IMPLEMENTATION - ULTRA-OPTIMIZED
-- Maximum delegation to gateway interfaces
-- Generic operation patterns eliminate code duplication
-- Intelligent caching for Lambda responses and configurations
-- Single-threaded Lambda optimized with zero threading overhead
-
-GATEWAY UTILIZATION STRATEGY (MAXIMIZED):
-- cache.py: Lambda response caching, configuration cache, session state
-- singleton.py: Lambda optimizer access, memory management, coordination
-- metrics.py: Lambda metrics, performance tracking, execution timing
-- utility.py: Input validation, response formatting, correlation IDs
-- logging.py: All Lambda logging with context and correlation
-- security.py: Request validation, input sanitization
-- config.py: Lambda configuration, timeout settings, memory limits
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
+FREE TIER COMPLIANCE: 100% - Lambda response building
 """
 
-import logging
-import time
 import json
-from typing import Dict, Any, Optional, Union, List
-from enum import Enum
+from typing import Any, Dict, Optional
 
-# Ultra-pure gateway imports for maximum utilization
-from . import cache
-from . import singleton  
-from . import metrics
-from . import utility
-from . import logging as log_gateway
-from . import security
-from . import config
+def build_response(
+    status_code: int,
+    body: Any,
+    headers: Optional[Dict[str, str]] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Build Lambda response."""
+    response_headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS"
+    }
+    
+    if headers:
+        response_headers.update(headers)
+    
+    if isinstance(body, (dict, list)):
+        body_str = json.dumps(body)
+    else:
+        body_str = str(body)
+    
+    response = {
+        "statusCode": status_code,
+        "headers": response_headers,
+        "body": body_str
+    }
+    
+    if "isBase64Encoded" in kwargs:
+        response["isBase64Encoded"] = kwargs["isBase64Encoded"]
+    
+    return response
 
-logger = logging.getLogger(__name__)
+def build_success_response(body: Any, **kwargs) -> Dict[str, Any]:
+    """Build success response."""
+    return build_response(200, body, **kwargs)
 
-# ===== SECTION 1: CACHE KEYS AND CONSTANTS =====
+def build_error_response(message: str, status_code: int = 500, **kwargs) -> Dict[str, Any]:
+    """Build error response."""
+    body = {
+        "error": message,
+        "statusCode": status_code
+    }
+    return build_response(status_code, body, **kwargs)
 
-LAMBDA_CACHE_PREFIX = "lambda_"
-ALEXA_CACHE_PREFIX = "alexa_"
-RESPONSE_CACHE_PREFIX = "resp_"
-LAMBDA_CACHE_TTL = 300  # 5 minutes
-
-# ===== SECTION 2: GENERIC LAMBDA OPERATION IMPLEMENTATION =====
-
-def _execute_generic_lambda_operation(operation_type: str, *args, **kwargs) -> Dict[str, Any]:
-    """
-    ULTRA-GENERIC: Execute any Lambda operation using gateway functions.
-    Consolidates all operation patterns into single ultra-optimized function.
-    """
-    try:
-        # Generate correlation ID using utility gateway
-        correlation_id = utility.generate_correlation_id()
-        
-        # Start timing for metrics
-        start_time = time.time()
-        
-        # Log operation start
-        log_gateway.log_info(f"Lambda operation started: {operation_type}", {
-            "correlation_id": correlation_id,
-            "operation": operation_type,
-            "args_count": len(args),
-            "kwargs_count": len(kwargs)
-        })
-        
-        # Security validation using security gateway
-        validation_result = security.validate_input({
-            "operation_type": operation_type,
-            "args": args,
-            "kwargs": kwargs
-        })
-        
-        if not validation_result.get("valid", False):
-            return utility.create_error_response(
-                Exception(f"Invalid input: {validation_result.get('message', 'Unknown validation error')}"),
-                correlation_id
-            )
-        
-        # Check cache for operation result
-        cache_key = f"{LAMBDA_CACHE_PREFIX}{operation_type}_{hash(str(args) + str(kwargs))}"
-        cached_result = cache.cache_get(cache_key)
-        
-        if cached_result:
-            log_gateway.log_debug(f"Cache hit for operation: {operation_type}", {"correlation_id": correlation_id})
-            metrics.record_metric("lambda_cache_hit", 1.0)
-            return cached_result
-        
-        # Execute operation based on type
-        if operation_type == "lambda_handler":
-            result = _lambda_handler_core(*args, **kwargs)
-        elif operation_type == "alexa_response":
-            result = _alexa_response_core(*args, **kwargs)
-        elif operation_type == "optimization":
-            result = _lambda_optimization_core(*args, **kwargs)
-        elif operation_type == "error_handling":
-            result = _lambda_error_handling_core(*args, **kwargs)
-        else:
-            result = _default_lambda_operation(operation_type, *args, **kwargs)
-        
-        # Cache successful result
-        if result.get("success", False):
-            cache.cache_set(cache_key, result, ttl=LAMBDA_CACHE_TTL)
-        
-        # Record metrics
-        execution_time = time.time() - start_time
-        metrics.record_metric("lambda_execution_time", execution_time)
-        metrics.record_metric("lambda_operation_count", 1.0)
-        
-        # Log completion
-        log_gateway.log_info(f"Lambda operation completed: {operation_type}", {
-            "correlation_id": correlation_id,
-            "success": result.get("success", False),
-            "execution_time": execution_time
-        })
-        
-        return result
-        
-    except Exception as e:
-        log_gateway.log_error(f"Lambda operation failed: {operation_type}", {
-            "correlation_id": correlation_id if 'correlation_id' in locals() else "unknown",
-            "error": str(e)
-        }, exc_info=True)
-        
-        return utility.create_error_response(e, correlation_id if 'correlation_id' in locals() else "unknown")
-
-# ===== SECTION 3: CORE OPERATION IMPLEMENTATIONS =====
-
-def _lambda_handler_core(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Core Lambda handler implementation."""
-    try:
-        # Get Lambda optimizer using singleton gateway
-        lambda_optimizer = singleton.get_singleton("lambda_optimizer")
-        
-        # Optimize handler performance
-        if lambda_optimizer:
-            lambda_optimizer.optimize_handler(context)
-        
-        # Determine request type
-        if "request" in event and "type" in event["request"]:
-            # Alexa skill request
-            return _process_alexa_request(event, context)
-        else:
-            # Generic Lambda request
-            return _process_generic_request(event, context)
-            
-    except Exception as e:
-        return {"success": False, "error": str(e), "type": "lambda_handler_error"}
-
-def _alexa_response_core(response_type: str, content: Any, **kwargs) -> Dict[str, Any]:
-    """Core Alexa response implementation."""
-    try:
-        # Build Alexa response structure
-        response = {
-            "version": "1.0",
-            "response": {
-                "outputSpeech": {
-                    "type": "PlainText",
-                    "text": str(content)
-                },
-                "shouldEndSession": kwargs.get("end_session", True)
+def build_alexa_response(
+    speech: str,
+    card_title: Optional[str] = None,
+    card_content: Optional[str] = None,
+    reprompt: Optional[str] = None,
+    should_end_session: bool = True,
+    **kwargs
+) -> Dict[str, Any]:
+    """Build Alexa response."""
+    response = {
+        "version": "1.0",
+        "response": {
+            "outputSpeech": {
+                "type": "PlainText",
+                "text": speech
+            },
+            "shouldEndSession": should_end_session
+        }
+    }
+    
+    if card_title and card_content:
+        response["response"]["card"] = {
+            "type": "Simple",
+            "title": card_title,
+            "content": card_content
+        }
+    
+    if reprompt:
+        response["response"]["reprompt"] = {
+            "outputSpeech": {
+                "type": "PlainText",
+                "text": reprompt
             }
         }
-        
-        # Add card if requested
-        if kwargs.get("card_title") or kwargs.get("card_content"):
-            response["response"]["card"] = {
-                "type": "Simple",
-                "title": kwargs.get("card_title", "Response"),
-                "content": kwargs.get("card_content", str(content))
-            }
-        
-        return {"success": True, "response": response, "type": "alexa_response"}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e), "type": "alexa_response_error"}
-
-def _lambda_optimization_core(operation: str, **kwargs) -> Dict[str, Any]:
-    """Core Lambda optimization implementation."""
-    try:
-        # Get memory manager using singleton gateway
-        memory_manager = singleton.get_singleton("memory_manager")
-        
-        if operation == "memory":
-            if memory_manager:
-                optimization_result = memory_manager.optimize_memory()
-                return {"success": True, "optimization": optimization_result, "type": "memory_optimization"}
-        elif operation == "performance":
-            # Performance optimization using metrics
-            metrics_data = metrics.get_performance_metrics()
-            return {"success": True, "metrics": metrics_data, "type": "performance_optimization"}
-        
-        return {"success": False, "error": f"Unknown optimization: {operation}", "type": "optimization_error"}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e), "type": "optimization_error"}
-
-def _lambda_error_handling_core(error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
-    """Core Lambda error handling implementation."""
-    try:
-        # Generate correlation ID
-        correlation_id = context.get("correlation_id", utility.generate_correlation_id())
-        
-        # Create error response using utility gateway
-        error_response = utility.create_error_response(error, correlation_id)
-        
-        # Record error metrics
-        metrics.record_metric("lambda_error_count", 1.0)
-        
-        return {"success": True, "error_response": error_response, "type": "error_handling"}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e), "type": "error_handling_error"}
-
-# EOS
-
-# ===== SECTION 4: PUBLIC INTERFACE IMPLEMENTATIONS =====
-
-def _lambda_handler_implementation(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Lambda handler implementation - ultra-thin wrapper."""
-    return _execute_generic_lambda_operation("lambda_handler", event, context)
-
-def _alexa_response_implementation(response_type: str, content: Any, **kwargs) -> Dict[str, Any]:
-    """Alexa response implementation - ultra-thin wrapper.""" 
-    return _execute_generic_lambda_operation("alexa_response", response_type, content, **kwargs)
-
-def _lambda_optimization_implementation(operation: str, **kwargs) -> Dict[str, Any]:
-    """Lambda optimization implementation - ultra-thin wrapper."""
-    return _execute_generic_lambda_operation("optimization", operation, **kwargs)
-
-def _lambda_error_handling_implementation(error: Exception, context: Dict[str, Any]) -> Dict[str, Any]:
-    """Lambda error handling implementation - ultra-thin wrapper."""
-    return _execute_generic_lambda_operation("error_handling", error, context)
-
-def _lambda_validation_implementation(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Lambda validation implementation - uses security gateway."""
-    return security.validate_request(event)
-
-def _lambda_response_formatting_implementation(data: Any, status_code: int = 200) -> Dict[str, Any]:
-    """Lambda response formatting implementation - uses utility gateway."""
-    return utility.format_response(data, "lambda")
-
-def _lambda_statistics_implementation() -> Dict[str, Any]:
-    """Lambda statistics implementation - uses metrics gateway."""
-    return metrics.get_performance_metrics()
-
-def _alexa_intent_implementation(intent_name: str, slots: Dict[str, Any], session: Dict[str, Any]) -> Dict[str, Any]:
-    """Alexa intent implementation - ultra-thin wrapper."""
-    return _execute_generic_lambda_operation("alexa_intent", intent_name, slots, session)
-
-def _alexa_card_implementation(card_type: str, title: str, content: str) -> Dict[str, Any]:
-    """Alexa card implementation - ultra-thin wrapper."""
-    return _execute_generic_lambda_operation("alexa_card", card_type, title, content)
-
-# ===== SECTION 5: HELPER FUNCTIONS =====
-
-def _process_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Process Alexa skill request."""
-    request_type = event["request"]["type"]
     
-    if request_type == "IntentRequest":
-        intent_name = event["request"]["intent"]["name"]
-        slots = event["request"]["intent"].get("slots", {})
-        session = event.get("session", {})
-        return _alexa_intent_implementation(intent_name, slots, session)
-    else:
-        return _alexa_response_implementation("PlainText", "Hello from Alexa skill!")
+    if "sessionAttributes" in kwargs:
+        response["sessionAttributes"] = kwargs["sessionAttributes"]
+    
+    return response
 
-def _process_generic_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Process generic Lambda request."""
-    return utility.format_response({"message": "Lambda request processed", "event": event}, "lambda")
+def parse_lambda_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse Lambda event."""
+    parsed = {
+        "event_type": "unknown",
+        "http_method": None,
+        "path": None,
+        "query_params": {},
+        "headers": {},
+        "body": None,
+        "is_alexa": False,
+        "raw_event": event
+    }
+    
+    if "requestContext" in event:
+        parsed["event_type"] = "api_gateway"
+        parsed["http_method"] = event.get("httpMethod")
+        parsed["path"] = event.get("path")
+        parsed["query_params"] = event.get("queryStringParameters", {}) or {}
+        parsed["headers"] = event.get("headers", {}) or {}
+        
+        body = event.get("body")
+        if body:
+            try:
+                parsed["body"] = json.loads(body)
+            except json.JSONDecodeError:
+                parsed["body"] = body
+    
+    elif "request" in event and "type" in event.get("request", {}):
+        parsed["event_type"] = "alexa"
+        parsed["is_alexa"] = True
+        parsed["alexa_request_type"] = event["request"]["type"]
+        parsed["alexa_intent"] = event["request"].get("intent", {}).get("name")
+    
+    return parsed
 
-def _default_lambda_operation(operation_type: str, *args, **kwargs) -> Dict[str, Any]:
-    """Default operation for unknown types."""
-    return {"success": False, "error": f"Unknown operation type: {operation_type}", "type": "default_operation"}
+def extract_path_parameters(event: Dict[str, Any]) -> Dict[str, str]:
+    """Extract path parameters from event."""
+    return event.get("pathParameters", {}) or {}
 
-# EOF
+def extract_query_parameters(event: Dict[str, Any]) -> Dict[str, str]:
+    """Extract query parameters from event."""
+    return event.get("queryStringParameters", {}) or {}
+
+def extract_headers(event: Dict[str, Any]) -> Dict[str, str]:
+    """Extract headers from event."""
+    return event.get("headers", {}) or {}
+
+def extract_body(event: Dict[str, Any]) -> Any:
+    """Extract body from event."""
+    body = event.get("body")
+    if body:
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return body
+    return None
+
+def is_alexa_event(event: Dict[str, Any]) -> bool:
+    """Check if event is from Alexa."""
+    return "request" in event and "type" in event.get("request", {})
+
+def get_alexa_intent(event: Dict[str, Any]) -> Optional[str]:
+    """Get Alexa intent name."""
+    if is_alexa_event(event):
+        return event.get("request", {}).get("intent", {}).get("name")
+    return None
+
+def get_alexa_slots(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Get Alexa slot values."""
+    if is_alexa_event(event):
+        slots = event.get("request", {}).get("intent", {}).get("slots", {})
+        return {
+            name: slot.get("value")
+            for name, slot in slots.items()
+            if "value" in slot
+        }
+    return {}
