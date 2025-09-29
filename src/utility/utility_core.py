@@ -1,311 +1,234 @@
 """
-utility_core.py - ULTRA-OPTIMIZED: Enhanced Gateway Integration
-Version: 2025.09.29.01
-Description: Utility core with 95% gateway utilization
+utility_core.py - Core Utility Implementation for SUGA
+Version: 2025.09.29.03
+Daily Revision: 01
 
-ULTRA-OPTIMIZATIONS APPLIED:
-- ✅ 95% GATEWAY INTEGRATION: cache, security, logging, metrics, config
-- ✅ CORRELATION ID MANAGEMENT: Cached and tracked
-- ✅ RESPONSE FORMATTING: Standardized with security
-- ✅ VALIDATION PATTERNS: Integrated with security gateway
-- ✅ TIMESTAMP UTILITIES: Cached for performance
-
-Licensed under the Apache License, Version 2.0
+REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
+FREE TIER COMPLIANCE: 100% - Lightweight utility functions
 """
 
-import time
+import json
 import uuid
-import hashlib
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional, List
+from copy import deepcopy
 
-class UtilityManager:
-    def __init__(self):
-        from . import config
-        
-        cfg = config.get_interface_configuration("utility", "production")
-        self.correlation_cache_ttl = cfg.get('correlation_cache_ttl', 300) if cfg else 300
-        self.response_format = cfg.get('response_format', 'standard') if cfg else 'standard'
-    
-    def generate_correlation_id(self) -> str:
-        from . import cache, metrics
-        
-        try:
-            correlation_id = str(uuid.uuid4())
-            
-            cache.cache_set(f"correlation_{correlation_id}", time.time(), ttl=self.correlation_cache_ttl)
-            
-            metrics.record_metric("correlation_id_generated", 1.0)
-            
-            return correlation_id
-            
-        except Exception:
-            return str(uuid.uuid4())
-    
-    def validate_correlation_id(self, correlation_id: str) -> bool:
-        from . import cache, security
-        
-        validation = security.validate_input({'correlation_id': correlation_id})
-        if not validation.get('valid', False):
-            return False
-        
-        cached_time = cache.cache_get(f"correlation_{correlation_id}")
-        return cached_time is not None
-    
-    def validate_string_input(self, value: str, min_length: int = 0, max_length: int = 1000) -> bool:
-        from . import security, metrics
-        
-        try:
-            if not isinstance(value, str):
-                metrics.record_metric("validation_type_error", 1.0)
-                return False
-            
-            if len(value) < min_length or len(value) > max_length:
-                metrics.record_metric("validation_length_error", 1.0)
-                return False
-            
-            validation = security.validate_input({'value': value})
-            is_valid = validation.get('valid', False)
-            
-            metrics.record_metric("string_validation", 1.0, {'valid': str(is_valid)})
-            
-            return is_valid
-            
-        except Exception:
-            return False
-    
-    def create_success_response(self, message: str, data: Any = None) -> Dict[str, Any]:
-        from . import security, logging, metrics
-        
-        correlation_id = self.generate_correlation_id()
-        
-        response = {
-            'success': True,
-            'message': message,
-            'data': data,
-            'correlation_id': correlation_id,
-            'timestamp': time.time()
-        }
-        
-        sanitized = security.sanitize_data(response)
-        response = sanitized.get('sanitized_data', response)
-        
-        logging.log_info("Success response created", {'correlation_id': correlation_id, 'message': message})
-        
-        metrics.record_metric("success_response_created", 1.0, {'correlation_id': correlation_id})
-        
-        return response
-    
-    def create_error_response(self, message: str, error_code: str = "GENERIC_ERROR") -> Dict[str, Any]:
-        from . import security, logging, metrics
-        
-        correlation_id = self.generate_correlation_id()
-        
-        response = {
-            'success': False,
-            'error': message,
-            'error_code': error_code,
-            'correlation_id': correlation_id,
-            'timestamp': time.time()
-        }
-        
-        sanitized = security.sanitize_data(response)
-        response = sanitized.get('sanitized_data', response)
-        
-        logging.log_error("Error response created", {'correlation_id': correlation_id, 'error_code': error_code})
-        
-        metrics.record_metric("error_response_created", 1.0, {'error_code': error_code})
-        
-        return response
-    
-    def sanitize_response_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        from . import security, cache
-        from .shared_utilities import cache_operation_result
-        
-        cache_key = f"sanitized_response_{hash(str(data))}"
-        
-        def _sanitize():
-            sanitized = security.sanitize_data(data)
-            response_data = sanitized.get('sanitized_data', data)
-            
-            filtered = security.filter_sensitive_data(response_data)
-            
-            return filtered
-        
-        result = cache_operation_result("sanitize_response", _sanitize, ttl=300, cache_key_prefix=cache_key)
-        
-        return result
-    
-    def get_current_timestamp(self) -> str:
-        from . import cache
-        
-        cache_key = f"timestamp_{int(time.time())}"
-        cached_ts = cache.cache_get(cache_key)
-        
-        if cached_ts:
-            return cached_ts
-        
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        
-        cache.cache_set(cache_key, timestamp, ttl=1)
-        
-        return timestamp
-    
-    def format_response(self, data: Any, format_type: str = "json") -> Any:
-        from . import security, metrics
-        
-        try:
-            if format_type == "json":
-                sanitized = self.sanitize_response_data(data if isinstance(data, dict) else {'data': data})
-                
-                metrics.record_metric("response_formatted", 1.0, {'format': format_type})
-                
-                return sanitized
-            
-            return data
-            
-        except Exception:
-            return data
-    
-    def hash_value(self, value: str) -> str:
-        from . import cache, metrics
-        
-        cache_key = f"hash_{value}"
-        cached_hash = cache.cache_get(cache_key)
-        
-        if cached_hash:
-            metrics.record_metric("hash_cache_hit", 1.0)
-            return cached_hash
-        
-        hashed = hashlib.sha256(value.encode()).hexdigest()
-        
-        cache.cache_set(cache_key, hashed, ttl=3600)
-        
-        metrics.record_metric("hash_computed", 1.0)
-        
-        return hashed
-    
-    def parse_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        from . import security, logging, metrics
-        
-        correlation_id = self.generate_correlation_id()
-        
-        try:
-            validation = security.validate_request(request_data)
-            
-            if not validation.get('valid', False):
-                logging.log_warning("Request validation failed", {
-                    'correlation_id': correlation_id,
-                    'errors': validation.get('errors', [])
-                })
-                
-                return {
-                    'valid': False,
-                    'errors': validation.get('errors', []),
-                    'correlation_id': correlation_id
-                }
-            
-            sanitized = security.sanitize_data(request_data)
-            parsed_data = sanitized.get('sanitized_data', request_data)
-            
-            logging.log_info("Request parsed successfully", {'correlation_id': correlation_id})
-            
-            metrics.record_metric("request_parsed", 1.0, {'correlation_id': correlation_id})
-            
-            return {
-                'valid': True,
-                'data': parsed_data,
-                'correlation_id': correlation_id
-            }
-            
-        except Exception as e:
-            logging.log_error("Request parsing failed", {'correlation_id': correlation_id, 'error': str(e)})
-            
-            return {
-                'valid': False,
-                'error': str(e),
-                'correlation_id': correlation_id
-            }
+def validate_type(value: Any, expected_type: type) -> bool:
+    """Validate value type."""
+    return isinstance(value, expected_type)
 
-_utility_manager = None
-
-def _get_utility_manager():
-    global _utility_manager
-    if _utility_manager is None:
-        _utility_manager = UtilityManager()
-    return _utility_manager
-
-def _execute_generic_utility_operation(operation, **kwargs):
-    from . import logging, metrics
+def deep_merge(dict1: Dict, dict2: Dict) -> Dict:
+    """Deep merge two dictionaries."""
+    result = deepcopy(dict1)
     
-    op_name = operation.value if hasattr(operation, 'value') else str(operation)
-    start_time = time.time()
-    
-    try:
-        manager = _get_utility_manager()
-        result = None
-        
-        if op_name == "generate_correlation_id":
-            result = manager.generate_correlation_id()
-        
-        elif op_name == "validate_correlation_id":
-            correlation_id = kwargs.get('correlation_id', '')
-            result = manager.validate_correlation_id(correlation_id)
-        
-        elif op_name == "validate_string_input":
-            value = kwargs.get('value', '')
-            min_length = kwargs.get('min_length', 0)
-            max_length = kwargs.get('max_length', 1000)
-            result = manager.validate_string_input(value, min_length, max_length)
-        
-        elif op_name == "create_success_response":
-            message = kwargs.get('message', '')
-            data = kwargs.get('data')
-            result = manager.create_success_response(message, data)
-        
-        elif op_name == "create_error_response":
-            message = kwargs.get('message', '')
-            error_code = kwargs.get('error_code', 'GENERIC_ERROR')
-            result = manager.create_error_response(message, error_code)
-        
-        elif op_name == "sanitize_response_data":
-            data = kwargs.get('data', {})
-            result = manager.sanitize_response_data(data)
-        
-        elif op_name == "get_current_timestamp":
-            result = manager.get_current_timestamp()
-        
-        elif op_name == "format_response":
-            data = kwargs.get('data')
-            format_type = kwargs.get('format_type', 'json')
-            result = manager.format_response(data, format_type)
-        
-        elif op_name == "hash_value":
-            value = kwargs.get('value', '')
-            result = manager.hash_value(value)
-        
-        elif op_name == "parse_request":
-            request_data = kwargs.get('request_data', {})
-            result = manager.parse_request(request_data)
-        
+    for key, value in dict2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
         else:
-            result = {"success": False, "error": f"Unknown operation: {op_name}"}
-        
-        execution_time = (time.time() - start_time) * 1000
-        metrics.track_execution_time(execution_time, f"utility_{op_name}")
-        
-        return result
-        
-    except Exception as e:
-        execution_time = (time.time() - start_time) * 1000
-        
-        logging.log_error(f"Utility operation failed: {op_name}", {'error': str(e), 'execution_time_ms': execution_time}, exc_info=True)
-        
-        metrics.record_metric("utility_operation_error", 1.0, {'operation': op_name})
-        
-        return {"success": False, "error": str(e), "operation": op_name}
+            result[key] = deepcopy(value)
+    
+    return result
 
-__all__ = [
-    '_execute_generic_utility_operation',
-    'UtilityManager',
-    '_get_utility_manager'
-]
+def generate_id(prefix: str = "") -> str:
+    """Generate unique ID."""
+    unique_id = str(uuid.uuid4())
+    return f"{prefix}{unique_id}" if prefix else unique_id
+
+def generate_correlation_id() -> str:
+    """Generate correlation ID."""
+    return generate_id("corr-")
+
+def safe_json_dumps(data: Any, default: Any = None) -> str:
+    """Safely dump JSON."""
+    try:
+        return json.dumps(data)
+    except (TypeError, ValueError):
+        if default is not None:
+            return json.dumps(default)
+        return json.dumps({"error": "Failed to serialize"})
+
+def safe_json_loads(data: str, default: Any = None) -> Any:
+    """Safely load JSON."""
+    try:
+        return json.loads(data)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+
+def flatten_dict(d: Dict, parent_key: str = '', sep: str = '.') -> Dict:
+    """Flatten nested dictionary."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+def unflatten_dict(d: Dict, sep: str = '.') -> Dict:
+    """Unflatten dictionary."""
+    result = {}
+    for key, value in d.items():
+        parts = key.split(sep)
+        current = result
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+        current[parts[-1]] = value
+    return result
+
+def get_nested_value(d: Dict, path: str, default: Any = None, sep: str = '.') -> Any:
+    """Get nested dictionary value by path."""
+    keys = path.split(sep)
+    current = d
+    
+    for key in keys:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            return default
+    
+    return current
+
+def set_nested_value(d: Dict, path: str, value: Any, sep: str = '.') -> Dict:
+    """Set nested dictionary value by path."""
+    keys = path.split(sep)
+    current = d
+    
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    
+    current[keys[-1]] = value
+    return d
+
+def chunk_list(lst: List, chunk_size: int) -> List[List]:
+    """Split list into chunks."""
+    return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
+
+def deduplicate_list(lst: List) -> List:
+    """Remove duplicates while preserving order."""
+    seen = set()
+    result = []
+    for item in lst:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+def filter_dict(d: Dict, keys: List[str], include: bool = True) -> Dict:
+    """Filter dictionary by keys."""
+    if include:
+        return {k: v for k, v in d.items() if k in keys}
+    else:
+        return {k: v for k, v in d.items() if k not in keys}
+
+def map_dict_values(d: Dict, func: callable) -> Dict:
+    """Apply function to all dictionary values."""
+    return {k: func(v) for k, v in d.items()}
+
+def merge_dicts(*dicts: Dict) -> Dict:
+    """Merge multiple dictionaries."""
+    result = {}
+    for d in dicts:
+        result.update(d)
+    return result
+
+def invert_dict(d: Dict) -> Dict:
+    """Invert dictionary (swap keys and values)."""
+    return {v: k for k, v in d.items()}
+
+def sort_dict(d: Dict, by_key: bool = True, reverse: bool = False) -> Dict:
+    """Sort dictionary by keys or values."""
+    if by_key:
+        return dict(sorted(d.items(), key=lambda x: x[0], reverse=reverse))
+    else:
+        return dict(sorted(d.items(), key=lambda x: x[1], reverse=reverse))
+
+def safe_divide(a: float, b: float, default: float = 0.0) -> float:
+    """Safely divide numbers."""
+    try:
+        return a / b if b != 0 else default
+    except (TypeError, ZeroDivisionError):
+        return default
+
+def clamp(value: float, min_value: float, max_value: float) -> float:
+    """Clamp value between min and max."""
+    return max(min_value, min(max_value, value))
+
+def percentage(part: float, total: float, decimals: int = 2) -> float:
+    """Calculate percentage."""
+    if total == 0:
+        return 0.0
+    return round((part / total) * 100, decimals)
+
+def format_bytes(bytes_value: int) -> str:
+    """Format bytes as human readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_value < 1024.0:
+            return f"{bytes_value:.2f} {unit}"
+        bytes_value /= 1024.0
+    return f"{bytes_value:.2f} PB"
+
+def parse_bool(value: Any) -> bool:
+    """Parse boolean from various types."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ('true', 'yes', '1', 'on')
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+def truncate_string(s: str, max_length: int, suffix: str = "...") -> str:
+    """Truncate string to max length."""
+    if len(s) <= max_length:
+        return s
+    return s[:max_length - len(suffix)] + suffix
+
+def retry_operation(
+    func: callable,
+    max_attempts: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0
+) -> Any:
+    """Retry operation with exponential backoff."""
+    import time
+    
+    attempt = 0
+    current_delay = delay
+    
+    while attempt < max_attempts:
+        try:
+            return func()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts:
+                raise e
+            time.sleep(current_delay)
+            current_delay *= backoff
+
+def batch_items(items: List, batch_size: int) -> List[List]:
+    """Batch items into groups."""
+    return chunk_list(items, batch_size)
+
+def get_first_non_none(*values: Any) -> Any:
+    """Get first non-None value."""
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+def create_lookup(items: List[Dict], key: str) -> Dict:
+    """Create lookup dictionary from list of dicts."""
+    return {item[key]: item for item in items if key in item}
+
+def group_by(items: List[Dict], key: str) -> Dict[Any, List[Dict]]:
+    """Group items by key value."""
+    from collections import defaultdict
+    result = defaultdict(list)
+    for item in items:
+        if key in item:
+            result[item[key]].append(item)
+    return dict(result)
