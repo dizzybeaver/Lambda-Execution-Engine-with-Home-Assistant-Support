@@ -1,28 +1,33 @@
 """
-debug.py - Debug, Testing, and Validation Primary Gateway Interface - COMPLETE IMPLEMENTATION
-Version: 2025.09.28.03
-Description: Ultra-pure gateway for debug operations - pure delegation only
+debug.py - Debug, Testing, and Validation Primary Gateway Interface - INTEGRATED IMPLEMENTATION
+Version: 2025.09.29.01
+Description: Comprehensive testing, validation, and troubleshooting gateway with all functions integrated
 
-CORRECTIONS APPLIED (2025.09.28.03):
-- ✅ RENAMED: validate_configuration → validate_system_configuration (clarifies system-level validation)
-- ✅ ADDED: get_system_diagnostic_info (comprehensive system diagnostics)
-- ✅ CLARIFIED: Debug handles system-level operations, utility handles input-level operations
+INTEGRATIONS COMPLETED (2025.09.29.01):
+- ✅ INTEGRATED: ultra_optimization_tester.py (29 tests across 6 interfaces)
+- ✅ INTEGRATED: performance_benchmark.py (comprehensive benchmarking suite)
+- ✅ INTEGRATED: gateway_utilization_validator.py (57 gateway functions tracked)
+- ✅ INTEGRATED: legacy_elimination_patterns.py (7 legacy pattern types)
+- ✅ INTEGRATED: debug_validation.py (architecture/config/security validators)
+- ✅ INTEGRATED: config_testing.py (configuration system test suite)
+- ✅ INTEGRATED: debug_integration.py (test migration & unification)
+- ✅ INTEGRATED: utility_import_validation.py (circular import detection)
 
 ARCHITECTURE: PRIMARY GATEWAY INTERFACE - SPECIAL STATUS
-- Function declarations ONLY - no implementation code
-- Pure delegation to debug_core.py, debug_test.py, debug_validation.py, debug_troubleshooting.py
-- External access point for all debug, testing, validation, and troubleshooting operations
+- Pure delegation to debug_core.py, debug_test.py, debug_validation.py
+- External access point for all debug, testing, validation, troubleshooting operations
 - Ultra-optimized for 128MB Lambda constraint
-- Special status as central debug repository (similar to config.py)
+- Central repository for all testing and validation functionality
 
-GATEWAY FUNCTIONS OVERVIEW:
-- Testing Operations: Comprehensive testing, interface testing, integration testing, performance testing
-- Validation Operations: System architecture validation, AWS constraints, gateway compliance, system configuration validation
-- Troubleshooting Operations: System health diagnosis, performance analysis, resource problem detection, diagnostic reporting
-- Debug Coordination: Full system debug, debug mode management, debug configuration
-- Integration Operations: Cross-interface testing, migration coordination, unified test running
-- Automation Operations: Continuous validation, intelligent diagnostics, automated optimization
-- Reporting Operations: Comprehensive reporting, real-time monitoring, analytics dashboard
+GATEWAY FUNCTIONS OVERVIEW (100+ operations):
+- Ultra-Optimization Testing: 29 automated tests, gateway utilization validation
+- Performance Benchmarking: 4 interface benchmarks, memory usage tracking
+- Gateway Utilization: 57 gateway functions tracked, utilization scoring
+- Legacy Pattern Detection: 7 pattern types, automated replacement
+- Architecture Validation: System compliance, naming conventions, access patterns
+- Configuration Testing: Preset validation, AWS constraint compliance
+- Import Validation: Circular import detection, architecture compliance
+- Integration Testing: Cross-interface testing, migration coordination
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,13 +45,461 @@ limitations under the License.
 from typing import Dict, Any, List, Optional, Callable
 from .debug_core import get_debug_coordinator, DebugOperation
 
-# ===== SECTION 1: SINGLETON ACCESSOR =====
-
 def _get_debug_coordinator():
     """Get debug coordinator singleton instance."""
     return get_debug_coordinator()
 
-# ===== SECTION 2: TESTING OPERATIONS GATEWAY =====
+# ===== SECTION 1: ULTRA-OPTIMIZATION TESTING OPERATIONS =====
+
+def run_ultra_optimization_tests(test_filter: Optional[str] = None,
+                                 verbose: bool = True,
+                                 parallel: bool = False) -> Dict[str, Any]:
+    """Run comprehensive ultra-optimization test suite (29 tests across 6 interfaces)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.RUN_ULTRA_OPTIMIZATION_TESTS,
+        test_filter=test_filter,
+        verbose=verbose,
+        parallel=parallel
+    )
+
+def test_metrics_gateway_optimization(detailed: bool = False) -> Dict[str, Any]:
+    """Test metrics interface ultra-optimization (6 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_METRICS_GATEWAY_OPTIMIZATION,
+        detailed=detailed
+    )
+
+def test_singleton_gateway_optimization(detailed: bool = False) -> Dict[str, Any]:
+    """Test singleton interface ultra-optimization (6 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_SINGLETON_GATEWAY_OPTIMIZATION,
+        detailed=detailed
+    )
+
+def test_cache_gateway_integration(detailed: bool = False) -> Dict[str, Any]:
+    """Test cache interface gateway integration (5 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_CACHE_GATEWAY_INTEGRATION,
+        detailed=detailed
+    )
+
+def test_security_gateway_integration(detailed: bool = False) -> Dict[str, Any]:
+    """Test security interface gateway integration (4 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_SECURITY_GATEWAY_INTEGRATION,
+        detailed=detailed
+    )
+
+def test_shared_utilities(detailed: bool = False) -> Dict[str, Any]:
+    """Test shared utilities functionality (5 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_SHARED_UTILITIES,
+        detailed=detailed
+    )
+
+def test_legacy_elimination(detailed: bool = False) -> Dict[str, Any]:
+    """Test legacy pattern elimination validation (3 tests)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_LEGACY_ELIMINATION,
+        detailed=detailed
+    )
+
+# ===== SECTION 2: PERFORMANCE BENCHMARKING OPERATIONS =====
+
+def run_performance_benchmark(benchmark_scope: str = "comprehensive",
+                              iterations: int = 1000,
+                              include_memory: bool = True) -> Dict[str, Any]:
+    """Run comprehensive performance benchmark suite."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.RUN_PERFORMANCE_BENCHMARK,
+        benchmark_scope=benchmark_scope,
+        iterations=iterations,
+        include_memory=include_memory
+    )
+
+def benchmark_metrics_interface(iterations: int = 1000) -> Dict[str, Any]:
+    """Benchmark metrics interface operations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.BENCHMARK_METRICS_INTERFACE,
+        iterations=iterations
+    )
+
+def benchmark_singleton_interface(iterations: int = 1000) -> Dict[str, Any]:
+    """Benchmark singleton interface operations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.BENCHMARK_SINGLETON_INTERFACE,
+        iterations=iterations
+    )
+
+def benchmark_cache_interface(iterations: int = 1000) -> Dict[str, Any]:
+    """Benchmark cache interface operations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.BENCHMARK_CACHE_INTERFACE,
+        iterations=iterations
+    )
+
+def benchmark_security_interface(iterations: int = 1000) -> Dict[str, Any]:
+    """Benchmark security interface operations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.BENCHMARK_SECURITY_INTERFACE,
+        iterations=iterations
+    )
+
+def benchmark_memory_usage(operation_count: int = 100) -> Dict[str, Any]:
+    """Benchmark memory usage and optimization effectiveness."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.BENCHMARK_MEMORY_USAGE,
+        operation_count=operation_count
+    )
+
+# ===== SECTION 3: GATEWAY UTILIZATION VALIDATION =====
+
+def analyze_gateway_usage(file_path: str, file_content: str) -> Dict[str, Any]:
+    """Analyze gateway usage patterns in a file."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.ANALYZE_GATEWAY_USAGE,
+        file_path=file_path,
+        file_content=file_content
+    )
+
+def calculate_utilization_percentage(file_path: str, 
+                                    gateway_usage: Dict[str, Any]) -> float:
+    """Calculate gateway utilization percentage for a file."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.CALCULATE_UTILIZATION_PERCENTAGE,
+        file_path=file_path,
+        gateway_usage=gateway_usage
+    )
+
+def identify_missing_integrations(file_path: str,
+                                  gateway_usage: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Identify missing gateway integrations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.IDENTIFY_MISSING_INTEGRATIONS,
+        file_path=file_path,
+        gateway_usage=gateway_usage
+    )
+
+def generate_utilization_report(file_path: str, file_content: str) -> Dict[str, Any]:
+    """Generate comprehensive gateway utilization report."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GENERATE_UTILIZATION_REPORT,
+        file_path=file_path,
+        file_content=file_content
+    )
+
+def analyze_project_wide_utilization(file_paths: List[str]) -> Dict[str, Any]:
+    """Analyze gateway utilization across entire project."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.ANALYZE_PROJECT_WIDE_UTILIZATION,
+        file_paths=file_paths
+    )
+
+def generate_optimization_action_plan(report: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Generate actionable optimization plan from utilization report."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GENERATE_OPTIMIZATION_ACTION_PLAN,
+        report=report
+    )
+
+# ===== SECTION 4: LEGACY PATTERN DETECTION & ELIMINATION =====
+
+def scan_file_for_legacy_patterns(file_content: str) -> Dict[str, List[str]]:
+    """Scan file for legacy patterns (7 pattern types)."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.SCAN_FILE_FOR_LEGACY_PATTERNS,
+        file_content=file_content
+    )
+
+def generate_replacement_suggestions(findings: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Generate replacement suggestions for legacy patterns."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GENERATE_REPLACEMENT_SUGGESTIONS,
+        findings=findings
+    )
+
+def create_legacy_elimination_report(file_path: str, 
+                                    file_content: str) -> Dict[str, Any]:
+    """Create comprehensive legacy elimination report."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.CREATE_LEGACY_ELIMINATION_REPORT,
+        file_path=file_path,
+        file_content=file_content
+    )
+
+def auto_replace_simple_patterns(file_content: str, 
+                                 pattern_type: str) -> str:
+    """Automatically replace simple legacy patterns."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.AUTO_REPLACE_SIMPLE_PATTERNS,
+        file_content=file_content,
+        pattern_type=pattern_type
+    )
+
+def validate_gateway_usage(file_content: str) -> Dict[str, Any]:
+    """Validate gateway pattern usage in file."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_GATEWAY_USAGE,
+        file_content=file_content
+    )
+
+def generate_optimization_roadmap(files: List[str]) -> Dict[str, Any]:
+    """Generate optimization roadmap for multiple files."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GENERATE_OPTIMIZATION_ROADMAP,
+        files=files
+    )
+
+# ===== SECTION 5: ARCHITECTURE VALIDATION =====
+
+def validate_system_architecture(project_path: str = ".") -> Dict[str, Any]:
+    """Validate system architecture compliance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE,
+        project_path=project_path
+    )
+
+def validate_file_structure(project_path: str) -> Dict[str, Any]:
+    """Validate project file structure."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_FILE_STRUCTURE,
+        project_path=project_path
+    )
+
+def validate_naming_conventions(project_path: str) -> Dict[str, Any]:
+    """Validate file naming conventions."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_NAMING_CONVENTIONS,
+        project_path=project_path
+    )
+
+def validate_access_patterns(project_path: str) -> Dict[str, Any]:
+    """Validate access pattern compliance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_ACCESS_PATTERNS,
+        project_path=project_path
+    )
+
+def validate_gateway_implementation(project_path: str) -> Dict[str, Any]:
+    """Validate gateway pattern implementation."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_GATEWAY_IMPLEMENTATION,
+        project_path=project_path
+    )
+
+# ===== SECTION 6: AWS CONSTRAINT VALIDATION =====
+
+def validate_memory_constraints() -> Dict[str, Any]:
+    """Validate memory usage against AWS Lambda constraints."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_MEMORY_CONSTRAINTS
+    )
+
+def validate_cost_protection() -> Dict[str, Any]:
+    """Validate cost protection and free tier compliance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_COST_PROTECTION
+    )
+
+def validate_aws_constraints() -> List[Dict[str, Any]]:
+    """Validate all AWS constraint compliance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_AWS_CONSTRAINTS
+    )
+
+# ===== SECTION 7: SECURITY VALIDATION =====
+
+def validate_security_configuration() -> Dict[str, Any]:
+    """Validate security configuration compliance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_SECURITY_CONFIGURATION
+    )
+
+def validate_input_validation_implementation() -> Dict[str, Any]:
+    """Validate input validation implementation."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_INPUT_VALIDATION
+    )
+
+def validate_data_sanitization() -> Dict[str, Any]:
+    """Validate data sanitization implementation."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_DATA_SANITIZATION
+    )
+
+# ===== SECTION 8: CONFIGURATION TESTING =====
+
+def run_configuration_tests() -> bool:
+    """Run complete configuration system test suite."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.RUN_CONFIGURATION_TESTS
+    )
+
+def test_configuration_presets() -> Dict[str, Any]:
+    """Test configuration preset functionality."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_CONFIGURATION_PRESETS
+    )
+
+def test_configuration_parameters() -> Dict[str, Any]:
+    """Test configuration parameter management."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_CONFIGURATION_PARAMETERS
+    )
+
+def test_configuration_tiers() -> Dict[str, Any]:
+    """Test configuration tier management."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_CONFIGURATION_TIERS
+    )
+
+def test_configuration_performance() -> Dict[str, Any]:
+    """Test configuration system performance."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.TEST_CONFIGURATION_PERFORMANCE
+    )
+
+# ===== SECTION 9: IMPORT VALIDATION =====
+
+def validate_import_architecture(project_path: str = ".") -> Dict[str, Any]:
+    """Validate import architecture and detect circular imports."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.VALIDATE_IMPORT_ARCHITECTURE,
+        project_path=project_path
+    )
+
+def detect_circular_imports(project_path: str) -> List[Dict[str, Any]]:
+    """Detect circular import patterns."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.DETECT_CIRCULAR_IMPORTS,
+        project_path=project_path
+    )
+
+def analyze_import_dependencies(project_path: str) -> Dict[str, Any]:
+    """Analyze import dependency graph."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.ANALYZE_IMPORT_DEPENDENCIES,
+        project_path=project_path
+    )
+
+def generate_import_fix_suggestions(violations: List[Dict]) -> List[Dict[str, str]]:
+    """Generate fix suggestions for import violations."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GENERATE_IMPORT_FIX_SUGGESTIONS,
+        violations=violations
+    )
+
+# ===== SECTION 10: INTEGRATION & MIGRATION =====
+
+def migrate_utility_tests() -> Dict[str, Any]:
+    """Migrate utility.py testing functions to debug interface."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.MIGRATE_UTILITY_TESTS
+    )
+
+def integrate_config_testing() -> Dict[str, Any]:
+    """Integrate config_testing.py patterns into debug framework."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.INTEGRATE_CONFIG_TESTING
+    )
+
+def incorporate_import_validation() -> Dict[str, Any]:
+    """Incorporate import validation into debug_validation.py."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.INCORPORATE_IMPORT_VALIDATION
+    )
+
+def consolidate_validation_functions() -> Dict[str, Any]:
+    """Consolidate scattered validation functions."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.CONSOLIDATE_VALIDATION_FUNCTIONS
+    )
+
+def get_integration_status() -> Dict[str, Any]:
+    """Get current integration/migration status."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.GET_INTEGRATION_STATUS
+    )
+
+# ===== SECTION 11: UNIFIED TEST RUNNING =====
+
+def run_unified_tests(interfaces: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Run unified tests across all or specific interfaces."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.RUN_UNIFIED_TESTS,
+        interfaces=interfaces
+    )
+
+def register_interface_tests(interface_name: str, 
+                            test_functions: List[str]) -> bool:
+    """Register test functions for an interface."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.REGISTER_INTERFACE_TESTS,
+        interface_name=interface_name,
+        test_functions=test_functions
+    )
+
+def aggregate_test_results(test_results: List[Dict]) -> Dict[str, Any]:
+    """Aggregate test results from multiple sources."""
+    coordinator = _get_debug_coordinator()
+    return coordinator.execute_debug_operation(
+        DebugOperation.AGGREGATE_TEST_RESULTS,
+        test_results=test_results
+    )
+
+# ===== SECTION 12: COMPREHENSIVE TESTING OPERATIONS =====
 
 def run_comprehensive_tests(test_scope: str = "all",
                            test_depth: str = "standard",
@@ -61,191 +514,135 @@ def run_comprehensive_tests(test_scope: str = "all",
     )
 
 def run_interface_tests(interface_name: str,
-                       test_categories: List[str] = None,
-                       validation_level: str = "standard") -> Dict[str, Any]:
-    """Run tests for a specific interface with configurable validation levels."""
+                       test_types: List[str] = None,
+                       include_integration: bool = True) -> Dict[str, Any]:
+    """Run tests for specific interface."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.RUN_INTERFACE_TESTS,
         interface_name=interface_name,
-        test_categories=test_categories or ["functionality", "performance", "security"],
-        validation_level=validation_level
+        test_types=test_types,
+        include_integration=include_integration
     )
 
 def run_integration_tests(integration_scope: str = "cross_interface",
-                         mock_external: bool = True,
-                         timeout_seconds: int = 30) -> Dict[str, Any]:
-    """Run integration tests to validate cross-interface coordination and communication."""
+                         critical_paths_only: bool = False) -> Dict[str, Any]:
+    """Run integration tests between interfaces."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.RUN_INTEGRATION_TESTS,
         integration_scope=integration_scope,
-        mock_external=mock_external,
-        timeout_seconds=timeout_seconds
+        critical_paths_only=critical_paths_only
     )
 
-def run_performance_tests(performance_scope: str = "system_wide",
-                         load_level: str = "standard",
-                         benchmark_comparison: bool = True) -> Dict[str, Any]:
-    """Run performance tests with benchmarking and load testing capabilities."""
+def run_performance_tests(performance_targets: Dict[str, float] = None,
+                         stress_test: bool = False) -> Dict[str, Any]:
+    """Run performance tests with optional stress testing."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.RUN_PERFORMANCE_TESTS,
-        performance_scope=performance_scope,
-        load_level=load_level,
-        benchmark_comparison=benchmark_comparison
+        performance_targets=performance_targets,
+        stress_test=stress_test
     )
 
-def get_test_results(result_filter: str = "all",
-                    result_format: str = "summary",
-                    include_history: bool = False) -> Dict[str, Any]:
-    """Retrieve test results with flexible filtering and formatting options."""
+def get_test_results(test_category: str = "all",
+                    result_filter: str = "all",
+                    include_details: bool = True) -> Dict[str, Any]:
+    """Get test results with filtering options."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_TEST_RESULTS,
+        test_category=test_category,
         result_filter=result_filter,
-        result_format=result_format,
-        include_history=include_history
+        include_details=include_details
     )
 
-# ===== SECTION 3: VALIDATION OPERATIONS GATEWAY =====
+# ===== SECTION 13: VALIDATION OPERATIONS =====
 
-def validate_system_architecture(validation_depth: str = "comprehensive",
-                                strict_mode: bool = True,
-                                generate_report: bool = False) -> Dict[str, Any]:
-    """
-    Validate system architecture against design patterns and best practices.
-    RENAMED from validate_architecture - handles comprehensive system validation.
-    """
-    coordinator = _get_debug_coordinator()
-    return coordinator.execute_debug_operation(
-        DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE,
-        validation_depth=validation_depth,
-        strict_mode=strict_mode,
-        generate_report=generate_report
-    )
-
-def validate_aws_constraints(constraint_scope: str = "all",
-                            include_recommendations: bool = True,
-                            projection_analysis: bool = False) -> Dict[str, Any]:
-    """Validate compliance with AWS Lambda 128MB and CloudWatch 10-metric constraints."""
-    coordinator = _get_debug_coordinator()
-    return coordinator.execute_debug_operation(
-        DebugOperation.VALIDATE_AWS_CONSTRAINTS,
-        constraint_scope=constraint_scope,
-        include_recommendations=include_recommendations,
-        projection_analysis=projection_analysis
-    )
-
-def validate_gateway_compliance(gateway_name: str = "all",
-                               compliance_level: str = "strict",
-                               audit_trail: bool = False) -> Dict[str, Any]:
-    """Validate gateway interface compliance with architectural standards."""
+def validate_gateway_compliance(interfaces: List[str] = None) -> List[Dict[str, Any]]:
+    """Validate gateway pattern compliance for interfaces."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.VALIDATE_GATEWAY_COMPLIANCE,
-        gateway_name=gateway_name,
-        compliance_level=compliance_level,
-        audit_trail=audit_trail
+        interfaces=interfaces
     )
 
-def validate_system_configuration(config_scope: str = "complete",
-                                 validation_level: str = "thorough",
-                                 auto_correct: bool = False) -> Dict[str, Any]:
-    """
-    Validate system-level configuration (architecture, AWS compliance, gateway patterns).
-    RENAMED from validate_configuration - handles comprehensive system validation.
-    For input-level configuration validation, use utility.validate_input_configuration().
-    """
+def validate_system_configuration(config_scope: str = "complete") -> Dict[str, Any]:
+    """Validate system configuration."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.VALIDATE_SYSTEM_CONFIGURATION,
-        config_scope=config_scope,
-        validation_level=validation_level,
-        auto_correct=auto_correct
+        config_scope=config_scope
     )
 
-def get_validation_status(status_scope: str = "all",
-                         include_history: bool = False,
-                         aggregate_metrics: bool = True) -> Dict[str, Any]:
-    """Get validation status with historical data and aggregated metrics."""
+def get_validation_status(validation_type: str = "all",
+                         detailed_results: bool = False) -> Dict[str, Any]:
+    """Get validation status with optional details."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_VALIDATION_STATUS,
-        status_scope=status_scope,
-        include_history=include_history,
-        aggregate_metrics=aggregate_metrics
+        validation_type=validation_type,
+        detailed_results=detailed_results
     )
 
-# ===== SECTION 4: TROUBLESHOOTING OPERATIONS GATEWAY =====
+# ===== SECTION 14: DIAGNOSTIC & TROUBLESHOOTING =====
 
 def diagnose_system_health(diagnostic_depth: str = "comprehensive",
-                          real_time_analysis: bool = True,
-                          predictive_insights: bool = False) -> Dict[str, Any]:
-    """Diagnose system health with real-time analysis and predictive insights."""
+                          include_recommendations: bool = True) -> Dict[str, Any]:
+    """Diagnose system health comprehensively."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.DIAGNOSE_SYSTEM_HEALTH,
         diagnostic_depth=diagnostic_depth,
-        real_time_analysis=real_time_analysis,
-        predictive_insights=predictive_insights
+        include_recommendations=include_recommendations
     )
 
-def analyze_performance_issues(analysis_scope: str = "system_wide",
-                              issue_threshold: str = "warning",
-                              root_cause_analysis: bool = True) -> Dict[str, Any]:
-    """Analyze performance issues with root cause analysis and recommendations."""
+def analyze_performance_issues(performance_threshold: float = 100.0,
+                              historical_comparison: bool = True) -> Dict[str, Any]:
+    """Analyze performance issues and bottlenecks."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.ANALYZE_PERFORMANCE_ISSUES,
-        analysis_scope=analysis_scope,
-        issue_threshold=issue_threshold,
-        root_cause_analysis=root_cause_analysis
+        performance_threshold=performance_threshold,
+        historical_comparison=historical_comparison
     )
 
-def detect_resource_problems(resource_type: str = "all",
-                            detection_sensitivity: str = "standard",
-                            proactive_alerts: bool = True) -> Dict[str, Any]:
-    """Detect resource problems (memory, metrics, cache) with proactive alerting."""
+def detect_resource_problems(resource_types: List[str] = None,
+                            alert_thresholds: Dict[str, float] = None) -> Dict[str, Any]:
+    """Detect resource usage problems."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.DETECT_RESOURCE_PROBLEMS,
-        resource_type=resource_type,
-        detection_sensitivity=detection_sensitivity,
-        proactive_alerts=proactive_alerts
+        resource_types=resource_types,
+        alert_thresholds=alert_thresholds
     )
 
-def generate_diagnostic_report(report_scope: str = "comprehensive",
-                              report_format: str = "detailed",
-                              include_visualizations: bool = False) -> Dict[str, Any]:
-    """Generate comprehensive diagnostic report with optional visualizations."""
+def generate_diagnostic_report(report_format: str = "comprehensive",
+                              include_metrics: bool = True,
+                              include_recommendations: bool = True) -> Dict[str, Any]:
+    """Generate comprehensive diagnostic report."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GENERATE_DIAGNOSTIC_REPORT,
-        report_scope=report_scope,
         report_format=report_format,
-        include_visualizations=include_visualizations
+        include_metrics=include_metrics,
+        include_recommendations=include_recommendations
     )
 
-def get_troubleshooting_recommendations(problem_category: str = "all",
-                                       recommendation_depth: str = "detailed",
-                                       prioritize_actions: bool = True) -> Dict[str, Any]:
-    """Get troubleshooting recommendations with prioritized action items."""
+def get_troubleshooting_recommendations(issue_category: str = "all",
+                                       priority_level: str = "all") -> List[Dict[str, str]]:
+    """Get troubleshooting recommendations."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_TROUBLESHOOTING_RECOMMENDATIONS,
-        problem_category=problem_category,
-        recommendation_depth=recommendation_depth,
-        prioritize_actions=prioritize_actions
+        issue_category=issue_category,
+        priority_level=priority_level
     )
 
 def get_system_diagnostic_info(diagnostic_level: str = "standard",
-                               include_cache: bool = True,
-                               include_performance: bool = True) -> Dict[str, Any]:
-    """
-    Get comprehensive system diagnostic information.
-    NEW: Consolidated from utility per debug.py special status for diagnostics.
-    """
+                              include_cache: bool = True,
+                              include_performance: bool = True) -> Dict[str, Any]:
+    """Get comprehensive system diagnostic information."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_SYSTEM_DIAGNOSTIC_INFO,
@@ -254,12 +651,12 @@ def get_system_diagnostic_info(diagnostic_level: str = "standard",
         include_performance=include_performance
     )
 
-# ===== SECTION 5: DEBUG COORDINATION GATEWAY =====
+# ===== SECTION 15: DEBUG COORDINATION =====
 
 def run_full_system_debug(debug_level: str = "comprehensive",
                          include_automation: bool = True,
                          generate_reports: bool = True) -> Dict[str, Any]:
-    """Run full system debug with automation and comprehensive reporting."""
+    """Run full system debug with automation and reporting."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.RUN_FULL_SYSTEM_DEBUG,
@@ -271,7 +668,7 @@ def run_full_system_debug(debug_level: str = "comprehensive",
 def get_debug_status(status_detail: str = "summary",
                     include_metrics: bool = True,
                     real_time_data: bool = True) -> Dict[str, Any]:
-    """Get current debug system status with real-time metrics."""
+    """Get current debug system status."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_DEBUG_STATUS,
@@ -283,7 +680,7 @@ def get_debug_status(status_detail: str = "summary",
 def enable_debug_mode(debug_level: str = "standard",
                      enhanced_logging: bool = True,
                      performance_monitoring: bool = True) -> Dict[str, Any]:
-    """Enable detailed debug mode with enhanced logging and monitoring."""
+    """Enable detailed debug mode."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.ENABLE_DEBUG_MODE,
@@ -294,7 +691,7 @@ def enable_debug_mode(debug_level: str = "standard",
 
 def disable_debug_mode(preserve_data: bool = True,
                       generate_summary: bool = True) -> Dict[str, Any]:
-    """Disable debug mode and return to normal operation with optional summary."""
+    """Disable debug mode."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.DISABLE_DEBUG_MODE,
@@ -304,45 +701,12 @@ def disable_debug_mode(preserve_data: bool = True,
 
 def get_debug_configuration(config_scope: str = "complete",
                            include_recommendations: bool = False) -> Dict[str, Any]:
-    """Get current debug configuration and settings with optimization recommendations."""
+    """Get current debug configuration."""
     coordinator = _get_debug_coordinator()
     return coordinator.execute_debug_operation(
         DebugOperation.GET_DEBUG_CONFIGURATION,
         config_scope=config_scope,
         include_recommendations=include_recommendations
     )
-
-# ===== MODULE EXPORTS =====
-
-__all__ = [
-    # Testing operations
-    'run_comprehensive_tests',
-    'run_interface_tests',
-    'run_integration_tests',
-    'run_performance_tests',
-    'get_test_results',
-    
-    # Validation operations (system-level)
-    'validate_system_architecture',
-    'validate_aws_constraints',
-    'validate_gateway_compliance',
-    'validate_system_configuration',  # RENAMED
-    'get_validation_status',
-    
-    # Troubleshooting operations
-    'diagnose_system_health',
-    'analyze_performance_issues',
-    'detect_resource_problems',
-    'generate_diagnostic_report',
-    'get_troubleshooting_recommendations',
-    'get_system_diagnostic_info',  # NEW
-    
-    # Debug coordination
-    'run_full_system_debug',
-    'get_debug_status',
-    'enable_debug_mode',
-    'disable_debug_mode',
-    'get_debug_configuration'
-]
 
 # EOF
