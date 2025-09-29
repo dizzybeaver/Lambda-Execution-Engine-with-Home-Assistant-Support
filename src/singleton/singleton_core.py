@@ -305,5 +305,3 @@ __all__ = [
     'SingletonRegistry', 'ThreadCoordinator',
     '_get_singleton_registry'
 ]
-
-# EOF
