@@ -1,6 +1,6 @@
 """
 singleton_memory.py - Memory Monitoring Implementation Module
-Version: 2025.09.24.09
+Version: 2025.09.29.01
 Description: Internal memory monitoring implementation for singleton operations
 
 ARCHITECTURE: SECONDARY IMPLEMENTATION
@@ -9,13 +9,31 @@ ARCHITECTURE: SECONDARY IMPLEMENTATION
 - Emergency memory cleanup operations
 - Singleton memory optimization
 
+FREE TIER COMPLIANCE: Uses resource module from Python standard library
+- No psutil dependency (Lambda layer not required)
+- 100% AWS Lambda free tier compatible
+- Standard library only for memory monitoring
+
 PRIMARY FILE: singleton.py (interface)
 SECONDARY FILE: singleton_memory.py (implementation)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 """
 
 import logging
 import gc
-import psutil
+import resource
+import sys
 import os
 import time
 from typing import Dict, Any, Optional
@@ -27,8 +45,8 @@ logger = logging.getLogger(__name__)
 def _get_singleton_memory_status_implementation() -> Dict[str, Any]:
     """Get singleton memory status implementation."""
     try:
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        memory_mb = rusage.ru_maxrss / 1024  # Linux returns KB, convert to MB
         
         # Get singleton registry status
         from .singleton_core import _registry
@@ -36,10 +54,10 @@ def _get_singleton_memory_status_implementation() -> Dict[str, Any]:
         
         return {
             'singleton_memory_usage_mb': singleton_status['memory_usage_estimate'] / (1024 * 1024),
-            'total_process_memory_mb': memory_info.rss / (1024 * 1024),
+            'total_process_memory_mb': memory_mb,
             'singleton_count': singleton_status['total_singletons'],
-            'lambda_128mb_compliant': memory_info.rss < 128 * 1024 * 1024,
-            'memory_pressure': 'high' if memory_info.rss > 100 * 1024 * 1024 else 'normal',
+            'lambda_128mb_compliant': memory_mb < 128,
+            'memory_pressure': 'high' if memory_mb > 100 else 'normal',
             'timestamp': time.time()
         }
     except Exception as e:
@@ -53,124 +71,163 @@ def _get_singleton_memory_status_implementation() -> Dict[str, Any]:
 def get_memory_stats() -> Dict[str, Any]:
     """Get current memory statistics."""
     try:
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        memory_mb = rusage.ru_maxrss / 1024  # Linux returns KB, convert to MB
         
         return {
-            'rss_mb': memory_info.rss / (1024 * 1024),
-            'vms_mb': memory_info.vms / (1024 * 1024),
-            'percent': process.memory_percent(),
-            'available_mb': (128 - memory_info.rss / (1024 * 1024)),  # Lambda limit
-            'compliant': memory_info.rss < 128 * 1024 * 1024
+            'rss_mb': memory_mb,
+            'vms_mb': memory_mb,  # resource module doesn't distinguish, use same value
+            'percent': (memory_mb / 128) * 100,  # Percentage of Lambda 128MB limit
+            'available_mb': (128 - memory_mb),
+            'compliant': memory_mb < 128
         }
     except Exception as e:
         return {'error': str(e), 'compliant': False}
 
 def get_comprehensive_memory_stats() -> Dict[str, Any]:
     """Get comprehensive memory statistics."""
-    basic_stats = get_memory_stats()
-    
     try:
-        # Add garbage collection stats
-        gc_stats = {
-            'gc_generation_0': len(gc.get_objects(0)) if hasattr(gc, 'get_objects') else 0,
-            'gc_generation_1': len(gc.get_objects(1)) if hasattr(gc, 'get_objects') else 0,
-            'gc_generation_2': len(gc.get_objects(2)) if hasattr(gc, 'get_objects') else 0,
-            'gc_collected': gc.collect()
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        memory_mb = rusage.ru_maxrss / 1024  # Linux returns KB, convert to MB
+        
+        # Get GC statistics
+        gc_stats = gc.get_stats()
+        gc_counts = gc.get_count()
+        
+        # Get object counts
+        object_count = len(gc.get_objects())
+        
+        return {
+            'memory': {
+                'rss_mb': memory_mb,
+                'available_mb': 128 - memory_mb,
+                'percent_used': (memory_mb / 128) * 100,
+                'compliant': memory_mb < 128
+            },
+            'gc': {
+                'collections': gc_counts,
+                'stats': gc_stats,
+                'tracked_objects': object_count
+            },
+            'system': {
+                'lambda_limit_mb': 128,
+                'pressure_level': 'high' if memory_mb > 100 else 'normal'
+            },
+            'timestamp': time.time()
         }
-        
-        basic_stats.update(gc_stats)
-        basic_stats['comprehensive'] = True
-        
     except Exception as e:
-        basic_stats['gc_error'] = str(e)
-        
-    return basic_stats
+        logger.error(f"Comprehensive memory stats failed: {e}")
+        return {'error': str(e)}
 
-def check_lambda_memory_compliance() -> Dict[str, Any]:
-    """Check Lambda 128MB memory compliance."""
-    stats = get_memory_stats()
-    
-    compliance_report = {
-        'compliant': stats.get('compliant', False),
-        'current_mb': stats.get('rss_mb', 0),
-        'limit_mb': 128,
-        'available_mb': stats.get('available_mb', 0),
-        'usage_percentage': (stats.get('rss_mb', 0) / 128) * 100,
-        'timestamp': time.time()
-    }
-    
-    if compliance_report['usage_percentage'] > 90:
-        compliance_report['status'] = 'critical'
-        compliance_report['recommendation'] = 'immediate_cleanup_required'
-    elif compliance_report['usage_percentage'] > 75:
-        compliance_report['status'] = 'warning'
-        compliance_report['recommendation'] = 'cleanup_recommended'
-    else:
-        compliance_report['status'] = 'healthy'
-        compliance_report['recommendation'] = 'no_action_needed'
-        
-    return compliance_report
+def check_lambda_memory_compliance() -> bool:
+    """Check if memory usage is within Lambda 128MB limit."""
+    try:
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        memory_mb = rusage.ru_maxrss / 1024
+        return memory_mb < 128
+    except Exception:
+        return False
 
 def force_memory_cleanup() -> Dict[str, Any]:
-    """Force memory cleanup."""
-    start_time = time.time()
-    before_stats = get_memory_stats()
-    
-    # Force garbage collection
-    collected = gc.collect()
-    
-    # Additional cleanup for Lambda
-    if hasattr(gc, 'set_threshold'):
-        gc.set_threshold(700, 10, 10)  # More aggressive GC
-    
-    after_stats = get_memory_stats()
-    duration = time.time() - start_time
-    
-    return {
-        'cleanup_performed': True,
-        'gc_collected': collected,
-        'memory_before_mb': before_stats.get('rss_mb', 0),
-        'memory_after_mb': after_stats.get('rss_mb', 0),
-        'memory_freed_mb': before_stats.get('rss_mb', 0) - after_stats.get('rss_mb', 0),
-        'duration_ms': duration * 1000,
-        'still_compliant': after_stats.get('compliant', False)
-    }
+    """Force aggressive memory cleanup."""
+    try:
+        # Get initial memory
+        rusage_before = resource.getrusage(resource.RUSAGE_SELF)
+        memory_before = rusage_before.ru_maxrss / 1024
+        
+        # Force GC
+        collected = gc.collect()
+        
+        # Get final memory
+        rusage_after = resource.getrusage(resource.RUSAGE_SELF)
+        memory_after = rusage_after.ru_maxrss / 1024
+        
+        return {
+            'gc_collected': collected,
+            'memory_before_mb': memory_before,
+            'memory_after_mb': memory_after,
+            'memory_freed_mb': max(0, memory_before - memory_after),
+            'compliant': memory_after < 128
+        }
+    except Exception as e:
+        logger.error(f"Memory cleanup failed: {e}")
+        return {'error': str(e)}
+
+def optimize_memory() -> Dict[str, Any]:
+    """Optimize memory usage with multiple cleanup strategies."""
+    try:
+        optimization_results = []
+        
+        # Strategy 1: Basic GC
+        collected = gc.collect()
+        optimization_results.append(f"gc_collected_{collected}_objects")
+        
+        # Strategy 2: Generation-specific collection
+        for generation in range(3):
+            gen_collected = gc.collect(generation)
+            optimization_results.append(f"gen{generation}_collected_{gen_collected}_objects")
+        
+        # Strategy 3: Clear singleton cache if needed
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        current_memory = rusage.ru_maxrss / 1024
+        
+        if current_memory > 100:  # High memory pressure
+            try:
+                from .singleton_core import _registry
+                _registry.cleanup()
+                optimization_results.append("singleton_cache_cleared")
+            except Exception:
+                pass
+        
+        # Final check
+        rusage_final = resource.getrusage(resource.RUSAGE_SELF)
+        final_memory = rusage_final.ru_maxrss / 1024
+        
+        return {
+            'optimization_complete': True,
+            'strategies_applied': optimization_results,
+            'final_memory_mb': final_memory,
+            'compliant': final_memory < 128
+        }
+    except Exception as e:
+        logger.error(f"Memory optimization failed: {e}")
+        return {'error': str(e)}
 
 def force_comprehensive_memory_cleanup() -> Dict[str, Any]:
-    """Force comprehensive memory cleanup."""
-    cleanup_results = []
-    
-    # Step 1: Basic cleanup
-    basic_cleanup = force_memory_cleanup()
-    cleanup_results.append(('basic_gc', basic_cleanup))
-    
-    # Step 2: Singleton cleanup
+    """Force comprehensive memory cleanup with all strategies."""
     try:
-        from .singleton_core import _registry
-        singleton_cleanup = _registry.cleanup()
-        cleanup_results.append(('singleton_cleanup', singleton_cleanup))
+        cleanup_results = []
+        
+        # Step 1: Basic cleanup
+        basic_cleanup = force_memory_cleanup()
+        cleanup_results.append(('basic_gc', basic_cleanup))
+        
+        # Step 2: Singleton cleanup
+        try:
+            from .singleton_core import _registry
+            singleton_cleanup = _registry.cleanup()
+            cleanup_results.append(('singleton_cleanup', singleton_cleanup))
+        except Exception as e:
+            cleanup_results.append(('singleton_cleanup', {'error': str(e)}))
+        
+        # Step 3: Additional Python cleanup
+        try:
+            if hasattr(sys, 'intern'):
+                pass
+            cleanup_results.append(('system_cleanup', {'intern_cleared': True}))
+        except Exception as e:
+            cleanup_results.append(('system_cleanup', {'error': str(e)}))
+        
+        final_stats = get_memory_stats()
+        
+        return {
+            'comprehensive_cleanup': True,
+            'cleanup_steps': cleanup_results,
+            'final_memory_mb': final_stats.get('rss_mb', 0),
+            'final_compliant': final_stats.get('compliant', False)
+        }
     except Exception as e:
-        cleanup_results.append(('singleton_cleanup', {'error': str(e)}))
-    
-    # Step 3: Additional Python cleanup
-    try:
-        import sys
-        if hasattr(sys, 'intern'):
-            # Clear string intern cache if possible
-            pass
-        cleanup_results.append(('system_cleanup', {'intern_cleared': True}))
-    except Exception as e:
-        cleanup_results.append(('system_cleanup', {'error': str(e)}))
-    
-    final_stats = get_memory_stats()
-    
-    return {
-        'comprehensive_cleanup': True,
-        'cleanup_steps': cleanup_results,
-        'final_memory_mb': final_stats.get('rss_mb', 0),
-        'final_compliant': final_stats.get('compliant', False)
-    }
+        return {'error': str(e)}
 
 def emergency_memory_preserve() -> Dict[str, Any]:
     """Emergency memory preservation mode."""
