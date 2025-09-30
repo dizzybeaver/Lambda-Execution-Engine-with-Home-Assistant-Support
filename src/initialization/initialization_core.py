@@ -1,70 +1,64 @@
 """
-initialization_core.py - Core Initialization Implementation for SUGA
-Version: 2025.09.29.03
-Daily Revision: 01
-
-REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
-FREE TIER COMPLIANCE: 100% - Lambda initialization optimization
+Initialization Core - Lambda Environment Initialization
+Version: 2025.09.29.01
+Daily Revision: 001
 """
 
 import os
-import time
-from typing import Any, Dict, Optional
+from typing import Dict, Any
 
-_INITIALIZATION_STATE = {
-    "initialized": False,
-    "start_time": None,
-    "cold_start": True,
-    "invocation_count": 0
-}
-
-def initialize_lambda() -> Dict[str, Any]:
-    """Initialize Lambda environment."""
-    if not _INITIALIZATION_STATE["initialized"]:
-        _INITIALIZATION_STATE["start_time"] = time.time()
-        _INITIALIZATION_STATE["initialized"] = True
-        _INITIALIZATION_STATE["cold_start"] = True
-    else:
-        _INITIALIZATION_STATE["cold_start"] = False
+class InitializationCore:
+    """Handles Lambda environment initialization."""
     
-    _INITIALIZATION_STATE["invocation_count"] += 1
+    def __init__(self):
+        self._initialized = False
+        self._config: Dict[str, Any] = {}
     
-    return {
-        "initialized": True,
-        "cold_start": _INITIALIZATION_STATE["cold_start"],
-        "invocation_count": _INITIALIZATION_STATE["invocation_count"],
-        "uptime": time.time() - _INITIALIZATION_STATE["start_time"]
-    }
+    def initialize(self, **kwargs) -> Dict[str, Any]:
+        """Initialize Lambda environment."""
+        if self._initialized:
+            return {'status': 'already_initialized', 'config': self._config}
+        
+        self._config = {
+            'aws_region': os.environ.get('AWS_REGION', 'us-east-1'),
+            'function_name': os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'unknown'),
+            'memory_limit': os.environ.get('AWS_LAMBDA_FUNCTION_MEMORY_SIZE', '128'),
+            'log_level': os.environ.get('LOG_LEVEL', 'INFO'),
+            'environment': os.environ.get('ENVIRONMENT', 'production')
+        }
+        
+        self._initialized = True
+        return {'status': 'initialized', 'config': self._config}
+    
+    def get_config(self) -> Dict[str, Any]:
+        """Get initialization config."""
+        return self._config.copy()
+    
+    def is_initialized(self) -> bool:
+        """Check if initialized."""
+        return self._initialized
+    
+    def reset(self):
+        """Reset initialization state."""
+        self._initialized = False
+        self._config.clear()
 
-def get_initialization_state() -> Dict[str, Any]:
-    """Get initialization state."""
-    return _INITIALIZATION_STATE.copy()
+_INITIALIZATION = InitializationCore()
 
-def is_cold_start() -> bool:
-    """Check if this is a cold start."""
-    return _INITIALIZATION_STATE["cold_start"]
+def _execute_initialize_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute initialization."""
+    return _INITIALIZATION.initialize(**kwargs)
 
-def get_invocation_count() -> int:
-    """Get invocation count."""
-    return _INITIALIZATION_STATE["invocation_count"]
+def _execute_get_config_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get config."""
+    return _INITIALIZATION.get_config()
 
-def get_uptime() -> float:
-    """Get Lambda uptime in seconds."""
-    if _INITIALIZATION_STATE["start_time"]:
-        return time.time() - _INITIALIZATION_STATE["start_time"]
-    return 0.0
+def _execute_is_initialized_implementation(**kwargs) -> bool:
+    """Execute is initialized check."""
+    return _INITIALIZATION.is_initialized()
 
-def get_environment_variables() -> Dict[str, str]:
-    """Get Lambda environment variables."""
-    return dict(os.environ)
+def _execute_reset_implementation(**kwargs):
+    """Execute reset."""
+    return _INITIALIZATION.reset()
 
-def get_environment_variable(key: str, default: Any = None) -> Any:
-    """Get specific environment variable."""
-    return os.environ.get(key, default)
-
-def reset_initialization() -> None:
-    """Reset initialization state."""
-    _INITIALIZATION_STATE["initialized"] = False
-    _INITIALIZATION_STATE["start_time"] = None
-    _INITIALIZATION_STATE["cold_start"] = True
-    _INITIALIZATION_STATE["invocation_count"] = 0
+#EOF
