@@ -1,16 +1,12 @@
 """
 http_client_response.py - HTTP Response Processing
-Version: 2025.09.24.01
-Description: HTTP response processing and transformation using gateway interfaces
+Version: 2025.09.30.02
+Daily Revision: 002 - Gateway Architecture Compliance
 
 ARCHITECTURE: SECONDARY IMPLEMENTATION
-- Response parsing and validation using utility.py
-- Error handling using security.py validation
-- Metrics collection using metrics.py
-- Response caching using cache.py
-
-PRIMARY FILE: http_client.py (interface)
-SECONDARY FILE: http_client_response.py (response processing)
+- Uses gateway.py for all operations
+- Response processing and transformation
+- 100% Free Tier AWS compliant
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,76 +23,78 @@ limitations under the License.
 
 import json
 import xml.etree.ElementTree as ET
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, List
 import logging
 
-# Gateway imports
-from . import utility
-from . import security
-from . import metrics
-from . import cache
+from gateway import (
+    validate_request,
+    create_success_response, create_error_response,
+    sanitize_response_data,
+    log_info, log_error,
+    cache_get, cache_set,
+    record_metric,
+    execute_operation, GatewayInterface
+)
 
 logger = logging.getLogger(__name__)
 
-# ===== RESPONSE PROCESSING FUNCTIONS =====
-
-def process_response(response_data: Dict[str, Any],
-                    expected_format: str = 'json',
+def process_response(response_data: Dict[str, Any], expected_format: str = 'json',
                     validation_rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Process and validate HTTP response using gateway interfaces."""
-    
     try:
-        # Use utility.py for response validation if available
-        if hasattr(utility, 'validate_response'):
-            validation_result = utility.validate_response(response_data)
-            if not validation_result.get('valid', True):
-                return {
-                    'success': False,
-                    'error': f'Response validation failed: {validation_result.get("error")}',
-                    'original_response': response_data
-                }
+        parsed_data = _parse_response_format(response_data, expected_format)
         
-        # Parse response based on expected format
-        parsed_response = _parse_response_format(response_data, expected_format)
-        
-        # Apply validation rules if provided
         if validation_rules:
-            validation_result = security.validate_request({
-                'response_data': parsed_response,
-                'validation_rules': validation_rules
-            })
+            validation_result = validate_request(
+                parsed_data,
+                required_fields=validation_rules.get('required_fields', []),
+                field_types=validation_rules.get('field_types', {})
+            )
             
-            if not validation_result.is_valid:
-                return {
-                    'success': False,
-                    'error': f'Response validation failed: {validation_result.error_message}',
-                    'original_response': response_data
-                }
+            if not validation_result.get('success'):
+                record_metric('response.validation_failed', 1.0)
+                return validation_result
         
-        # Record response metrics
-        metrics.increment_counter('response.processed')
-        metrics.record_value('response.size', len(str(parsed_response)))
+        sanitized_data = sanitize_response_data(parsed_data)
         
-        return {
-            'success': True,
-            'processed_data': parsed_response,
+        record_metric('response.processed', 1.0, {'format': expected_format})
+        
+        return create_success_response("Response processed successfully", {
+            'parsed_data': sanitized_data,
             'format': expected_format,
-            'original_response': response_data
-        }
-        
+            'original_status': response_data.get('status_code')
+        })
+    
     except Exception as e:
-        logger.error(f"Response processing failed: {e}")
-        metrics.increment_counter('response.processing_error')
-        return {
-            'success': False,
-            'error': str(e),
-            'original_response': response_data
-        }
+        log_error(f"Response processing failed: {e}")
+        return create_error_response(f"Failed to process response: {str(e)}")
+
+def validate_response(response: Dict[str, Any], 
+                     validation_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate response against schema."""
+    try:
+        response_data = response.get('json') or response.get('data') or response
+        
+        validation_result = validate_request(
+            response_data,
+            required_fields=validation_schema.get('required', []),
+            field_types=validation_schema.get('types', {})
+        )
+        
+        if validation_result.get('success'):
+            record_metric('response.validation_passed', 1.0)
+        else:
+            record_metric('response.validation_failed', 1.0)
+        
+        return validation_result
+    
+    except Exception as e:
+        log_error(f"Response validation failed: {e}")
+        return create_error_response(f"Validation failed: {str(e)}")
 
 def extract_response_data(response: Dict[str, Any],
                          extraction_rules: Dict[str, str]) -> Dict[str, Any]:
-    """Extract specific data from response using rules."""
-    
+    """Extract specific data from response using extraction rules."""
     try:
         extracted_data = {}
         response_data = response.get('json') or response.get('data') or response
@@ -108,22 +106,17 @@ def extract_response_data(response: Dict[str, Any],
             except (KeyError, TypeError, IndexError):
                 extracted_data[key] = None
         
-        return {
-            'success': True,
+        return create_success_response("Data extracted successfully", {
             'extracted_data': extracted_data
-        }
-        
+        })
+    
     except Exception as e:
-        logger.error(f"Data extraction failed: {e}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        log_error(f"Data extraction failed: {e}")
+        return create_error_response(str(e))
 
 def transform_response(response: Dict[str, Any],
                       transformation_map: Dict[str, str]) -> Dict[str, Any]:
     """Transform response data using transformation map."""
-    
     try:
         response_data = response.get('json') or response.get('data') or response
         transformed_data = {}
@@ -135,72 +128,55 @@ def transform_response(response: Dict[str, Any],
             except (KeyError, TypeError, IndexError):
                 transformed_data[new_key] = None
         
-        return {
-            'success': True,
+        return create_success_response("Response transformed successfully", {
             'transformed_data': transformed_data,
             'original_response': response
-        }
-        
-    except Exception as e:
-        logger.error(f"Response transformation failed: {e}")
-        return {
-            'success': False,
-            'error': str(e),
-            'original_response': response
-        }
-
-# ===== RESPONSE CACHING FUNCTIONS =====
-
-def cache_response(response: Dict[str, Any],
-                  cache_key: str,
-                  ttl: int = 300,
-                  conditions: Optional[Dict[str, Any]] = None) -> bool:
-    """Cache response using cache.py gateway with conditions."""
+        })
     
+    except Exception as e:
+        log_error(f"Response transformation failed: {e}")
+        return create_error_response(str(e))
+
+def cache_response(response: Dict[str, Any], cache_key: str, ttl: int = 300,
+                  conditions: Optional[Dict[str, Any]] = None) -> bool:
+    """Cache response using gateway cache with conditions."""
     try:
-        # Check caching conditions
-        if conditions:
-            if not _evaluate_cache_conditions(response, conditions):
-                return False
+        if conditions and not _evaluate_cache_conditions(response, conditions):
+            return False
         
-        # Use cache.py for response caching
-        success = cache.cache_set(cache_key, response, ttl)
+        success = cache_set(cache_key, response, ttl)
         
         if success:
-            metrics.increment_counter('response.cached')
+            record_metric('response.cached', 1.0)
         
         return success
-        
+    
     except Exception as e:
-        logger.error(f"Response caching failed: {e}")
+        log_error(f"Response caching failed: {e}")
         return False
 
 def get_cached_response(cache_key: str) -> Optional[Dict[str, Any]]:
-    """Get cached response using cache.py gateway."""
-    
+    """Get cached response using gateway cache."""
     try:
-        cached_response = cache.cache_get(cache_key)
+        cached_response = cache_get(cache_key)
         
         if cached_response:
-            metrics.increment_counter('response.cache_hit')
+            record_metric('response.cache_hit', 1.0)
         else:
-            metrics.increment_counter('response.cache_miss')
+            record_metric('response.cache_miss', 1.0)
         
         return cached_response
-        
+    
     except Exception as e:
-        logger.error(f"Cache retrieval failed: {e}")
+        log_error(f"Cache retrieval failed: {e}")
         return None
-
-# ===== RESPONSE AGGREGATION FUNCTIONS =====
 
 def aggregate_responses(responses: List[Dict[str, Any]],
                        aggregation_type: str = 'merge') -> Dict[str, Any]:
     """Aggregate multiple responses using specified strategy."""
-    
     try:
         if not responses:
-            return {'success': False, 'error': 'No responses to aggregate'}
+            return create_error_response('No responses to aggregate')
         
         if aggregation_type == 'merge':
             return _merge_responses(responses)
@@ -209,17 +185,14 @@ def aggregate_responses(responses: List[Dict[str, Any]],
         elif aggregation_type == 'latest':
             return _latest_response(responses)
         else:
-            return {'success': False, 'error': f'Unknown aggregation type: {aggregation_type}'}
-        
+            return create_error_response(f'Unknown aggregation type: {aggregation_type}')
+    
     except Exception as e:
-        logger.error(f"Response aggregation failed: {e}")
-        return {'success': False, 'error': str(e)}
-
-# ===== HELPER FUNCTIONS =====
+        log_error(f"Response aggregation failed: {e}")
+        return create_error_response(str(e))
 
 def _parse_response_format(response_data: Dict[str, Any], expected_format: str) -> Any:
     """Parse response data based on expected format."""
-    
     raw_data = response_data.get('data', '')
     
     if expected_format == 'json':
@@ -249,116 +222,83 @@ def _parse_response_format(response_data: Dict[str, Any], expected_format: str) 
 
 def _xml_to_dict(element) -> Dict[str, Any]:
     """Convert XML element to dictionary."""
+    result = {element.tag: {} if element.attrib else None}
+    children = list(element)
     
-    result = {}
+    if children:
+        dd = {}
+        for dc in children:
+            child_dict = _xml_to_dict(dc)
+            for k, v in child_dict.items():
+                if k in dd:
+                    if not isinstance(dd[k], list):
+                        dd[k] = [dd[k]]
+                    dd[k].append(v)
+                else:
+                    dd[k] = v
+        result = {element.tag: dd}
     
-    # Add attributes
     if element.attrib:
-        result.update(element.attrib)
-    
-    # Add text content
-    if element.text and element.text.strip():
-        if len(element) == 0:
-            return element.text.strip()
-        result['text'] = element.text.strip()
-    
-    # Add child elements
-    for child in element:
-        child_data = _xml_to_dict(child)
-        if child.tag in result:
-            if not isinstance(result[child.tag], list):
-                result[child.tag] = [result[child.tag]]
-            result[child.tag].append(child_data)
-        else:
-            result[child.tag] = child_data
+        result[element.tag] = {'@attributes': element.attrib}
+        if element.text:
+            result[element.tag]['#text'] = element.text
+    elif element.text:
+        result[element.tag] = element.text
     
     return result
 
 def _extract_nested_value(data: Any, path: str) -> Any:
     """Extract nested value using dot notation path."""
-    
-    keys = path.split('.')
+    parts = path.split('.')
     current = data
     
-    for key in keys:
+    for part in parts:
         if isinstance(current, dict):
-            current = current[key]
+            current = current[part]
         elif isinstance(current, list):
-            try:
-                index = int(key)
-                current = current[index]
-            except (ValueError, IndexError):
-                raise KeyError(f"Invalid list index: {key}")
+            current = current[int(part)]
         else:
-            raise TypeError(f"Cannot access key '{key}' on type {type(current)}")
+            raise KeyError(f"Cannot navigate path: {path}")
     
     return current
 
 def _evaluate_cache_conditions(response: Dict[str, Any], conditions: Dict[str, Any]) -> bool:
-    """Evaluate whether response meets caching conditions."""
+    """Evaluate if response meets caching conditions."""
+    if not response.get('success', True):
+        return False
     
-    # Check status code condition
-    if 'status_code' in conditions:
-        required_status = conditions['status_code']
-        actual_status = response.get('status_code', 0)
-        if actual_status != required_status:
+    if 'status_codes' in conditions:
+        status_code = response.get('status_code', 0)
+        if status_code not in conditions['status_codes']:
             return False
     
-    # Check success condition
-    if 'success' in conditions:
-        required_success = conditions['success']
-        actual_success = response.get('success', False)
-        if actual_success != required_success:
-            return False
-    
-    # Check data size condition
-    if 'max_size' in conditions:
-        max_size = conditions['max_size']
-        response_size = len(str(response))
-        if response_size > max_size:
+    if 'min_size' in conditions:
+        size = len(str(response.get('data', '')))
+        if size < conditions['min_size']:
             return False
     
     return True
 
 def _merge_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Merge multiple responses into single response."""
-    
-    merged = {
-        'success': all(r.get('success', False) for r in responses),
-        'merged_data': {},
-        'source_count': len(responses)
-    }
-    
+    """Merge responses into single response."""
+    merged_data = {}
     for response in responses:
         data = response.get('json') or response.get('data') or {}
         if isinstance(data, dict):
-            merged['merged_data'].update(data)
+            merged_data.update(data)
     
-    return merged
+    return create_success_response("Responses merged", {'merged_data': merged_data})
 
 def _array_responses(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Combine responses into array format."""
-    
-    return {
-        'success': True,
-        'data': [r.get('json') or r.get('data') for r in responses],
-        'source_count': len(responses)
-    }
+    """Aggregate responses as array."""
+    array_data = [
+        response.get('json') or response.get('data') or response
+        for response in responses
+    ]
+    return create_success_response("Responses aggregated", {'responses': array_data})
 
 def _latest_response(responses: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Return the latest response based on timestamp."""
-    
+    """Return latest response."""
     if not responses:
-        return {'success': False, 'error': 'No responses provided'}
-    
-    # Sort by timestamp if available, otherwise return last in list
-    sorted_responses = sorted(responses, 
-                             key=lambda r: r.get('timestamp', 0), 
-                             reverse=True)
-    
-    latest = sorted_responses[0]
-    latest['aggregation_type'] = 'latest'
-    
-    return latest
-
-# EOF
+        return create_error_response("No responses available")
+    return responses[-1]
