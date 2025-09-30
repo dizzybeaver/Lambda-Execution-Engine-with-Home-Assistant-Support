@@ -1,67 +1,72 @@
 """
-singleton_core.py - Core Singleton Implementation for SUGA
-Version: 2025.09.29.03
-Daily Revision: 01
-
-REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
-FREE TIER COMPLIANCE: 100% - Thread-safe singleton management
+Singleton Core - Singleton Pattern Management
+Version: 2025.09.29.01
+Daily Revision: 001
 """
 
-import threading
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Callable, Optional
+from threading import Lock
 
-_SINGLETONS: Dict[str, Any] = {}
-_LOCK = threading.RLock()
+class SingletonCore:
+    """Manages singleton instances across the application."""
+    
+    def __init__(self):
+        self._instances: Dict[str, Any] = {}
+        self._lock = Lock()
+    
+    def get(self, name: str, factory_func: Optional[Callable] = None, **kwargs) -> Any:
+        """Get or create singleton instance."""
+        if name not in self._instances:
+            with self._lock:
+                if name not in self._instances:
+                    if factory_func is None:
+                        raise ValueError(f"No singleton instance found for {name} and no factory provided")
+                    self._instances[name] = factory_func()
+        
+        return self._instances[name]
+    
+    def set(self, name: str, instance: Any, **kwargs):
+        """Set singleton instance."""
+        with self._lock:
+            self._instances[name] = instance
+    
+    def reset(self, name: str, **kwargs) -> bool:
+        """Reset singleton instance."""
+        with self._lock:
+            if name in self._instances:
+                del self._instances[name]
+                return True
+            return False
+    
+    def reset_all(self, **kwargs):
+        """Reset all singleton instances."""
+        with self._lock:
+            self._instances.clear()
+    
+    def exists(self, name: str) -> bool:
+        """Check if singleton exists."""
+        return name in self._instances
 
-def get_singleton(name: str, factory: Optional[Callable] = None) -> Any:
-    """Get or create singleton instance."""
-    with _LOCK:
-        if name not in _SINGLETONS:
-            if factory is None:
-                raise ValueError(f"Singleton '{name}' does not exist and no factory provided")
-            _SINGLETONS[name] = factory()
-        return _SINGLETONS[name]
+_SINGLETON_MANAGER = SingletonCore()
 
-def set_singleton(name: str, instance: Any) -> None:
-    """Set singleton instance."""
-    with _LOCK:
-        _SINGLETONS[name] = instance
+def _execute_get_implementation(name: str, factory_func: Optional[Callable] = None, **kwargs) -> Any:
+    """Execute singleton get."""
+    return _SINGLETON_MANAGER.get(name, factory_func, **kwargs)
 
-def exists_singleton(name: str) -> bool:
-    """Check if singleton exists."""
-    with _LOCK:
-        return name in _SINGLETONS
+def _execute_set_implementation(name: str, instance: Any, **kwargs):
+    """Execute singleton set."""
+    return _SINGLETON_MANAGER.set(name, instance, **kwargs)
 
-def reset_singleton(name: str) -> bool:
-    """Reset singleton instance."""
-    with _LOCK:
-        if name in _SINGLETONS:
-            del _SINGLETONS[name]
-            return True
-        return False
+def _execute_reset_implementation(name: str, **kwargs) -> bool:
+    """Execute singleton reset."""
+    return _SINGLETON_MANAGER.reset(name, **kwargs)
 
-def reset_all_singletons() -> int:
-    """Reset all singleton instances."""
-    with _LOCK:
-        count = len(_SINGLETONS)
-        _SINGLETONS.clear()
-        return count
+def _execute_reset_all_implementation(**kwargs):
+    """Execute reset all singletons."""
+    return _SINGLETON_MANAGER.reset_all(**kwargs)
 
-def get_singleton_names() -> list:
-    """Get names of all singletons."""
-    with _LOCK:
-        return list(_SINGLETONS.keys())
+def _execute_exists_implementation(name: str, **kwargs) -> bool:
+    """Execute singleton exists check."""
+    return _SINGLETON_MANAGER.exists(name)
 
-def get_singleton_count() -> int:
-    """Get number of singletons."""
-    with _LOCK:
-        return len(_SINGLETONS)
-
-def coordinate_operation(operation: Callable, context: Optional[Dict] = None) -> Any:
-    """Execute operation with thread coordination."""
-    with _LOCK:
-        return operation()
-
-def get_lock() -> threading.RLock:
-    """Get the global lock."""
-    return _LOCK
+#EOF
