@@ -1,7 +1,7 @@
 """
 homeassistant_extension.py - Home Assistant Extension with Conversation Support
-Version: 2025.09.30.01
-Daily Revision: 001
+Version: 2025.09.30.02
+Daily Revision: 002
 
 Revolutionary Gateway Optimization with Alexa Conversation Integration
 - Migrated to use gateway.py universal routing
@@ -51,8 +51,27 @@ class HADomain(str, Enum):
     MEDIA_PLAYER = "media_player"
 
 
+class InitializationType(str, Enum):
+    SYSTEM_STARTUP = "system_startup"
+    EXTENSION_LOAD = "extension_load"
+    SERVICE_INIT = "service_init"
+
+
+class InitializationStage(str, Enum):
+    CONFIGURATION = "configuration"
+    VALIDATION = "validation"
+    INTEGRATION = "integration"
+    HEALTH_CHECK = "health_check"
+
+
+class CacheType(str, Enum):
+    MEMORY = "memory"
+    PERSISTENT = "persistent"
+
+
 HA_INITIALIZATION_CACHE_KEY = "ha_extension_initialized"
 HA_CONFIG_CACHE_KEY = "ha_extension_config"
+HA_MANAGER_CACHE_KEY = "ha_manager_data"
 
 
 def initialize_ha_extension() -> Dict[str, Any]:
@@ -74,10 +93,15 @@ def initialize_ha_extension() -> Dict[str, Any]:
         
         config = _get_ha_config_gateway()
         
+        connection_test = _test_ha_connection(config)
+        if not connection_test.get("success", False):
+            log_warning("HA connection test failed during initialization")
+        
         init_data = {
             "initialized": True,
             "timestamp": time.time(),
             "config_loaded": True,
+            "connection_tested": connection_test.get("success", False),
             "correlation_id": correlation_id
         }
         
@@ -124,9 +148,63 @@ def _get_ha_config_gateway() -> Dict[str, Any]:
         }
 
 
+def _test_ha_connection(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Test connection to Home Assistant."""
+    try:
+        test_url = f"{config['base_url']}/api/"
+        headers = {
+            "Authorization": f"Bearer {config['access_token']}",
+            "Content-Type": "application/json"
+        }
+        
+        result = make_get_request(
+            url=test_url,
+            headers=headers,
+            timeout=config.get('timeout', 30)
+        )
+        
+        if result.get("success", False):
+            log_info("HA connection test successful")
+            return create_success_response("HA connection successful", {
+                "status_code": result.get("status_code", 200),
+                "execution_time_ms": result.get("execution_time_ms", 0)
+            })
+        else:
+            log_warning("HA connection test failed", {"result": result})
+            return create_error_response("HA connection failed", result)
+        
+    except Exception as e:
+        log_error(f"HA connection test exception: {str(e)}")
+        return create_error_response("HA connection test exception", {"error": str(e)})
+
+
 def is_ha_extension_enabled() -> bool:
     """Check if Home Assistant extension is enabled."""
     return os.environ.get("HOME_ASSISTANT_ENABLED", "false").lower() == "true"
+
+
+def get_ha_status() -> Dict[str, Any]:
+    """Get current Home Assistant extension status."""
+    try:
+        cached_status = cache_get(HA_INITIALIZATION_CACHE_KEY)
+        
+        if cached_status:
+            return create_success_response("HA status retrieved from cache", cached_status)
+        
+        if not is_ha_extension_enabled():
+            return create_success_response("HA extension disabled", {
+                "enabled": False,
+                "initialized": False
+            })
+        
+        return create_error_response("HA extension not initialized", {
+            "enabled": True,
+            "initialized": False
+        })
+        
+    except Exception as e:
+        log_error(f"Get HA status failed: {str(e)}")
+        return create_error_response("Get HA status failed", {"error": str(e)})
 
 
 def call_ha_service(domain: str, service: str, entity_id: str, 
@@ -134,25 +212,22 @@ def call_ha_service(domain: str, service: str, entity_id: str,
     """Call Home Assistant service using gateway."""
     try:
         correlation_id = generate_correlation_id()
-        log_info(f"Calling HA service {domain}.{service} [{correlation_id}]")
+        log_info(f"Calling HA service {domain}.{service} on {entity_id} [{correlation_id}]")
         
         if not is_ha_extension_enabled():
             return create_error_response("HA extension disabled", {"correlation_id": correlation_id})
         
         config = _get_ha_config_gateway()
         
-        payload = {
-            "entity_id": entity_id
-        }
-        
-        if service_data:
-            payload.update(service_data)
-        
         url = f"{config['base_url']}/api/services/{domain}/{service}"
         headers = {
             "Authorization": f"Bearer {config['access_token']}",
             "Content-Type": "application/json"
         }
+        
+        payload = {"entity_id": entity_id}
+        if service_data:
+            payload.update(service_data)
         
         result = make_post_request(
             url=url,
@@ -161,22 +236,24 @@ def call_ha_service(domain: str, service: str, entity_id: str,
             timeout=config.get('timeout', 30)
         )
         
-        record_metric("ha_service_call", 1.0, {
-            "domain": domain,
-            "service": service,
-            "success": result.get("success", False),
-            "correlation_id": correlation_id
-        })
-        
         if result.get("success", False):
-            return create_success_response("HA service call successful", {
+            record_metric("ha_service_success", 1.0, {
+                "domain": domain,
+                "service": service,
+                "correlation_id": correlation_id
+            })
+            return create_success_response("Service call successful", {
                 "domain": domain,
                 "service": service,
                 "entity_id": entity_id,
                 "correlation_id": correlation_id
             })
         else:
-            return create_error_response("HA service call failed", {
+            record_metric("ha_service_failure", 1.0, {
+                "domain": domain,
+                "service": service
+            })
+            return create_error_response("Service call failed", {
                 "result": result,
                 "correlation_id": correlation_id
             })
@@ -209,23 +286,14 @@ def get_ha_state(entity_id: str) -> Dict[str, Any]:
             timeout=config.get('timeout', 30)
         )
         
-        record_metric("ha_state_get", 1.0, {
-            "entity_id": entity_id,
-            "success": result.get("success", False),
-            "correlation_id": correlation_id
-        })
-        
         if result.get("success", False):
-            state_data = result.get("response", {})
-            return create_success_response("HA state retrieved", {
+            return create_success_response("State retrieved", {
                 "entity_id": entity_id,
-                "state": state_data.get("state"),
-                "attributes": state_data.get("attributes", {}),
-                "last_changed": state_data.get("last_changed"),
+                "state": result.get("response", {}),
                 "correlation_id": correlation_id
             })
         else:
-            return create_error_response("HA state retrieval failed", {
+            return create_error_response("State retrieval failed", {
                 "result": result,
                 "correlation_id": correlation_id
             })
@@ -236,27 +304,16 @@ def get_ha_state(entity_id: str) -> Dict[str, Any]:
 
 
 def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Alexa request for Home Assistant."""
+    """Process Alexa Smart Home request for Home Assistant."""
     try:
         correlation_id = generate_correlation_id()
-        log_info(f"Processing Alexa HA request [{correlation_id}]")
-        
-        if not is_ha_extension_enabled():
-            return create_error_response("HA extension disabled", {"correlation_id": correlation_id})
-        
-        validation = validate_request(event)
-        if not validation.get("success", True):
-            return create_error_response("Alexa event validation failed", {
-                "validation": validation,
-                "correlation_id": correlation_id
-            })
         
         directive = event.get('directive', {})
         header = directive.get('header', {})
         namespace = header.get('namespace', '')
         name = header.get('name', '')
         
-        log_debug(f"Alexa directive: {namespace}.{name} [{correlation_id}]")
+        log_info(f"Processing Alexa HA request: {namespace}.{name} [{correlation_id}]")
         
         if namespace == "Alexa.Discovery":
             return _handle_alexa_discovery_gateway(directive, correlation_id)
@@ -322,20 +379,65 @@ def _convert_states_to_endpoints(states: List[Dict[str, Any]]) -> List[Dict[str,
         entity_id = state.get("entity_id", "")
         domain = entity_id.split(".")[0] if "." in entity_id else ""
         
-        if domain in ["light", "switch", "scene"]:
+        if domain in ["light", "switch", "climate", "cover", "lock", "media_player"]:
             endpoint = {
                 "endpointId": entity_id,
                 "friendlyName": state.get("attributes", {}).get("friendly_name", entity_id),
+                "description": f"Home Assistant {domain}",
                 "manufacturerName": "Home Assistant",
-                "description": f"{domain.title()} controlled by Home Assistant"
+                "displayCategories": [_get_display_category(domain)],
+                "capabilities": _get_capabilities(domain)
             }
             endpoints.append(endpoint)
     
     return endpoints
 
 
+def _get_display_category(domain: str) -> str:
+    """Get Alexa display category for domain."""
+    category_map = {
+        "light": "LIGHT",
+        "switch": "SWITCH",
+        "climate": "THERMOSTAT",
+        "cover": "DOOR",
+        "lock": "SMARTLOCK",
+        "media_player": "TV"
+    }
+    return category_map.get(domain, "OTHER")
+
+
+def _get_capabilities(domain: str) -> List[Dict[str, Any]]:
+    """Get Alexa capabilities for domain."""
+    base_capability = {
+        "type": "AlexaInterface",
+        "interface": "Alexa.PowerController",
+        "version": "3",
+        "properties": {
+            "supported": [{"name": "powerState"}],
+            "proactivelyReported": False,
+            "retrievable": True
+        }
+    }
+    
+    capabilities = [base_capability]
+    
+    if domain == "light":
+        capabilities.append({
+            "type": "AlexaInterface",
+            "interface": "Alexa.BrightnessController",
+            "version": "3",
+            "properties": {
+                "supported": [{"name": "brightness"}],
+                "proactivelyReported": False,
+                "retrievable": True
+            }
+        })
+    
+    return capabilities
+
+
 def _handle_alexa_power_control_gateway(directive: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
-    """Handle Alexa power control."""
+    """Handle Alexa power control request."""
     try:
         endpoint = directive.get('endpoint', {})
         entity_id = endpoint.get('endpointId', '')
@@ -343,10 +445,10 @@ def _handle_alexa_power_control_gateway(directive: Dict[str, Any], correlation_i
         header = directive.get('header', {})
         name = header.get('name', '')
         
-        domain = entity_id.split(".")[0] if "." in entity_id else ""
         service = "turn_on" if name == "TurnOn" else "turn_off"
+        domain = entity_id.split(".")[0] if "." in entity_id else ""
         
-        log_info(f"Alexa power control: {entity_id} -> {service} [{correlation_id}]")
+        log_info(f"Alexa power control: {service} {entity_id} [{correlation_id}]")
         
         result = call_ha_service(domain, service, entity_id)
         
@@ -368,7 +470,7 @@ def _handle_alexa_power_control_gateway(directive: Dict[str, Any], correlation_i
 
 
 def _handle_alexa_brightness_control_gateway(directive: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
-    """Handle Alexa brightness control."""
+    """Handle Alexa brightness control request."""
     try:
         endpoint = directive.get('endpoint', {})
         entity_id = endpoint.get('endpointId', '')
@@ -459,6 +561,7 @@ def cleanup_ha_extension() -> Dict[str, Any]:
     try:
         cache_delete(HA_INITIALIZATION_CACHE_KEY)
         cache_delete(HA_CONFIG_CACHE_KEY)
+        cache_delete(HA_MANAGER_CACHE_KEY)
         
         log_info("HA extension cleanup completed")
         return create_success_response("HA extension cleanup completed", {
@@ -472,10 +575,14 @@ def cleanup_ha_extension() -> Dict[str, Any]:
 
 __all__ = [
     'HADomain',
+    'InitializationType',
+    'InitializationStage',
+    'CacheType',
     'initialize_ha_extension',
     'cleanup_ha_extension',
     'call_ha_service',
     'get_ha_state',
+    'get_ha_status',
     'process_alexa_ha_request',
     'process_ha_conversation',
     'get_conversation_stats',
