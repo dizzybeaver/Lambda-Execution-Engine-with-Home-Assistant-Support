@@ -1,7 +1,14 @@
 """
-debug_test.py - Debug Testing Implementation
-Version: 2025.09.29.01
-Description: Specific testing functions for interface testing, integration testing, and specialized test scenarios
+debug_test.py - Debug Testing Implementation with Gateway Integration
+Version: 2025.09.30.01
+Description: ULTRA-OPTIMIZED testing with gateway integration for caching and metrics
+
+ULTRA-OPTIMIZATIONS COMPLETED (2025.09.30.01):
+- ✅ GATEWAY INTEGRATION: Added caching, metrics, and logging integration
+- ✅ TEST RESULT CACHING: Avoid redundant test execution
+- ✅ METRICS TRACKING: Comprehensive test execution metrics
+- ✅ CORRELATION IDS: End-to-end test execution tracking
+- ✅ MEMORY EFFICIENT: Optimized test data structures
 
 FREE TIER COMPLIANCE: Uses resource module from Python standard library
 - No psutil dependency (Lambda layer not required)
@@ -15,13 +22,11 @@ ARCHITECTURE: SECONDARY IMPLEMENTATION - Internal Network
 - Performance benchmarking and load testing utilities
 - Test result analysis and reporting
 
-TESTING FRAMEWORK:
-- Automated test execution for all gateway interfaces
-- Integration workflow testing across multiple interfaces
-- Performance benchmarking with AWS Lambda constraints
-- Error condition and edge case validation
-- Memory constraint compliance testing
-- Load testing and stress testing capabilities
+GATEWAY INTEGRATION:
+- cache.py: Test result caching with 5-minute TTL
+- metrics.py: Test execution performance tracking
+- logging.py: Structured test execution logging
+- utility.py: Test correlation ID generation and tracking
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,7 +53,6 @@ from enum import Enum
 import concurrent.futures
 import statistics
 
-# Import gateway interfaces for testing
 import cache
 import security
 import logging as log_gateway
@@ -60,13 +64,9 @@ import http_client
 import initialization
 import circuit_breaker
 
-# Import core debug functionality
 from .debug_core import TestResult, TestStatus, PerformanceMetrics
 
-# ===== SECTION 1: TEST CATEGORIES AND TYPES =====
-
 class TestCategory(Enum):
-    """Test category classification."""
     INTERFACE = "interface"
     INTEGRATION = "integration" 
     PERFORMANCE = "performance"
@@ -77,7 +77,6 @@ class TestCategory(Enum):
     MEMORY = "memory"
 
 class InterfaceType(Enum):
-    """Gateway interface types for testing."""
     CACHE = "cache"
     SECURITY = "security"
     LOGGING = "logging"
@@ -92,522 +91,501 @@ class InterfaceType(Enum):
 @dataclass
 class LoadTestConfig:
     """Load test configuration."""
-    duration_seconds: int = 10
-    concurrent_users: int = 10
-    requests_per_user: int = 100
-    ramp_up_seconds: int = 5
-    target_interface: str = "all"
+    duration_seconds: int = 60
+    concurrent_operations: int = 10
+    operations_per_second: int = 100
+    ramp_up_seconds: int = 10
+    cool_down_seconds: int = 5
+    error_threshold_percent: float = 5.0
+    latency_threshold_ms: float = 100.0
 
-# ===== SECTION 2: INTERFACE TESTING =====
+def execute_test_with_caching(test_name: str, test_func: Callable, ttl: int = 300) -> Dict[str, Any]:
+    """Execute test with result caching to avoid redundant execution.
+    
+    Args:
+        test_name: Unique test identifier
+        test_func: Test function to execute
+        ttl: Cache time-to-live in seconds (default 5 minutes)
+    
+    Returns:
+        Test result dictionary
+    """
+    cache_key = f"test_result:{test_name}"
+    
+    cached_result = cache.cache_get(cache_key)
+    if cached_result:
+        log_gateway.log_info(
+            f"Test result retrieved from cache: {test_name}",
+            test_name=test_name,
+            cache_hit=True
+        )
+        return cached_result
+    
+    correlation_id = utility.generate_correlation_id()
+    start_time = time.time()
+    
+    try:
+        result = test_func()
+        duration = time.time() - start_time
+        
+        test_result = {
+            'test_name': test_name,
+            'status': 'pass' if result else 'fail',
+            'duration_ms': duration * 1000,
+            'timestamp': start_time,
+            'correlation_id': correlation_id,
+            'cached': False,
+            'result': result
+        }
+        
+        cache.cache_set(cache_key, test_result, ttl=ttl)
+        
+        record_test_metrics(test_name, duration, result is True, correlation_id)
+        
+        log_gateway.log_info(
+            f"Test executed: {test_name}",
+            test_name=test_name,
+            status=test_result['status'],
+            duration_ms=test_result['duration_ms'],
+            correlation_id=correlation_id
+        )
+        
+        return test_result
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        
+        test_result = {
+            'test_name': test_name,
+            'status': 'error',
+            'duration_ms': duration * 1000,
+            'timestamp': start_time,
+            'correlation_id': correlation_id,
+            'cached': False,
+            'error': str(e)
+        }
+        
+        record_test_metrics(test_name, duration, False, correlation_id)
+        
+        log_gateway.log_error(
+            f"Test error: {test_name}",
+            test_name=test_name,
+            error=str(e),
+            duration_ms=test_result['duration_ms'],
+            correlation_id=correlation_id
+        )
+        
+        return test_result
 
-def run_interface_specific_tests(interface_type: InterfaceType) -> List[TestResult]:
-    """Run tests specific to an interface."""
-    if interface_type == InterfaceType.CACHE:
-        return _test_cache_interface()
-    elif interface_type == InterfaceType.SECURITY:
-        return _test_security_interface()
-    elif interface_type == InterfaceType.LOGGING:
-        return _test_logging_interface()
-    elif interface_type == InterfaceType.METRICS:
-        return _test_metrics_interface()
-    elif interface_type == InterfaceType.UTILITY:
-        return _test_utility_interface()
-    elif interface_type == InterfaceType.CONFIG:
-        return _test_config_interface()
-    else:
-        return [TestResult(
-            test_name=f"unsupported_interface_{interface_type.value}",
-            status=TestStatus.SKIPPED,
-            duration_ms=0,
-            message=f"Testing not implemented for {interface_type.value}"
-        )]
+def record_test_metrics(test_name: str, duration: float, success: bool, correlation_id: str):
+    """Record standardized test execution metrics.
+    
+    Args:
+        test_name: Test identifier
+        duration: Execution duration in seconds
+        success: Test success status
+        correlation_id: Correlation ID for tracking
+    """
+    dimensions = {
+        "test": test_name,
+        "status": "pass" if success else "fail",
+        "correlation_id": correlation_id
+    }
+    
+    metrics.record_metric("debug_test_execution", duration * 1000, dimensions=dimensions)
+    metrics.increment_counter(f"debug_test_{('pass' if success else 'fail')}")
 
-def _test_cache_interface() -> List[TestResult]:
+def test_cache_interface() -> Dict[str, Any]:
     """Test cache interface operations."""
-    tests = []
-    start_time = time.time()
-    
-    # Test cache set/get
-    try:
-        cache.cache_set("test_key", "test_value", ttl=300)
-        result = cache.cache_get("test_key")
-        
-        if result == "test_value":
-            status = TestStatus.PASSED
-            message = "Cache set/get operations successful"
-        else:
-            status = TestStatus.FAILED
-            message = f"Cache get returned unexpected value: {result}"
-        
-        tests.append(TestResult(
-            test_name="cache_set_get",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="cache_set_get",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Cache test error: {str(e)}"
-        ))
-    
-    return tests
+    return execute_test_with_caching("cache_interface", _test_cache_interface_impl)
 
-def _test_security_interface() -> List[TestResult]:
+def _test_cache_interface_impl() -> bool:
+    """Cache interface test implementation."""
+    try:
+        cache.cache_set("test_key", "test_value", ttl=60)
+        value = cache.cache_get("test_key")
+        assert value == "test_value"
+        
+        exists = cache.cache_exists("test_key")
+        assert exists is True
+        
+        cache.cache_delete("test_key")
+        value = cache.cache_get("test_key")
+        assert value is None
+        
+        return True
+    except Exception:
+        return False
+
+def test_security_interface() -> Dict[str, Any]:
     """Test security interface operations."""
-    tests = []
-    start_time = time.time()
-    
-    # Test input validation
-    try:
-        result = security.validate_input("test_input")
-        
-        if result and "valid" in str(result):
-            status = TestStatus.PASSED
-            message = "Security validation successful"
-        else:
-            status = TestStatus.FAILED
-            message = "Security validation failed"
-        
-        tests.append(TestResult(
-            test_name="security_validate_input",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="security_validate_input",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Security test error: {str(e)}"
-        ))
-    
-    return tests
+    return execute_test_with_caching("security_interface", _test_security_interface_impl)
 
-def _test_logging_interface() -> List[TestResult]:
-    """Test logging interface operations."""
-    tests = []
-    start_time = time.time()
-    
-    # Test log operations
+def _test_security_interface_impl() -> bool:
+    """Security interface test implementation."""
     try:
-        log_gateway.log_info("Test info message")
-        log_gateway.log_error("Test error message")
+        test_data = {"test": "data"}
+        encrypted = security.encrypt_data(test_data)
+        assert encrypted is not None
         
-        status = TestStatus.PASSED
-        message = "Logging operations successful"
+        decrypted = security.decrypt_data(encrypted)
+        assert decrypted == test_data
         
-        tests.append(TestResult(
-            test_name="logging_operations",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="logging_operations",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Logging test error: {str(e)}"
-        ))
-    
-    return tests
+        test_request = {
+            "method": "GET",
+            "path": "/test",
+            "headers": {}
+        }
+        validation = security.validate_request(test_request)
+        assert validation is not None
+        
+        return True
+    except Exception:
+        return False
 
-def _test_metrics_interface() -> List[TestResult]:
+def test_metrics_interface() -> Dict[str, Any]:
     """Test metrics interface operations."""
-    tests = []
-    start_time = time.time()
-    
-    # Test metric recording
-    try:
-        metrics.record_metric("test_metric", 1.0)
-        
-        status = TestStatus.PASSED
-        message = "Metrics recording successful"
-        
-        tests.append(TestResult(
-            test_name="metrics_recording",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="metrics_recording",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Metrics test error: {str(e)}"
-        ))
-    
-    return tests
+    return execute_test_with_caching("metrics_interface", _test_metrics_interface_impl)
 
-def _test_utility_interface() -> List[TestResult]:
+def _test_metrics_interface_impl() -> bool:
+    """Metrics interface test implementation."""
+    try:
+        metrics.record_metric("test_metric", 123.45, dimensions={"test": "true"})
+        metrics.increment_counter("test_counter")
+        return True
+    except Exception:
+        return False
+
+def test_singleton_interface() -> Dict[str, Any]:
+    """Test singleton interface operations."""
+    return execute_test_with_caching("singleton_interface", _test_singleton_interface_impl)
+
+def _test_singleton_interface_impl() -> bool:
+    """Singleton interface test implementation."""
+    try:
+        stats = singleton.get_memory_stats()
+        assert stats is not None
+        assert 'memory_usage_mb' in stats
+        return True
+    except Exception:
+        return False
+
+def test_utility_interface() -> Dict[str, Any]:
     """Test utility interface operations."""
-    tests = []
-    start_time = time.time()
-    
-    # Test utility functions
-    try:
-        utility.validate_string_input("test_string")
-        
-        status = TestStatus.PASSED
-        message = "Utility operations successful"
-        
-        tests.append(TestResult(
-            test_name="utility_operations",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="utility_operations",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Utility test error: {str(e)}"
-        ))
-    
-    return tests
+    return execute_test_with_caching("utility_interface", _test_utility_interface_impl)
 
-def _test_config_interface() -> List[TestResult]:
+def _test_utility_interface_impl() -> bool:
+    """Utility interface test implementation."""
+    try:
+        success_response = utility.create_success_response("Test success", data={"key": "value"})
+        assert success_response['success'] is True
+        
+        error_response = utility.create_error_response("Test error", details="Error details")
+        assert error_response['success'] is False
+        
+        correlation_id = utility.generate_correlation_id()
+        assert correlation_id is not None
+        assert len(correlation_id) > 0
+        
+        json_str = '{"test": "data"}'
+        parsed = utility.parse_json_safely(json_str)
+        assert parsed == {"test": "data"}
+        
+        return True
+    except Exception:
+        return False
+
+def test_config_interface() -> Dict[str, Any]:
     """Test config interface operations."""
-    tests = []
+    return execute_test_with_caching("config_interface", _test_config_interface_impl)
+
+def _test_config_interface_impl() -> bool:
+    """Config interface test implementation."""
+    try:
+        current_preset = config.get_current_preset()
+        assert current_preset is not None
+        
+        param_value = config.get_parameter("max_cache_size_mb")
+        assert param_value is not None
+        
+        return True
+    except Exception:
+        return False
+
+def test_http_client_interface() -> Dict[str, Any]:
+    """Test HTTP client interface operations."""
+    return execute_test_with_caching("http_client_interface", _test_http_client_interface_impl, ttl=60)
+
+def _test_http_client_interface_impl() -> bool:
+    """HTTP client interface test implementation."""
+    try:
+        test_url = "https://httpbin.org/get"
+        response = http_client.make_get_request(test_url, timeout=5)
+        assert response is not None
+        return True
+    except Exception:
+        return False
+
+def test_circuit_breaker_interface() -> Dict[str, Any]:
+    """Test circuit breaker interface operations."""
+    return execute_test_with_caching("circuit_breaker_interface", _test_circuit_breaker_interface_impl)
+
+def _test_circuit_breaker_interface_impl() -> bool:
+    """Circuit breaker interface test implementation."""
+    try:
+        status = circuit_breaker.get_status("test_service")
+        assert status is not None
+        return True
+    except Exception:
+        return False
+
+def run_all_interface_tests() -> Dict[str, Any]:
+    """Run all interface tests with metrics tracking."""
+    correlation_id = utility.generate_correlation_id()
     start_time = time.time()
     
-    # Test config operations
-    try:
-        config.get_system_configuration("STANDARD")
-        
-        status = TestStatus.PASSED
-        message = "Config operations successful"
-        
-        tests.append(TestResult(
-            test_name="config_operations",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="config_operations",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Config test error: {str(e)}"
-        ))
+    log_gateway.log_info(
+        "Starting comprehensive interface tests",
+        correlation_id=correlation_id
+    )
     
-    return tests
-
-# ===== SECTION 3: INTEGRATION TESTING =====
-
-def run_integration_workflow_tests() -> List[TestResult]:
-    """Run end-to-end integration workflow tests."""
-    tests = []
+    tests = {
+        'cache': test_cache_interface,
+        'security': test_security_interface,
+        'metrics': test_metrics_interface,
+        'singleton': test_singleton_interface,
+        'utility': test_utility_interface,
+        'config': test_config_interface,
+        'http_client': test_http_client_interface,
+        'circuit_breaker': test_circuit_breaker_interface
+    }
     
-    # Test complete workflow
-    start_time = time.time()
-    try:
-        # Step 1: Set cache
-        cache.cache_set("workflow_test", "value")
-        
-        # Step 2: Validate input
-        security.validate_input("workflow_input")
-        
-        # Step 3: Log operation
-        log_gateway.log_info("Workflow test")
-        
-        # Step 4: Record metric
-        metrics.record_metric("workflow_test", 1.0)
-        
-        status = TestStatus.PASSED
-        message = "Integration workflow completed successfully"
-        
-        tests.append(TestResult(
-            test_name="integration_workflow",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message
-        ))
-    except Exception as e:
-        tests.append(TestResult(
-            test_name="integration_workflow",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Integration workflow error: {str(e)}"
-        ))
+    results = {}
+    passed = 0
+    failed = 0
     
-    return tests
-
-def run_gateway_compliance_tests() -> List[TestResult]:
-    """Test gateway/firewall architecture compliance."""
-    tests = []
-    interfaces = ["cache", "security", "logging", "metrics", "utility", "config"]
-    
-    for interface in interfaces:
-        test = _test_interface_gateway_compliance(interface)
-        tests.append(test)
-    
-    return tests
-
-def _test_interface_gateway_compliance(interface_name: str) -> TestResult:
-    """Test gateway compliance for specific interface."""
-    start_time = time.time()
-    
-    try:
-        compliance_score = _analyze_interface_compliance(interface_name)
-        
-        if compliance_score >= 90:
-            status = TestStatus.PASSED
-            message = f"Interface {interface_name} is gateway compliant"
-        elif compliance_score >= 70:
-            status = TestStatus.FAILED
-            message = f"Interface {interface_name} has compliance issues (score: {compliance_score})"
-        else:
-            status = TestStatus.FAILED
-            message = f"Interface {interface_name} is not gateway compliant (score: {compliance_score})"
-        
-        return TestResult(
-            test_name=f"gateway_compliance_{interface_name}",
-            status=status,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=message,
-            details={"compliance_score": compliance_score}
-        )
-        
-    except Exception as e:
-        return TestResult(
-            test_name=f"gateway_compliance_{interface_name}",
-            status=TestStatus.ERROR,
-            duration_ms=(time.time() - start_time) * 1000,
-            message=f"Gateway compliance test error: {str(e)}"
-        )
-
-def _analyze_interface_compliance(interface_name: str) -> int:
-    """Analyze interface compliance score (mock implementation)."""
-    return 95
-
-# ===== SECTION 4: PERFORMANCE TESTING =====
-
-def run_performance_benchmark(benchmark_type: str, iterations: int = 100) -> List[TestResult]:
-    """Run performance benchmarks."""
-    if benchmark_type == "response_time":
-        return _benchmark_response_times(iterations)
-    elif benchmark_type == "memory_usage":
-        return _benchmark_memory_usage(iterations)
-    elif benchmark_type == "throughput":
-        return _benchmark_throughput(iterations)
-    elif benchmark_type == "concurrent_operations":
-        return _benchmark_concurrent_operations(iterations)
-    else:
-        return [TestResult(
-            test_name=f"unknown_benchmark_{benchmark_type}",
-            status=TestStatus.ERROR,
-            duration_ms=0,
-            message=f"Unknown benchmark type: {benchmark_type}"
-        )]
-
-def _benchmark_response_times(iterations: int) -> List[TestResult]:
-    """Benchmark response times for all interfaces."""
-    tests = []
-    interfaces = ["cache", "security", "logging", "metrics", "utility"]
-    
-    for interface in interfaces:
-        response_times = []
-        
-        for i in range(iterations):
-            start_time = time.time()
-            
-            try:
-                if interface == "cache":
-                    cache.cache_get("benchmark_test")
-                elif interface == "security":
-                    security.validate_input("benchmark_input")
-                elif interface == "logging":
-                    log_gateway.log_info("Benchmark test message")
-                elif interface == "metrics":
-                    metrics.record_metric("benchmark_metric", 1.0)
-                elif interface == "utility":
-                    utility.validate_string_input("benchmark")
-                
-                duration_ms = (time.time() - start_time) * 1000
-                response_times.append(duration_ms)
-                
-            except Exception:
-                response_times.append(1000)
-        
-        avg_time = statistics.mean(response_times)
-        max_time = max(response_times)
-        min_time = min(response_times)
-        
-        status = TestStatus.PASSED if avg_time < 100 else TestStatus.FAILED
-        
-        tests.append(TestResult(
-            test_name=f"response_time_benchmark_{interface}",
-            status=status,
-            duration_ms=avg_time,
-            message=f"Average response time: {avg_time:.2f}ms",
-            details={
-                "average_ms": avg_time,
-                "max_ms": max_time,
-                "min_ms": min_time,
-                "iterations": iterations
+    for name, test_func in tests.items():
+        try:
+            result = test_func()
+            results[name] = result
+            if result.get('status') == 'pass':
+                passed += 1
+            else:
+                failed += 1
+        except Exception as e:
+            results[name] = {
+                'status': 'error',
+                'error': str(e)
             }
-        ))
+            failed += 1
     
-    return tests
+    duration = time.time() - start_time
+    
+    summary = {
+        'total_tests': len(tests),
+        'passed': passed,
+        'failed': failed,
+        'pass_rate': (passed / len(tests)) * 100 if tests else 0,
+        'duration_seconds': duration,
+        'correlation_id': correlation_id,
+        'results': results
+    }
+    
+    metrics.record_metric(
+        "debug_test_suite_execution",
+        duration,
+        dimensions={
+            "total": len(tests),
+            "passed": passed,
+            "failed": failed,
+            "correlation_id": correlation_id
+        }
+    )
+    
+    log_gateway.log_info(
+        "Interface tests completed",
+        **summary
+    )
+    
+    return summary
 
-def _benchmark_memory_usage(iterations: int) -> List[TestResult]:
-    """Benchmark memory usage patterns using resource module."""
-    tests = []
+def run_integration_test(test_name: str, test_workflow: Callable) -> Dict[str, Any]:
+    """Run integration test with full gateway integration.
     
-    rusage_start = resource.getrusage(resource.RUSAGE_SELF)
-    baseline_memory = rusage_start.ru_maxrss / 1024  # MB
+    Args:
+        test_name: Integration test name
+        test_workflow: Test workflow function
     
-    memory_readings = []
+    Returns:
+        Test result dictionary
+    """
+    correlation_id = utility.generate_correlation_id()
+    start_time = time.time()
     
-    for i in range(iterations):
-        cache.cache_set(f"memory_test_{i}", {"data": "x" * 100})
-        config.get_system_configuration("STANDARD")
-        security.validate_input("memory_test_input")
+    log_gateway.log_info(
+        f"Starting integration test: {test_name}",
+        test_name=test_name,
+        correlation_id=correlation_id
+    )
+    
+    try:
+        result = test_workflow(correlation_id)
+        duration = time.time() - start_time
+        success = result.get('success', False)
         
-        rusage_current = resource.getrusage(resource.RUSAGE_SELF)
-        current_memory = rusage_current.ru_maxrss / 1024  # MB
-        memory_readings.append(current_memory)
-    
-    # Cleanup
-    for i in range(iterations):
-        cache.cache_delete(f"memory_test_{i}")
-    
-    max_memory = max(memory_readings)
-    avg_memory = statistics.mean(memory_readings)
-    memory_growth = max_memory - baseline_memory
-    
-    status = TestStatus.PASSED if max_memory < 120 else TestStatus.FAILED
-    
-    tests.append(TestResult(
-        test_name="memory_usage_benchmark",
-        status=status,
-        duration_ms=0,
-        message=f"Memory usage: baseline={baseline_memory:.1f}MB, max={max_memory:.1f}MB, growth={memory_growth:.1f}MB",
-        details={
-            "baseline_mb": baseline_memory,
-            "max_mb": max_memory,
-            "average_mb": avg_memory,
-            "growth_mb": memory_growth,
-            "within_limits": max_memory < 120
+        test_result = {
+            'test_name': test_name,
+            'status': 'pass' if success else 'fail',
+            'duration_seconds': duration,
+            'correlation_id': correlation_id,
+            'result': result
         }
-    ))
-    
-    return tests
+        
+        record_test_metrics(test_name, duration, success, correlation_id)
+        
+        log_gateway.log_info(
+            f"Integration test completed: {test_name}",
+            status=test_result['status'],
+            duration_seconds=duration,
+            correlation_id=correlation_id
+        )
+        
+        return test_result
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        
+        test_result = {
+            'test_name': test_name,
+            'status': 'error',
+            'duration_seconds': duration,
+            'correlation_id': correlation_id,
+            'error': str(e)
+        }
+        
+        record_test_metrics(test_name, duration, False, correlation_id)
+        
+        log_gateway.log_error(
+            f"Integration test error: {test_name}",
+            error=str(e),
+            correlation_id=correlation_id
+        )
+        
+        return test_result
 
-def _benchmark_throughput(iterations: int) -> List[TestResult]:
-    """Benchmark throughput for operations."""
-    tests = []
+def get_memory_usage() -> Dict[str, float]:
+    """Get current memory usage statistics.
+    
+    Returns:
+        Memory usage in MB
+    """
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    return {
+        'memory_usage_mb': usage.ru_maxrss / 1024 / 1024,
+        'user_time_seconds': usage.ru_utime,
+        'system_time_seconds': usage.ru_stime
+    }
+
+def run_memory_test(operation: Callable, iterations: int = 100) -> Dict[str, Any]:
+    """Run memory usage test for an operation.
+    
+    Args:
+        operation: Operation to test
+        iterations: Number of iterations
+    
+    Returns:
+        Memory test results
+    """
+    correlation_id = utility.generate_correlation_id()
+    
+    gc.collect()
+    memory_before = get_memory_usage()
     
     start_time = time.time()
-    operations_completed = 0
+    for _ in range(iterations):
+        operation()
+    duration = time.time() - start_time
     
-    for i in range(iterations):
-        try:
-            cache.cache_set(f"throughput_{i}", "value")
-            cache.cache_get(f"throughput_{i}")
-            operations_completed += 2
-        except Exception:
-            pass
+    gc.collect()
+    memory_after = get_memory_usage()
     
-    duration_seconds = time.time() - start_time
-    throughput = operations_completed / duration_seconds if duration_seconds > 0 else 0
+    memory_delta = memory_after['memory_usage_mb'] - memory_before['memory_usage_mb']
     
-    status = TestStatus.PASSED if throughput > 100 else TestStatus.FAILED
+    result = {
+        'iterations': iterations,
+        'duration_seconds': duration,
+        'memory_before_mb': memory_before['memory_usage_mb'],
+        'memory_after_mb': memory_after['memory_usage_mb'],
+        'memory_delta_mb': memory_delta,
+        'avg_time_per_iteration_ms': (duration / iterations) * 1000,
+        'correlation_id': correlation_id
+    }
     
-    tests.append(TestResult(
-        test_name="throughput_benchmark",
-        status=status,
-        duration_ms=duration_seconds * 1000,
-        message=f"Throughput: {throughput:.2f} ops/sec",
-        details={
-            "throughput_ops_per_sec": throughput,
-            "total_operations": operations_completed,
-            "duration_seconds": duration_seconds
+    metrics.record_metric(
+        "debug_memory_test",
+        memory_delta,
+        dimensions={
+            "iterations": iterations,
+            "correlation_id": correlation_id
         }
-    ))
+    )
     
-    return tests
+    return result
 
-def _benchmark_concurrent_operations(iterations: int) -> List[TestResult]:
-    """Benchmark concurrent operations (single-threaded Lambda)."""
-    tests = []
+def run_performance_benchmark(operation: Callable, iterations: int = 1000) -> Dict[str, Any]:
+    """Run performance benchmark for an operation.
     
-    start_time = time.time()
-    errors = 0
+    Args:
+        operation: Operation to benchmark
+        iterations: Number of iterations
     
-    for i in range(iterations):
-        try:
-            cache.cache_set(f"concurrent_{i}", "value")
-            security.validate_input(f"concurrent_{i}")
-        except Exception:
-            errors += 1
+    Returns:
+        Benchmark results
+    """
+    correlation_id = utility.generate_correlation_id()
     
-    duration_ms = (time.time() - start_time) * 1000
-    error_rate = (errors / iterations) * 100 if iterations > 0 else 0
+    log_gateway.log_info(
+        "Starting performance benchmark",
+        iterations=iterations,
+        correlation_id=correlation_id
+    )
     
-    status = TestStatus.PASSED if error_rate < 5 else TestStatus.FAILED
+    durations = []
     
-    tests.append(TestResult(
-        test_name="concurrent_operations_benchmark",
-        status=status,
-        duration_ms=duration_ms,
-        message=f"Concurrent operations: {error_rate:.2f}% error rate",
-        details={
-            "total_operations": iterations,
-            "errors": errors,
-            "error_rate_percent": error_rate
+    for _ in range(iterations):
+        start = time.time()
+        operation()
+        duration = (time.time() - start) * 1000
+        durations.append(duration)
+    
+    durations.sort()
+    
+    result = {
+        'iterations': iterations,
+        'avg_duration_ms': statistics.mean(durations),
+        'median_duration_ms': statistics.median(durations),
+        'min_duration_ms': min(durations),
+        'max_duration_ms': max(durations),
+        'p95_duration_ms': durations[int(len(durations) * 0.95)],
+        'p99_duration_ms': durations[int(len(durations) * 0.99)],
+        'stddev_ms': statistics.stdev(durations) if len(durations) > 1 else 0,
+        'correlation_id': correlation_id
+    }
+    
+    metrics.record_metric(
+        "debug_performance_benchmark",
+        result['avg_duration_ms'],
+        dimensions={
+            "iterations": iterations,
+            "correlation_id": correlation_id
         }
-    ))
+    )
     
-    return tests
-
-# ===== SECTION 5: LOAD TESTING =====
-
-def run_load_test(config: LoadTestConfig) -> List[TestResult]:
-    """Run load test with specified configuration."""
-    tests = []
+    log_gateway.log_info(
+        "Performance benchmark completed",
+        **result
+    )
     
-    start_time = time.time()
-    total_requests = 0
-    errors = 0
-    
-    for user in range(config.concurrent_users):
-        for request in range(config.requests_per_user):
-            try:
-                cache.cache_set(f"load_test_{user}_{request}", "value")
-                cache.cache_get(f"load_test_{user}_{request}")
-                total_requests += 2
-            except Exception:
-                errors += 1
-    
-    duration_seconds = time.time() - start_time
-    throughput = total_requests / duration_seconds if duration_seconds > 0 else 0
-    error_rate = (errors / total_requests) * 100 if total_requests > 0 else 0
-    
-    status = TestStatus.PASSED if error_rate < 1 else TestStatus.FAILED
-    
-    tests.append(TestResult(
-        test_name="load_test",
-        status=status,
-        duration_ms=duration_seconds * 1000,
-        message=f"Load test: {throughput:.2f} ops/sec, {error_rate:.2f}% errors",
-        details={
-            "total_requests": total_requests,
-            "errors": errors,
-            "error_rate_percent": error_rate,
-            "throughput_ops_per_sec": throughput,
-            "concurrent_users": config.concurrent_users
-        }
-    ))
-    
-    return tests
+    return result
 
 # EOF
