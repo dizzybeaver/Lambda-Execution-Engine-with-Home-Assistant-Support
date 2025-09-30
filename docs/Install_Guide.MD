@@ -1,1539 +1,1013 @@
-# 🚀 Lambda Execution Unit - Complete Installation Guide
-### From Zero to Smart Home Hero: A Beginner's Journey
+# ðŸš€ Lambda Execution Engine - Complete Installation Guide
+### From Zero to Smart Home Cloud Integration
 
-*This guide assumes you've never used AWS or Alexa development before. We'll walk through everything step by step, explaining not just what to do, but why we're doing it.*
-
----
-
-## 🎯 **Understanding What We're Building**
-
-Before we jump into installation, let's understand what the Lambda Execution Unit actually is and why it's so powerful.
-
-Think of your current smart home setup like having a house with smart devices, but no central brain to coordinate them intelligently. Your Home Assistant is like a brilliant house manager, but it's stuck inside your house and can't talk to the outside world easily.
-
-The Lambda Execution Unit is like hiring a professional translator who lives in the cloud and speaks both "Home Assistant language" and "Alexa language" fluently. This translator costs you nothing to employ (thanks to AWS free tier), works 24/7, and makes your entire smart home dramatically smarter and more responsive.
-
-**Why AWS Lambda?** Think of Lambda like renting a super-computer by the millisecond. You only pay for the exact moments your smart home needs processing power. For typical home use, this means your monthly cost is $0.00 because AWS gives you so much free computing time each month.
-
-**Why This Matters to You:** Once set up, you'll be able to say "Alexa, good night" and watch as your entire house responds intelligently - lights dimming, doors locking, temperature adjusting, security system arming - all coordinated through your existing Home Assistant setup, but now with the power of cloud computing.
+**Last Updated:** September 29, 2025  
+**Version:** 2025.09.29  
+**Estimated Time:** 45-75 minutes for first-time setup
 
 ---
 
-## 🎭 **Choosing Your Installation Method**
+## 📖 **What You're About To Build**
 
-We offer two paths to get your Lambda Execution Unit running. Think of these like choosing between assembling furniture with detailed instructions (Normal Method) versus having a smart robot assemble it for you (CDK Method).
+Imagine having a professional translator who sits in the cloud, speaks both Alexa and Home Assistant languages fluently, works twenty four hours a day, and costs you absolutely nothing. That's exactly what you're about to create.
 
-### 📋 **Normal Method (Recommended for Beginners)**
-**Best for:** First-time AWS users, people who want to understand each step, those who prefer clicking through web interfaces.
+The Lambda Execution Engine is your personal cloud-based smart home coordinator. When you say "Alexa, turn on movie mode," your voice travels to Amazon's servers, gets routed through your Lambda function in AWS (which you're about to set up), and then intelligently coordinates with your Home Assistant installation to dim lights, close blinds, turn on your TV, and adjust temperature all at once.
 
-**What it's like:** You'll use AWS's web interface to create and configure everything manually. This takes longer but helps you understand exactly what's happening at each step. It's like learning to cook by following a detailed recipe - you'll understand every ingredient and technique.
+**Why This Matters:** Right now, your smart home is like a brilliant person who only speaks one language. After this installation, it becomes multilingual, speaking to Alexa, understanding complex commands, and executing sophisticated automation sequences with the computational power of Amazon's global infrastructure behind it.
 
-**Time Investment:** 45-60 minutes for first-time setup
-**Learning Value:** High - you'll understand AWS Lambda concepts deeply
-**Future Maintenance:** Easy to modify through web interface
-
-### 🤖 **CDK Method (For the Adventurous)**
-**Best for:** People comfortable with command-line tools, those who want repeatable deployments, developers who plan to modify the system extensively.
-
-**What it's like:** You'll install a tool on your computer that automatically creates everything in AWS for you. It's like having a smart assistant who reads your requirements and sets up everything perfectly. Faster once you understand it, but requires more initial learning.
-
-**Time Investment:** 30-40 minutes once CDK is understood
-**Learning Value:** Medium - more automated, less hands-on AWS learning
-**Future Maintenance:** Requires command-line comfort but very powerful
-
-**Our Recommendation:** Start with the Normal Method for your first deployment. You can always switch to CDK later once you understand how everything works.
+**The Best Part:** Amazon gives you enough free computing power every month to run a typical smart home setup completely free. You're literally getting enterprise-grade cloud infrastructure at zero cost.
 
 ---
 
-## 🏗️ **Pre-Installation Foundation**
+## ðŸŽ¯ **Before You Begin: What You Need**
 
-### Step 1: Creating Your AWS Account (The Foundation)
+Let's make sure you have everything ready before we start. Think of this as gathering ingredients before cooking a meal.
 
-AWS (Amazon Web Services) is like renting space in the world's most sophisticated computer warehouse. We need to get you a key to this warehouse.
+### **Required Accounts (Free)**
+- **Amazon AWS Account** - This is where your Lambda function will live. AWS is like renting a tiny piece of Amazon's massive computer warehouse. You'll need a credit card for verification, but you won't be charged anything.
+- **Amazon Developer Account** - This lets you create custom Alexa skills. It uses your regular Amazon account but adds developer permissions.
+- **Email Address** - Use one you check regularly. AWS sends important notifications here.
 
-**Important:** AWS requires a credit card for verification, but won't charge you anything for what we're building (it all fits within their generous free tier).
+### **Required Equipment**
+- **Computer** - Windows, Mac, or Linux. You'll need this to upload files to AWS.
+- **Internet Connection** - Stable connection for about an hour while we work.
+- **Home Assistant Installation** - Already running and accessible. You should know its IP address or URL.
 
-1. **Go to AWS Sign-Up:**
-   - Visit: https://aws.amazon.com
-   - Click "Create an AWS Account" (bright orange button)
-
-2. **Account Information:**
-   - **Email:** Use an email you check regularly (AWS will send important notifications here)
-   - **Account Name:** Choose something memorable like "MySmartHome" or your name
-   - **Password:** Make it strong - this protects access to your cloud infrastructure
-
-3. **Contact Information:**
-   - Choose "Personal" account type (unless you're a business)
-   - Fill in your real information (required for verification)
-
-4. **Payment Information:**
-   - **Why they need this:** AWS uses your card for identity verification and in case you accidentally go over free limits (very unlikely with our setup)
-   - **What you'll pay:** $0.00 for typical smart home usage (we've designed everything to fit in free tier)
-   - Add your credit/debit card information
-
-5. **Identity Verification:**
-   - AWS will call or text you with a verification code
-   - **Phone Call Option:** Answer and enter the code you see on screen using your phone's keypad
-   - **Text Option:** Enter the code they send you
-
-6. **Support Plan Selection:**
-   - Choose "Basic Support - Free" (perfect for our needs)
-
-7. **Account Activation:**
-   - Wait 5-10 minutes for full activation
-   - You'll receive email confirmation when ready
-
-**Troubleshooting Common Issues:**
-- **Card Declined:** Try a different card or contact your bank (international cards sometimes need approval for AWS)
-- **Phone Verification Failed:** Make sure you're entering the country code correctly
-- **Email Not Received:** Check spam folder, wait 10 minutes, then try account recovery
-
-### Step 2: Setting Up Your Alexa Developer Account
-
-Think of this as getting a license to create custom Alexa skills. It's free and connects to your existing Amazon account.
-
-1. **Access Alexa Developer Console:**
-   - Visit: https://developer.amazon.com/alexa
-   - Click "Get Started" under Alexa Skills Kit
-
-2. **Sign In Process:**
-   - Use the same Amazon account you use for your Alexa devices
-   - **Why this matters:** This ensures your custom skill can talk to your devices
-
-3. **Developer Agreement:**
-   - Read and accept the Alexa Developer Agreement
-   - This gives you permission to create custom Alexa skills
-
-4. **Account Verification:**
-   - If prompted, verify your account with phone or email
-   - This is Amazon's way of ensuring quality skill developers
-
-**Success Check:** You should now see the Alexa Developer Console with options to "Create Skill"
-
-### Step 3: Understanding the Configuration System
-
-Before we install anything, let's understand the brain of your Lambda Execution Unit - the configuration system. This is like the settings panel for your entire smart home cloud integration.
-
-**The Four-Tier System Explained:**
-
-Think of these tiers like performance modes on a car - Eco, Normal, Sport, and Track. Each mode balances different priorities.
-
-**🟢 Minimum Tier (Eco Mode):**
-- **Memory Usage:** 8MB (out of 128MB available)
-- **Best For:** Testing, learning, or if you're approaching AWS limits
-- **Features:** Basic Alexa integration, essential Home Assistant control
-- **Analogy:** Like using your smartphone in power-saving mode - everything works, but with reduced features to conserve resources
-
-**🔵 Standard Tier (Normal Mode):**
-- **Memory Usage:** 45MB (comfortable middle ground)
-- **Best For:** Most home users, production daily use
-- **Features:** Full Alexa integration, complete Home Assistant control, basic error protection
-- **Analogy:** Like your car in normal driving mode - excellent balance of performance and efficiency
-
-**🟡 Performance Tier (Sport Mode):**
-- **Memory Usage:** 78MB (high performance)
-- **Best For:** Power users, complex automations, faster response times
-- **Features:** Enhanced caching, advanced error recovery, premium logging
-- **Analogy:** Like sport mode in your car - faster response, more features, still efficient
-
-**🔴 Maximum Tier (Track Mode):**
-- **Memory Usage:** 103MB (near the limit but safe)
-- **Best For:** Ultimate performance, handling high traffic, all features enabled
-- **Features:** Ultra-fast caching, intelligent prediction, comprehensive analytics
-- **Analogy:** Like track mode - maximum performance with all safety systems active
-
-**Which Should You Choose?**
-
-For your first installation, we recommend **Standard Tier**. It provides excellent performance while leaving plenty of room for growth. You can always change this later through simple configuration updates.
+### **Helpful But Optional**
+- **Basic understanding of your Home Assistant setup** - Knowing which devices you want to control helps, but isn't required.
+- **Patience** - This is your first time, so give yourself permission to take it slow and read everything carefully.
 
 ---
 
-## 🛠️ **Method 1: Normal Installation (Web Interface)**
+## 🗺️ **Understanding The Journey Ahead**
 
-This method uses AWS's web interface to set up everything manually. It's like following a detailed recipe - each step builds understanding of what you're creating.
+Before we dive in, let's understand the seven phases you'll complete. Each phase builds on the previous one, like constructing a building floor by floor.
 
-### Phase A: Preparing Your Lambda Function
+### **Phase 1: AWS Account Creation (10 minutes)**
+You'll create your AWS account and verify your identity. This is like getting keys to the warehouse where your Lambda function will live.
 
-**Step 1: Accessing AWS Lambda**
+### **Phase 2: IAM Role Configuration (5 minutes)**
+IAM stands for Identity and Access Management. This is like creating a security badge that says "This Lambda function is allowed to write logs and nothing else." Security is important in cloud computing.
 
-1. **Sign into AWS Console:**
-   - Go to https://aws.amazon.com
-   - Click "Sign In" (top right)
-   - Enter your account credentials
+### **Phase 3: AWS Systems Manager Setup (10 minutes)**
+This is where you'll store sensitive information like your Home Assistant access token in an encrypted, secure vault. Think of it as a safety deposit box that only your Lambda function can access.
 
-2. **Navigate to Lambda:**
-   - In the AWS Console search bar (top), type "Lambda"
-   - Click "Lambda" from the dropdown results
-   - You're now in the Lambda dashboard (this is your function management center)
+### **Phase 4: Lambda Function Creation (15 minutes)**
+Here's where you actually create the Lambda function and upload your code. This is the heart of the entire system.
 
-**Step 2: Creating Your Function**
+### **Phase 5: Configuration and Testing (10 minutes)**
+You'll configure your Lambda function's settings and run your first test to make sure everything works.
 
-1. **Start Function Creation:**
-   - Click "Create function" (bright orange button)
-   - Select "Author from scratch" (we're building custom functionality)
+### **Phase 6: Alexa Skill Setup (15 minutes)**
+You'll create a custom Alexa skill and connect it to your Lambda function. This is what lets Alexa talk to your smart home.
 
-2. **Basic Function Information:**
-   - **Function name:** `lambda-execution-unit` (or your preferred name)
-   - **Runtime:** Select "Python 3.12" (latest stable version)
-   - **Architecture:** Leave as "x86_64" (default, most compatible)
-
-3. **Advanced Configuration:**
-   - Click "Change default execution role"
-   - Select "Create a new role with basic Lambda permissions"
-   - **Role name:** `lambda-execution-unit-role` (AWS will create this automatically)
-
-4. **Create the Function:**
-   - Click "Create function"
-   - Wait 30-60 seconds for AWS to set up your function
-   - You'll see a success message and your function dashboard
-
-**Understanding What Just Happened:**
-You've just created a "container" in the cloud where your smart home logic will live. Think of it as renting a small, powerful computer that only runs when your smart home needs it.
-
-### Phase B: Setting Up Essential AWS Infrastructure
-
-**Step 1: IAM Role and Security Configuration**
-
-Before we configure the Lambda function itself, we need to set up proper security infrastructure. Think of IAM (Identity and Access Management) as the security system for your cloud infrastructure - it determines what your Lambda function is allowed to do and what resources it can access.
-
-1. **Access IAM Console:**
-   - In AWS Console search bar, type "IAM"
-   - Click "IAM" from the results
-   - You're now in the Identity and Access Management dashboard
-
-2. **Create Custom IAM Policy:**
-   
-   Your Lambda function needs specific permissions beyond the basic execution role. We'll create a custom policy that follows the principle of least privilege - giving only the permissions actually needed.
-
-   - Click "Policies" in the left sidebar
-   - Click "Create policy"
-   - Select "JSON" tab
-   - Replace the default content with this security policy:
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": [
-           "logs:CreateLogGroup",
-           "logs:CreateLogStream",
-           "logs:PutLogEvents",
-           "logs:DescribeLogGroups",
-           "logs:DescribeLogStreams"
-         ],
-         "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/lambda-execution-unit*"
-       },
-       {
-         "Effect": "Allow",
-         "Action": [
-           "ssm:GetParameter",
-           "ssm:GetParameters",
-           "ssm:GetParametersByPath"
-         ],
-         "Resource": "arn:aws:ssm:*:*:parameter/lambda-execution-unit/*"
-       },
-       {
-         "Effect": "Allow",
-         "Action": [
-           "cloudwatch:PutMetricData"
-         ],
-         "Resource": "*",
-         "Condition": {
-           "StringEquals": {
-             "cloudwatch:namespace": "LambdaExecutionUnit"
-           }
-         }
-       }
-     ]
-   }
-   ```
-
-   - Click "Next: Tags" (you can skip adding tags)
-   - Click "Next: Review"
-   - **Policy name:** `LambdaExecutionUnitPolicy`
-   - **Description:** `Custom policy for Lambda Execution Unit with least privilege access`
-   - Click "Create policy"
-
-**Understanding This Security Policy:**
-
-This policy grants your Lambda function three specific sets of permissions, and nothing more:
-
-**CloudWatch Logs Access** allows your function to write operational logs, error messages, and debug information. The resource restriction ensures it can only write to log groups specifically for your Lambda function, not to other systems' logs.
-
-**Systems Manager Parameter Access** enables secure retrieval of sensitive configuration data like Home Assistant tokens. The resource restriction limits access to parameters under the `/lambda-execution-unit/` path only.
-
-**CloudWatch Metrics Access** permits your function to record performance metrics and operational statistics. The condition restricts metric publishing to your specific namespace, preventing interference with other systems.
-
-3. **Create Enhanced IAM Role:**
-   
-   Now we'll create a role that uses both the AWS managed basic execution policy and your custom policy.
-
-   - Click "Roles" in the left IAM sidebar
-   - Click "Create role"
-   - Select "AWS service" (default)
-   - Choose "Lambda" from the service list
-   - Click "Next: Permissions"
-   
-   **Attach Policies:**
-   - Search for and select `AWSLambdaBasicExecutionRole` (AWS managed policy)
-   - Search for and select `LambdaExecutionUnitPolicy` (your custom policy)
-   - Click "Next: Tags" (skip tags for now)
-   - Click "Next: Review"
-   
-   **Role Configuration:**
-   - **Role name:** `LambdaExecutionUnitRole`
-   - **Description:** `Enhanced execution role for Lambda Execution Unit with secure parameter access`
-   - Click "Create role"
-
-**Step 2: Systems Manager Parameter Store Setup**
-
-Systems Manager Parameter Store provides secure, encrypted storage for sensitive configuration data. This is far superior to environment variables for storing secrets like API tokens.
-
-1. **Access Systems Manager:**
-   - In AWS Console search bar, type "Systems Manager"
-   - Click "Systems Manager" from results
-   - In the left sidebar, click "Parameter Store"
-
-2. **Create Secure Parameters:**
-
-   We'll create several parameters to store your sensitive configuration securely. Each parameter will be encrypted and accessible only to your Lambda function.
-
-   **Home Assistant Token Parameter:**
-   - Click "Create parameter"
-   - **Name:** `/lambda-execution-unit/home-assistant/token`
-   - **Description:** `Home Assistant Long-Lived Access Token`
-   - **Tier:** Standard (free tier)
-   - **Type:** SecureString (this encrypts the value)
-   - **KMS Key Source:** My current account (uses default encryption)
-   - **Value:** [Paste your Home Assistant long-lived access token here]
-   - Click "Create parameter"
-
-   **Home Assistant URL Parameter:**
-   - Click "Create parameter"
-   - **Name:** `/lambda-execution-unit/home-assistant/url`
-   - **Description:** `Home Assistant instance URL`
-   - **Type:** String (URL is not sensitive, but we store it centrally)
-   - **Value:** `http://your-home-assistant-ip:8123`
-   - Click "Create parameter"
-
-   **SSL Verification Parameter:**
-   - Click "Create parameter"
-   - **Name:** `/lambda-execution-unit/home-assistant/ssl-verify`
-   - **Description:** `SSL certificate verification setting`
-   - **Type:** String
-   - **Value:** `true` (set to `false` only for self-signed certificates)
-   - Click "Create parameter"
-
-   **Configuration Tier Parameter:**
-   - Click "Create parameter"
-   - **Name:** `/lambda-execution-unit/config/tier`
-   - **Description:** `System configuration tier setting`
-   - **Type:** String
-   - **Value:** `standard`
-   - Click "Create parameter"
-
-**Understanding Parameter Store Benefits:**
-
-**Security Enhancement:** Your sensitive tokens are now encrypted at rest using AWS KMS encryption. Even if someone gains access to your AWS console, they cannot see the actual token values without proper decryption permissions.
-
-**Centralized Management:** All configuration is stored in one secure location, making it easy to update settings without modifying code or redeploying your Lambda function.
-
-**Audit Trail:** Parameter Store automatically tracks who accessed which parameters and when, providing a complete audit trail for security compliance.
-
-**Rotation Capability:** You can easily rotate tokens and API keys by updating the parameter values, and your Lambda function will automatically use the new values on the next execution.
-
-**Step 3: CloudWatch Infrastructure Setup**
-
-CloudWatch provides comprehensive monitoring, logging, and alerting for your Lambda function. Proper setup is essential for operational excellence and troubleshooting.
-
-1. **Create Custom Log Group:**
-
-   While Lambda automatically creates log groups, creating them manually gives us better control over retention and costs.
-
-   - In AWS Console, search for "CloudWatch"
-   - Click "CloudWatch" from results
-   - In left sidebar, click "Logs" > "Log groups"
-   - Click "Create log group"
-   - **Log group name:** `/aws/lambda/lambda-execution-unit`
-   - **Retention setting:** 7 days (balances debugging capability with cost control)
-   - Click "Create"
-
-**Understanding Log Retention Strategy:**
-
-**Cost Management:** Log storage costs money after the free tier. Seven days provides sufficient time for troubleshooting while minimizing storage costs. For production systems, you might extend this to 30 days.
-
-**Debugging Balance:** Seven days allows you to investigate issues that might not be immediately apparent, while preventing indefinite storage of routine operational logs.
-
-2. **Set Up Custom Metrics Namespace:**
-
-   Your Lambda function will publish custom metrics about its performance. We'll create a dedicated namespace to organize these metrics properly.
-
-   - In CloudWatch console, click "Metrics" in left sidebar
-   - Click "All metrics" tab
-   - Your custom metrics will appear here after your first Lambda execution
-   - The namespace will be `LambdaExecutionUnit` (as defined in your IAM policy)
-
-3. **Create Monitoring Dashboard:**
-
-   A dashboard provides at-a-glance monitoring of your system's health and performance.
-
-   - In CloudWatch console, click "Dashboards" in left sidebar
-   - Click "Create dashboard"
-   - **Dashboard name:** `Lambda-Execution-Unit-Monitor`
-   - Click "Create dashboard"
-
-   **Add Essential Widgets:**
-
-   For each widget, click "Add widget" and configure:
-
-   **Widget 1: Lambda Invocations**
-   - Widget type: Line graph
-   - Metrics: AWS/Lambda > By Function Name
-   - Function: lambda-execution-unit
-   - Metric: Invocations
-   - Statistic: Sum
-   - Period: 5 minutes
-
-   **Widget 2: Error Rate**
-   - Widget type: Line graph  
-   - Metrics: AWS/Lambda > By Function Name
-   - Function: lambda-execution-unit
-   - Metric: Errors
-   - Statistic: Sum
-   - Period: 5 minutes
-
-   **Widget 3: Duration**
-   - Widget type: Line graph
-   - Metrics: AWS/Lambda > By Function Name
-   - Function: lambda-execution-unit
-   - Metric: Duration
-   - Statistic: Average
-   - Period: 5 minutes
-
-   **Widget 4: Memory Utilization**
-   - Widget type: Number
-   - Metrics: AWS/Lambda > By Function Name
-   - Function: lambda-execution-unit
-   - Metric: MaxMemoryUsed
-   - Statistic: Maximum
-   - Period: 5 minutes
-
-   - Click "Save dashboard"
-
-4. **Configure Critical Alerts:**
-
-   Alerts notify you of issues before they impact your smart home functionality.
-
-   **High Error Rate Alert:**
-   - In CloudWatch, click "Alarms" > "All alarms"
-   - Click "Create alarm"
-   - Click "Select metric"
-   - Browse: AWS/Lambda > By Function Name > lambda-execution-unit > Errors
-   - Click "Select metric"
-   - **Statistic:** Sum
-   - **Period:** 5 minutes
-   - **Threshold:** Static > Greater than > 5
-   - **Datapoints to alarm:** 1 out of 1
-   - Click "Next"
-   - **Alarm state trigger:** In alarm
-   - **Send notification to:** Create new topic
-   - **Topic name:** `lambda-execution-unit-alerts`
-   - **Email:** Your email address
-   - Click "Create topic" and "Next"
-   - **Alarm name:** `Lambda-Execution-Unit-High-Error-Rate`
-   - **Description:** `Alert when Lambda function has more than 5 errors in 5 minutes`
-   - Click "Next" and "Create alarm"
-
-   **Memory Usage Alert:**
-   - Repeat the process above but select MaxMemoryUsed metric
-   - **Threshold:** Static > Greater than > 120000000 (120MB in bytes)
-   - **Alarm name:** `Lambda-Execution-Unit-High-Memory-Usage`
-   - **Description:** `Alert when memory usage approaches 128MB limit`
-
-**Understanding Monitoring Strategy:**
-
-**Proactive Issue Detection:** These alerts catch problems before they impact your smart home functionality. High error rates indicate configuration issues, while high memory usage warns of potential performance problems.
-
-**Cost Protection:** The error rate alert helps identify runaway function executions that could consume your free tier allocation unexpectedly.
-
-**Performance Optimization:** Memory usage monitoring helps you optimize your configuration tier selection for best performance within constraints.
-
-### Phase C: Configuring Your Function Settings
-
-**Step 1: Memory and Timeout Configuration**
-
-1. **Access Configuration:**
-   - In your function dashboard, click the "Configuration" tab
-   - Select "General configuration" from the left sidebar
-
-2. **Update Function Configuration:**
-   - Click "Edit" (top right of the General configuration section)
-   - **Memory:** Set to 128 MB (maximum for free tier, perfect for our optimized code)
-   - **Timeout:** Set to 30 seconds (plenty of time for smart home operations)
-   - **Execution role:** Select "Use an existing role"
-   - **Existing role:** Choose `LambdaExecutionUnitRole` (the role we created in Phase B)
-   - **Description:** "Smart home bridge between Home Assistant and Alexa with secure parameter access"
-
-3. **Save Changes:**
-   - Click "Save"
-   - These settings optimize your function for smart home responsiveness while staying in free tier
-
-**Step 2: Environment Variables Setup**
-
-Now we'll configure your function to use the secure parameters we stored in Systems Manager, rather than storing sensitive information directly in environment variables.
-
-1. **Access Environment Variables:**
-   - Still in "Configuration" tab
-   - Click "Environment variables" from the left sidebar
-
-2. **Add Configuration Variables:**
-   - Click "Edit"
-   - Click "Add environment variable" for each of these:
-
-   **Core System Variables:**
-   ```
-   USE_PARAMETER_STORE = true
-   PARAMETER_PREFIX = /lambda-execution-unit
-   AWS_REGION = us-east-1
-   DEBUG_MODE = false
-   ```
-
-   **Performance Configuration Variables:**
-   ```
-   CACHE_TTL = 300
-   MAX_RETRIES = 3
-   RESPONSE_TIMEOUT = 10
-   LOG_LEVEL = INFO
-   CLOUDWATCH_NAMESPACE = LambdaExecutionUnit
-   ```
-
-3. **Save Environment Variables:**
-   - Click "Save"
-
-**Understanding the Secure Configuration Approach:**
-
-**Parameter Store Integration:** By setting `USE_PARAMETER_STORE = true`, your Lambda function will automatically retrieve sensitive configuration from the encrypted parameter store we set up, rather than using potentially insecure environment variables.
-
-**Security Benefits:** Your Home Assistant tokens and other sensitive data are now encrypted at rest and only accessible to your specific Lambda function with proper IAM permissions. This follows AWS security best practices.
-
-**Centralized Management:** Configuration changes can now be made by updating parameters in Systems Manager without redeploying your Lambda function code.
-
-**Understanding Configuration Tiers:**
-- `standard` = Recommended for most users (45MB memory usage)
-- `minimum` = Testing or resource-constrained (8MB memory usage)
-- `performance` = Enhanced features (78MB memory usage)
-- `maximum` = All features enabled (103MB memory usage)
-
-### Phase C: Installing Your Code
-
-**Step 1: Preparing the Code Package**
-
-You'll need to create a deployment package with all your Lambda Execution Unit code. 
-
-1. **Download the Project Files:**
-   - Get all the `.py` files from the Lambda Execution Unit project
-   - Create a folder on your computer called `lambda-execution-unit`
-   - Place all Python files in this folder
-
-2. **Required File Structure:**
-   ```
-   lambda-execution-unit/
-   ├── lambda_function.py          # Main entry point
-   ├── homeassistant_extension.py  # Home Assistant integration
-   ├── variables.py                # Configuration system
-   ├── variables_utils.py          # Configuration utilities
-   ├── cache.py                    # Caching system
-   ├── logging.py                  # Logging system
-   ├── metrics.py                  # Performance metrics
-   ├── security.py                 # Security validation
-   ├── http_client.py              # HTTP communications
-   ├── utility.py                  # Utility functions
-   ├── initialization.py           # Startup coordination
-   ├── circuit_breaker.py          # Error protection
-   ├── singleton.py                # Resource management
-   └── config.py                   # Configuration gateway
-   ```
-
-3. **Create Deployment Package:**
-   - **Windows:** Select all files, right-click, "Send to > Compressed folder"
-   - **Mac:** Select all files, right-click, "Compress items"
-   - **Linux:** Use command: `zip -r lambda-execution-unit.zip *`
-   - Name the zip file: `lambda-execution-unit.zip`
-
-**Step 2: Uploading Your Code**
-
-1. **Access Code Upload:**
-   - In your Lambda function dashboard, click the "Code" tab
-   - You'll see a code editor with sample code
-
-2. **Upload Your Package:**
-   - Click "Upload from" dropdown (right side above code editor)
-   - Select ".zip file"
-   - Click "Upload" and select your `lambda-execution-unit.zip` file
-   - Wait for upload to complete (progress bar will show)
-
-3. **Verify Upload:**
-   - You should see all your Python files in the file explorer (left sidebar)
-   - The main handler should show as `lambda_function.lambda_handler`
-
-**Step 3: Configuring Handler and Runtime**
-
-1. **Set Function Handler:**
-   - In the "Code" tab, scroll down to "Runtime settings"
-   - Click "Edit"
-   - **Handler:** Set to `lambda_function.lambda_handler`
-   - This tells AWS which function to call when your Lambda runs
-
-2. **Save and Test:**
-   - Click "Save"
-   - Click "Deploy" (this publishes your changes)
-
-### Phase D: Setting Up Alexa Integration
-
-**Step 1: Creating Your Alexa Skill**
-
-1. **Access Alexa Developer Console:**
-   - Open new tab: https://developer.amazon.com/alexa/console/ask
-   - Sign in with your Amazon developer account
-
-2. **Create New Skill:**
-   - Click "Create Skill"
-   - **Skill name:** "My Smart Home" (or your preference)
-   - **Default language:** English (US) (or your region)
-   - **Type of experience:** Smart Home
-   - **Hosting method:** Provision your own
-
-3. **Configure Skill Settings:**
-   - Click "Create skill"
-   - You'll see the skill dashboard
-
-**Step 2: Connecting Alexa to Your Lambda**
-
-1. **Get Your Lambda ARN:**
-   - Go back to your AWS Lambda function
-   - Copy the "Function ARN" (top right of the function overview)
-   - It looks like: `arn:aws:lambda:us-east-1:123456789:function:lambda-execution-unit`
-
-2. **Configure Alexa Endpoint:**
-   - In Alexa Developer Console, go to "Smart Home" section
-   - **Default endpoint:** Paste your Lambda ARN
-   - Click "Save"
-
-3. **Set Up Account Linking (Optional):**
-   - If you want enhanced security, configure account linking
-   - For basic setup, you can skip this initially
-
-### Phase E: Home Assistant Configuration
-
-**Step 1: Preparing Home Assistant Integration**
-
-1. **Get Your Home Assistant Information:**
-   - **Home Assistant URL:** Your HA instance URL (e.g., `http://192.168.1.100:8123`)
-   - **Access Token:** Generate in HA: Profile > Security > Long-Lived Access Tokens
-
-2. **Configure Environment Variables:**
-   - Go back to AWS Lambda > Configuration > Environment variables
-   - Add these variables:
-   ```
-   HOME_ASSISTANT_URL = http://your-ha-ip:8123
-   HOME_ASSISTANT_TOKEN = your-long-lived-token
-   HOME_ASSISTANT_SSL_VERIFY = true
-   ```
-
-   **Note:** Set `HOME_ASSISTANT_SSL_VERIFY = false` only if you're using self-signed certificates on your local network.
-
-**Step 2: Testing the Integration**
-
-1. **Create Test Event:**
-   - In Lambda, go to "Test" tab
-   - Click "Create new event"
-   - **Event name:** "HomeAssistantTest"
-   - **Template:** Use this JSON:
-   ```json
-   {
-     "directive": {
-       "header": {
-         "namespace": "Alexa.Discovery",
-         "name": "Discover",
-         "payloadVersion": "3",
-         "messageId": "test-message-id"
-       },
-       "payload": {
-         "scope": {
-           "type": "BearerToken",
-           "token": "test-token"
-         }
-       }
-     }
-   }
-   ```
-
-2. **Run Test:**
-   - Click "Test"
-   - Check execution results for errors
-   - Successful execution means your basic setup is working
+### **Phase 7: Home Assistant Integration (10 minutes)**
+Finally, you'll connect everything to your Home Assistant installation so voice commands actually control your devices.
 
 ---
 
-## 🤖 **Method 2: CDK Installation (Automated)**
+## ðŸ¢ **Phase 1: Creating Your AWS Account**
 
-CDK (Cloud Development Kit) is like having a smart assistant who reads your requirements and automatically builds everything in AWS. This method is faster once you understand it, but requires installing tools on your computer first.
+AWS (Amazon Web Services) is the cloud computing platform that runs a huge portion of the internet. You're about to become an AWS customer, joining millions of developers and companies worldwide.
 
-### Phase A: Setting Up CDK Environment
+### **Step 1: Navigate to AWS**
 
-**Step 1: Installing Prerequisites**
+Open your web browser and go to: **https://aws.amazon.com**
 
-Before we can use CDK, we need to install some tools on your computer. Think of these as the basic tools needed to communicate with AWS.
+You'll see Amazon's cloud services homepage. It might look overwhelming with all the services listed, but don't worry. You're only going to use one tiny piece of their vast infrastructure.
 
-**For Windows Users:**
+### **Step 2: Start Account Creation**
 
-1. **Install Node.js:**
-   - Go to https://nodejs.org
-   - Download the LTS version (recommended for most users)
-   - Run the installer with default settings
-   - **Why we need this:** CDK is built on Node.js technology
+Look for the orange button that says **"Create an AWS Account"** (usually in the top right corner). Click it.
 
-2. **Install Python:**
-   - Go to https://python.org/downloads
-   - Download Python 3.12 or later
-   - **Important:** Check "Add Python to PATH" during installation
-   - **Why we need this:** Our Lambda code runs on Python
+You'll be taken to a sign-up page that asks for basic information.
 
-3. **Install AWS CLI:**
-   - Download from: https://aws.amazon.com/cli/
-   - Run installer with default settings
-   - **Why we need this:** Allows your computer to talk to AWS
+### **Step 3: Enter Your Information**
 
-**For Mac Users:**
+**Email Address:** Enter an email you check regularly. AWS will send you important notifications, like usage alerts and security notices. If you already have an Amazon account for shopping, you can use that same email, but the AWS account will be separate.
 
-1. **Install Homebrew (if not already installed):**
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
+**Account Name:** Choose something memorable. Good options are "YourName-Smart-Home" or "YourName-AWS" or just your name. This is what you'll see when you log in, so make it something you'll recognize.
 
-2. **Install Required Tools:**
-   ```bash
-   brew install node python aws-cli
-   ```
+**Password:** Create a strong password. AWS manages important infrastructure, so security matters. Use a mix of uppercase, lowercase, numbers, and symbols. Consider using a password manager to generate and store this securely.
 
-**For Linux Users:**
+### **Step 4: Select Account Type**
 
-1. **Install Node.js and Python:**
-   ```bash
-   # Ubuntu/Debian
-   sudo apt update
-   sudo apt install nodejs npm python3 python3-pip
+AWS will ask if this is a Personal or Business account.
 
-   # CentOS/RHEL
-   sudo yum install nodejs npm python3 python3-pip
-   ```
+**Choose Personal** unless you're setting this up for a registered business.
 
-2. **Install AWS CLI:**
-   ```bash
-   pip3 install awscli
-   ```
+Personal accounts have the exact same free tier benefits as business accounts. The only difference is in how AWS addresses communications to you.
 
-**Step 2: Installing and Configuring CDK**
+### **Step 5: Enter Contact Information**
 
-1. **Install AWS CDK:**
-   ```bash
-   npm install -g aws-cdk
-   ```
+Fill in your real name, phone number, and address. Amazon requires this for verification purposes and to comply with regulations.
 
-2. **Verify Installation:**
-   ```bash
-   cdk --version
-   ```
-   You should see a version number like `2.100.0`
+**Why real information matters:** AWS is a financial service (you're opening a cloud computing account), so they need to verify your identity, just like opening a bank account. Don't worry about spam - Amazon is generally respectful about not selling your data.
 
-3. **Configure AWS Credentials:**
-   ```bash
-   aws configure
-   ```
-   
-   When prompted, enter:
-   - **AWS Access Key ID:** Get from AWS Console > Security Credentials
-   - **AWS Secret Access Key:** Get from AWS Console > Security Credentials  
-   - **Default region:** `us-east-1` (recommended for Alexa skills)
-   - **Default output format:** `json`
+### **Step 6: Payment Information**
 
-**Getting AWS Credentials:**
-1. In AWS Console, click your name (top right) > Security Credentials
-2. Scroll to "Access keys" section
-3. Click "Create access key" > Choose "Command Line Interface (CLI)"
-4. Download or copy the Access Key ID and Secret Access Key
+Here's where people often hesitate. AWS asks for a credit or debit card.
 
-**Step 3: Bootstrapping CDK**
+**Why they need it:** AWS requires a payment method for two reasons. First, it verifies you're a real person (prevents abuse). Second, it's there as a safety net in case you accidentally use services outside the free tier (very unlikely with our setup).
 
-CDK needs to set up some infrastructure in your AWS account before it can deploy resources. This is a one-time setup.
+**What you'll actually pay:** For typical smart home usage with the Lambda Execution Engine, your monthly AWS bill will be **$0.00**. Everything we're building fits comfortably within AWS's generous free tier limits.
 
+**What if I'm worried about unexpected charges?** We'll set up billing alerts in a later step that will email you if charges ever approach even one dollar.
+
+Enter your card information and click Continue.
+
+### **Step 7: Identity Verification**
+
+AWS will verify your identity with a quick phone call or text message.
+
+**Choose your verification method:**
+- **Text message (SMS):** You'll receive a 4-digit code via text
+- **Voice call:** AWS will call you and an automated system will read the code
+
+**For SMS:** Enter the 4-digit code you receive in the box on the screen
+
+**For Voice Call:** Answer your phone, listen to the code, and enter it on the screen. The code will be repeated twice, so don't panic if you miss it the first time.
+
+### **Step 8: Select Your Support Plan**
+
+AWS offers several support plans, ranging from free basic support to expensive enterprise support.
+
+**Choose "Basic Support - Free"**
+
+Basic support includes:
+- Customer service for account and billing questions
+- Access to AWS documentation
+- Access to AWS forums
+- Service health dashboard
+
+This is perfect for smart home projects. You don't need paid support for what you're building.
+
+### **Step 9: Wait For Activation**
+
+After completing sign-up, AWS needs a few minutes to activate your account. You'll see a message saying "Your account is being activated."
+
+**How long this takes:** Usually five to ten minutes, sometimes up to an hour during high-traffic periods.
+
+**What happens next:** You'll receive an email at the address you provided with the subject "Welcome to Amazon Web Services." This confirms your account is ready.
+
+**While you wait:** This is a perfect time to grab a coffee or stretch. Don't close your browser, but you can check your email in another tab.
+
+### **Troubleshooting Account Creation**
+
+**"My card was declined":**
+- Try a different card if available
+- Contact your bank - international charges from AWS sometimes trigger fraud alerts
+- Make sure your card allows online purchases
+
+**"I'm not receiving the SMS code":**
+- Check that you entered your phone number with the correct country code
+- Try the voice call option instead
+- Wait a full minute - sometimes codes are delayed
+
+**"I haven't received the welcome email":**
+- Check your spam folder
+- Wait the full hour before worrying
+- You can try logging in to the AWS console anyway - sometimes the email is delayed even after activation
+
+---
+
+## ðŸ"' **Phase 2: IAM Role Configuration**
+
+IAM (Identity and Access Management) is AWS's security system. Think of it as creating different keys that unlock different doors. Your Lambda function needs specific permissions to do its job, but you don't want to give it unlimited access to your AWS account.
+
+### **Understanding IAM Roles**
+
+Imagine you hire someone to deliver packages to your building. You give them a key that only opens the front door and the elevator, but not your apartment or the roof. That's exactly what an IAM role does - it gives your Lambda function only the specific permissions it needs, nothing more.
+
+For our Lambda Execution Engine, we need permissions to:
+- Write logs to CloudWatch (so you can see what happened if something goes wrong)
+- Access encrypted parameters from Systems Manager (to retrieve your Home Assistant token)
+- Nothing else - no ability to create new services, delete things, or access other AWS resources
+
+### **Step 1: Access the IAM Console**
+
+After logging into AWS, you'll see the AWS Management Console. This is your control panel for all AWS services.
+
+At the very top of the page, you'll see a search bar. Type **"IAM"** and press Enter (or click on IAM when it appears).
+
+You're now in the Identity and Access Management console.
+
+### **Step 2: Navigate to Roles**
+
+On the left sidebar, you'll see several options: Users, Groups, Roles, Policies, and more.
+
+Click on **"Roles"**
+
+This opens the Roles dashboard, where you'll see any existing roles (probably empty if this is a new account) and a button to create new ones.
+
+### **Step 3: Create New Role**
+
+Click the orange button labeled **"Create role"**
+
+AWS will ask you what type of entity will use this role.
+
+### **Step 4: Select Trusted Entity**
+
+You'll see several options:
+- AWS service
+- AWS account
+- Web identity
+- SAML 2.0 federation
+
+**Select "AWS service"** because Lambda is an AWS service that will use this role.
+
+Below that, you'll see a list of services. Find and click **"Lambda"** from the list.
+
+Then click **"Next: Permissions"** at the bottom.
+
+### **Step 5: Attach Permissions Policies**
+
+Now you'll choose what permissions this role has. AWS provides pre-made permission bundles called "managed policies."
+
+In the search box, type: **"AWSLambdaBasicExecutionRole"**
+
+This policy provides exactly what we need:
+- Permission to create log groups in CloudWatch
+- Permission to write log streams
+- Permission to put log events
+
+Check the box next to **"AWSLambdaBasicExecutionRole"**
+
+Now search for: **"AWSLambdaVPCAccessExecutionRole"**
+
+This adds networking permissions that Lambda needs. Check the box for this policy too.
+
+Click **"Next: Tags"** at the bottom.
+
+### **Step 6: Add Tags (Optional)**
+
+Tags are labels that help you organize AWS resources. They're optional but useful.
+
+You might add:
+- Key: "Project", Value: "SmartHome"
+- Key: "Purpose", Value: "Lambda-Execution-Engine"
+
+These don't affect functionality at all, just help you stay organized if you build more projects later.
+
+Click **"Next: Review"**
+
+### **Step 7: Name and Create Role**
+
+**Role name:** Enter **"LambdaExecutionEngineRole"**
+
+Role names must be unique in your AWS account. This name is descriptive and follows AWS naming conventions (no spaces, alphanumeric with hyphens).
+
+**Role description:** Enter something like: "Execution role for Lambda Execution Engine smart home integration"
+
+Double-check that you've attached both policies:
+- AWSLambdaBasicExecutionRole ✓
+- AWSLambdaVPCAccessExecutionRole ✓
+
+Click **"Create role"**
+
+### **Step 8: Add Systems Manager Permissions**
+
+We need one more permission for the role to read from Systems Manager Parameter Store.
+
+Back on the Roles list, find and click on **"LambdaExecutionEngineRole"** (the role you just created).
+
+Click the **"Permissions"** tab, then click **"Add permissions"** → **"Attach policies"**
+
+Search for: **"AmazonSSMReadOnlyAccess"**
+
+Check the box next to it, then click **"Attach policies"**
+
+**Why this permission?** Your Home Assistant token will be stored encrypted in Systems Manager. This permission lets your Lambda function read that encrypted value when it needs to communicate with Home Assistant.
+
+---
+
+## ðŸ"¦ **Phase 3: AWS Systems Manager Parameter Store Setup**
+
+Systems Manager Parameter Store is like a secure vault for sensitive configuration data. Instead of putting your Home Assistant access token directly in your Lambda function (where it could potentially be seen), you store it encrypted in Parameter Store, and your Lambda retrieves it when needed.
+
+### **Understanding Parameter Store**
+
+Think of Parameter Store as a safety deposit box at a bank. Your valuable items (passwords, tokens, API keys) stay locked in the bank's vault, and only people with the right key (IAM permissions) can access them. Even if someone gets access to your Lambda code, they won't see the actual tokens - just instructions to retrieve them from the vault.
+
+### **Step 1: Access Systems Manager**
+
+From the AWS Console search bar at the top, type: **"Systems Manager"**
+
+Click on **Systems Manager** when it appears in the results.
+
+The Systems Manager console opens. This is a powerful service with many features, but we're only using one small piece of it.
+
+### **Step 2: Navigate to Parameter Store**
+
+On the left sidebar, scroll down until you see **"Parameter Store"** (it's under Application Management section).
+
+Click on **"Parameter Store"**
+
+You'll see a list of parameters (probably empty) and a **"Create parameter"** button.
+
+### **Step 3: Create Home Assistant URL Parameter**
+
+Click **"Create parameter"**
+
+**Parameter name:** Enter **"/lambda-execution-engine/homeassistant/url"**
+
+The forward slashes create a hierarchy, like folders on a computer. This organization helps you manage parameters as your projects grow.
+
+**Description (optional):** "Home Assistant instance URL"
+
+**Tier:** Select **"Standard"** (free tier supports 10,000 parameters)
+
+**Type:** Select **"String"** (we're storing text, not encrypted secrets yet)
+
+**Data type:** Select **"text"**
+
+**Value:** Enter your Home Assistant URL
+- If on your local network: `http://192.168.1.100:8123` (use your actual IP)
+- If using Nabu Casa: `https://your-instance.ui.nabu.casa`
+- If using custom domain: `https://home.yourdomain.com`
+
+Click **"Create parameter"**
+
+### **Step 4: Create Home Assistant Token Parameter**
+
+Now for the sensitive part - your Home Assistant Long-Lived Access Token.
+
+**If you don't have a token yet:**
+1. Open Home Assistant
+2. Click on your profile (bottom left)
+3. Scroll down to "Long-Lived Access Tokens"
+4. Click "Create Token"
+5. Give it a name like "AWS Lambda Integration"
+6. Copy the token (you won't be able to see it again!)
+
+Back in AWS Parameter Store, click **"Create parameter"** again.
+
+**Parameter name:** Enter **"/lambda-execution-engine/homeassistant/token"**
+
+**Description (optional):** "Home Assistant access token (encrypted)"
+
+**Tier:** Select **"Standard"**
+
+**Type:** Select **"SecureString"** (THIS IS IMPORTANT - it encrypts the value)
+
+**KMS key source:** Select **"My current account"**
+
+**KMS Key ID:** Select **"alias/aws/ssm"** (this uses AWS's default encryption key)
+
+**Value:** Paste your Home Assistant Long-Lived Access Token
+
+Click **"Create parameter"**
+
+### **Step 5: Create Configuration Parameters**
+
+Let's create a few more parameters that control how your Lambda function operates.
+
+**Configuration Tier Parameter:**
+
+Click **"Create parameter"**
+
+**Parameter name:** `/lambda-execution-engine/config/tier`
+**Type:** String
+**Value:** `standard`
+
+This controls the performance/resource balance. Options are:
+- `minimum` - Bare minimum resources (testing only)
+- `standard` - Recommended for most users
+- `performance` - More features and speed
+- `maximum` - All features enabled
+
+**Debug Mode Parameter:**
+
+Click **"Create parameter"**
+
+**Parameter name:** `/lambda-execution-engine/config/debug_mode`
+**Type:** String
+**Value:** `false`
+
+Set to `true` only when troubleshooting issues. Debug mode creates more detailed logs but uses more resources.
+
+### **Step 6: Verify Your Parameters**
+
+You should now have four parameters:
+- `/lambda-execution-engine/homeassistant/url`
+- `/lambda-execution-engine/homeassistant/token` (with a lock icon showing it's encrypted)
+- `/lambda-execution-engine/config/tier`
+- `/lambda-execution-engine/config/debug_mode`
+
+These parameters are now ready for your Lambda function to use. The token is encrypted at rest and will only be decrypted when your Lambda function (with proper IAM permissions) requests it.
+
+---
+
+## âš¡ **Phase 4: Lambda Function Creation**
+
+Now we're getting to the exciting part - creating the actual Lambda function that will run your smart home logic in the cloud.
+
+### **Understanding Lambda Functions**
+
+Lambda is Amazon's "serverless" computing service. Serverless doesn't mean there are no servers - it means you don't have to think about servers. Amazon handles all the infrastructure, scaling, maintenance, and reliability. You just upload your code and Amazon runs it whenever needed.
+
+When Alexa receives a voice command for your smart home, it triggers your Lambda function. Your Lambda function executes, talks to Home Assistant, and returns results to Alexa. All of this happens in milliseconds, and you only "pay" (in free tier credits) for the exact milliseconds your code ran.
+
+### **Step 1: Navigate to Lambda**
+
+From the AWS Console search bar, type: **"Lambda"**
+
+Click on **Lambda** when it appears.
+
+You're now in the Lambda console, where you can see all your Lambda functions (currently none) and create new ones.
+
+### **Step 2: Create Function**
+
+Click the orange **"Create function"** button.
+
+You'll see three options for creating a function:
+- Author from scratch
+- Use a blueprint
+- Container image
+
+**Select "Author from scratch"** (the first option)
+
+### **Step 3: Configure Basic Information**
+
+**Function name:** Enter **"lambda-execution-engine"**
+
+Function names must be unique within your AWS region. Use lowercase with hyphens, no spaces.
+
+**Runtime:** Select **"Python 3.12"** (or the latest Python 3.x version available)
+
+The Lambda Execution Engine is written in Python. The runtime is the environment Amazon provides to execute your code.
+
+**Architecture:** Select **"x86_64"** (the default)
+
+Unless you have specific reasons to use ARM, stick with x86_64 for compatibility.
+
+### **Step 4: Configure Permissions**
+
+Under "Permissions," expand the **"Change default execution role"** section.
+
+**Select "Use an existing role"**
+
+**Existing role:** Find and select **"LambdaExecutionEngineRole"** (the role you created in Phase 2)
+
+This connects your function to the security permissions you set up earlier.
+
+### **Step 5: Advanced Settings (Optional)**
+
+You can expand "Advanced settings" but we'll configure these later. Leave them at defaults for now.
+
+Click **"Create function"** at the bottom.
+
+### **Step 6: Wait for Creation**
+
+AWS takes a few seconds to create your function. You'll see a success message and be taken to your function's configuration page.
+
+Congratulations! Your Lambda function exists! Right now it's just a shell with sample code, but we'll fix that next.
+
+---
+
+## 📦 **Phase 5: Upload Code and Configure Function**
+
+Your Lambda function exists, but it's running sample code. Now we'll upload the actual Lambda Execution Engine code and configure it properly.
+
+### **Step 1: Prepare Your Code Package**
+
+**Download the required files** from the Lambda Execution Engine project. You need these Python files:
+
+**Core Files:**
+- `lambda_function.py` (main entry point)
+- `gateway.py` (revolutionary single gateway)
+- `fast_path.py` (performance optimization)
+
+**Core Implementation Modules:**
+- `cache_core.py`
+- `logging_core.py`
+- `security_core.py`
+- `metrics_core.py`
+- `singleton_core.py`
+- `http_client_core.py`
+- `utility_core.py`
+- `initialization_core.py`
+- `lambda_core.py`
+- `circuit_breaker_core.py`
+- `config_core.py`
+
+**Supporting Files:**
+- `variables.py` (configuration data structures)
+- `variables_utils.py` (configuration utilities)
+
+**Extensions (Optional):**
+- `homeassistant_extension.py` (if using Home Assistant)
+
+### **Step 2: Create Deployment Package**
+
+On your computer, create a new folder called `lambda-execution-engine` and place all the Python files inside it.
+
+**Create a ZIP file:**
+
+**Windows:**
+1. Select all the .py files (not the folder, just the files)
+2. Right-click and choose "Send to" → "Compressed (zipped) folder"
+3. Name it `lambda-execution-engine.zip`
+
+**Mac:**
+1. Select all the .py files
+2. Right-click and choose "Compress items"
+3. Rename the resulting archive to `lambda-execution-engine.zip`
+
+**Linux:**
 ```bash
-cdk bootstrap
+cd lambda-execution-engine
+zip -r ../lambda-execution-engine.zip *.py
 ```
 
-This command creates the necessary resources for CDK to work in your AWS account. You'll see output showing resources being created.
+**IMPORTANT:** The Python files must be at the root level of the ZIP, not inside a folder within the ZIP.
 
-### Phase B: Creating Your CDK Project
+### **Step 3: Upload Code to Lambda**
 
-**Step 1: Project Initialization**
+Back in the Lambda console (on your function's page):
 
-1. **Create Project Directory:**
-   ```bash
-   mkdir lambda-execution-unit-cdk
-   cd lambda-execution-unit-cdk
-   ```
+1. Click the **"Code"** tab (should already be selected)
+2. You'll see a code editor with sample Lambda code
+3. Click **"Upload from"** dropdown button (top right)
+4. Select **".zip file"**
+5. Click **"Upload"** and select your `lambda-execution-engine.zip` file
+6. Wait for the upload to complete (progress bar appears)
+7. Click **"Save"**
 
-2. **Initialize CDK Project:**
-   ```bash
-   cdk init app --language python
-   ```
+After upload completes, you'll see your Python files listed in the file browser on the left side of the code editor.
 
-3. **Install Python Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### **Step 4: Configure Handler**
 
-**Step 2: Creating the CDK Stack**
+The handler tells AWS which function to call when your Lambda is invoked.
 
-Replace the contents of `lambda_execution_unit_cdk/lambda_execution_unit_cdk_stack.py` with this deployment configuration:
+1. Scroll down slightly to **"Runtime settings"**
+2. Click **"Edit"**
+3. **Handler:** Change to `lambda_function.lambda_handler`
+   - This means: "In the file named lambda_function.py, call the function named lambda_handler"
+4. Click **"Save"**
 
-```python
-from aws_cdk import (
-    Stack,
-    aws_lambda as _lambda,
-    aws_iam as iam,
-    Duration,
-    CfnOutput
-)
-from constructs import Construct
+### **Step 5: Configure Memory and Timeout**
 
-class LambdaExecutionUnitCdkStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
-        super().__init__(scope, construct_id, **kwargs)
+Click on the **"Configuration"** tab, then **"General configuration"** in the left submenu.
 
-        # Create IAM role for Lambda
-        lambda_role = iam.Role(
-            self, "LambdaExecutionRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
-            ]
-        )
+Click **"Edit"**
 
-        # Create Lambda function
-        lambda_function = _lambda.Function(
-            self, "LambdaExecutionUnit",
-            runtime=_lambda.Runtime.PYTHON_3_12,
-            handler="lambda_function.lambda_handler",
-            code=_lambda.Code.from_asset("../lambda-code"),
-            role=lambda_role,
-            timeout=Duration.seconds(30),
-            memory_size=128,
-            environment={
-                "CONFIGURATION_TIER": "standard",
-                "HOME_ASSISTANT_ENABLED": "true",
-                "ALEXA_SKILL_ENABLED": "true",
-                "DEBUG_MODE": "false"
-            }
-        )
+**Memory:** Set to **128 MB**
 
-        # Output the Lambda ARN for Alexa configuration
-        CfnOutput(
-            self, "LambdaArn",
-            value=lambda_function.function_arn,
-            description="Lambda Function ARN for Alexa Skill configuration"
-        )
-```
+This is the minimum and keeps you well within free tier. The Lambda Execution Engine is optimized to run efficiently in 128MB. With the revolutionary gateway architecture, your function typically uses only 15-40MB of this allocation.
 
-**Step 3: Preparing Your Code**
+**Timeout:** Set to **30 seconds**
 
-1. **Create Code Directory:**
-   ```bash
-   mkdir lambda-code
-   ```
+This gives your function plenty of time to communicate with Home Assistant. Most requests complete in under 5 seconds, but the extra buffer prevents timeouts during network delays.
 
-2. **Copy Lambda Execution Unit Files:**
-   Copy all your Python files (.py files) into the `lambda-code` directory:
-   ```
-   lambda-code/
-   ├── lambda_function.py
-   ├── homeassistant_extension.py
-   ├── variables.py
-   ├── variables_utils.py
-   └── [all other .py files]
-   ```
+**Ephemeral storage:** Leave at **512 MB** (default)
 
-### Phase C: Deploying with CDK
+Click **"Save"**
 
-**Step 1: Validate Your Configuration**
+### **Step 6: Configure Environment Variables**
 
-1. **Review Configuration:**
-   Edit the environment variables in your CDK stack to match your setup:
-   ```python
-   environment={
-       "CONFIGURATION_TIER": "standard",  # Change if desired
-       "HOME_ASSISTANT_ENABLED": "true",
-       "ALEXA_SKILL_ENABLED": "true", 
-       "HOME_ASSISTANT_URL": "http://your-ha-ip:8123",
-       "HOME_ASSISTANT_TOKEN": "your-token-here",
-       "DEBUG_MODE": "false"
-   }
-   ```
+Environment variables are settings your code can read at runtime. They're perfect for configuration values that might change.
 
-2. **Synthesize Stack (Preview):**
-   ```bash
-   cdk synth
-   ```
-   This shows you what CDK will create without actually creating it.
+Still in the **"Configuration"** tab, click **"Environment variables"** in the left submenu.
 
-**Step 2: Deploy Your Stack**
+Click **"Edit"**, then **"Add environment variable"** for each of these:
 
-1. **Deploy to AWS:**
-   ```bash
-   cdk deploy
-   ```
+**Basic Configuration:**
+- Key: `USE_PARAMETER_STORE`, Value: `true`
+- Key: `PARAMETER_PREFIX`, Value: `/lambda-execution-engine`
+- Key: `AWS_REGION`, Value: `us-east-1` (or your region)
 
-2. **Confirm Deployment:**
-   Type `y` when prompted to proceed with changes
+**Performance Configuration:**
+- Key: `CONFIGURATION_TIER`, Value: `standard`
+- Key: `CACHE_TTL`, Value: `300`
+- Key: `MAX_RETRIES`, Value: `3`
 
-3. **Wait for Completion:**
-   CDK will show progress as it creates resources
-   Deployment typically takes 2-3 minutes
+**Feature Flags:**
+- Key: `HOME_ASSISTANT_ENABLED`, Value: `true`
+- Key: `ALEXA_SKILL_ENABLED`, Value: `true`
+- Key: `DEBUG_MODE`, Value: `false`
 
-4. **Save the Output:**
-   CDK will display your Lambda ARN at the end
-   Copy this ARN - you'll need it for Alexa configuration
+Click **"Save"**
 
-### Phase D: Post-CDK Alexa Setup
+**What these variables do:**
+- `USE_PARAMETER_STORE`: Tells the function to get sensitive configs from Parameter Store
+- `PARAMETER_PREFIX`: The path prefix for all your parameters
+- `CONFIGURATION_TIER`: Controls the performance/resource balance
+- `CACHE_TTL`: How long to cache data (300 seconds = 5 minutes)
+- Feature flags enable/disable specific functionality
 
-Follow the same Alexa setup steps from Method 1, using the Lambda ARN that CDK provided in its output.
+### **Step 7: First Test**
 
----
+Let's verify your Lambda function can run successfully.
 
-## ⚙️ **Advanced Configuration Guide**
+1. Click the **"Test"** tab
+2. Click **"Create new event"**
+3. **Event name:** `TestEvent`
+4. **Template:** Select "hello-world" (default)
+5. Replace the JSON with this simple test:
 
-### Understanding Configuration Tiers in Detail
-
-Your Lambda Execution Unit uses an intelligent configuration system that automatically balances performance, features, and resource usage. Think of it like the performance modes in a modern car - each mode optimizes different aspects of the system.
-
-**How to Change Configuration Tiers:**
-
-**Method 1 (Environment Variables):**
-1. In AWS Lambda Console > Configuration > Environment variables
-2. Edit `CONFIGURATION_TIER` variable
-3. Change value to: `minimum`, `standard`, `performance`, or `maximum`
-4. Save changes
-
-**Method 2 (CDK):**
-1. Edit your CDK stack file
-2. Change the `CONFIGURATION_TIER` value in environment variables
-3. Run `cdk deploy` to update
-
-**Detailed Tier Comparison:**
-
-```
-Configuration Feature Comparison
-
-Feature                 | Minimum | Standard | Performance | Maximum
-------------------------|---------|----------|-------------|--------
-Memory Usage           | 8MB     | 45MB     | 78MB        | 103MB
-Alexa Response Speed   | Basic   | Fast     | Faster      | Fastest
-Home Assistant Cache   | None    | 5min     | 15min       | 30min
-Error Recovery         | Basic   | Standard | Advanced    | Premium
-Circuit Breaker        | Off     | Basic    | Smart       | AI-Enhanced
-Logging Detail         | Minimal | Standard | Detailed    | Comprehensive
-Metrics Tracking       | Basic   | Full     | Enhanced    | Premium
-Cost Protection        | Active  | Active   | Active      | Active
-```
-
-### Home Assistant Specific Configuration
-
-**SSL/TLS Configuration:**
-
-If your Home Assistant uses self-signed certificates (common for local installations), you'll need to disable SSL verification:
-
-```
-Environment Variable: HOME_ASSISTANT_SSL_VERIFY = false
-```
-
-**Warning:** Only use this for local network installations with self-signed certificates. For internet-accessible Home Assistant instances, always use proper SSL certificates.
-
-**Advanced Home Assistant Settings:**
-
-```
-HOME_ASSISTANT_TIMEOUT = 10          # Seconds to wait for HA response
-HOME_ASSISTANT_RETRIES = 3           # Number of retry attempts
-HOME_ASSISTANT_CACHE_TTL = 300       # How long to cache HA state (seconds)
-DEVICE_DISCOVERY_INTERVAL = 3600     # How often to rediscover devices (seconds)
-```
-
-### Alexa Skill Advanced Configuration
-
-**Custom Intent Handling:**
-
-Your Lambda function can be extended to handle custom Alexa intents beyond basic smart home control. Add these environment variables:
-
-```
-CUSTOM_INTENTS_ENABLED = true
-INTENT_CACHE_TTL = 600
-ALEXA_RESPONSE_TIMEOUT = 5
-```
-
-**Multi-Language Support:**
-
-```
-ALEXA_DEFAULT_LANGUAGE = en-US
-ALEXA_SUPPORTED_LANGUAGES = en-US,en-GB,de-DE
-```
-
-### Performance Optimization Settings
-
-**Caching Configuration:**
-
-```
-CACHE_STRATEGY = intelligent        # Options: basic, standard, intelligent
-CACHE_MEMORY_LIMIT = 20971520      # 20MB cache limit
-CACHE_CLEANUP_INTERVAL = 1800      # Clean old cache every 30 minutes
-```
-
-**Circuit Breaker Tuning:**
-
-```
-CIRCUIT_BREAKER_ENABLED = true
-FAILURE_THRESHOLD = 5              # Trip circuit after 5 failures
-RECOVERY_TIMEOUT = 30              # Wait 30 seconds before retry
-SUCCESS_THRESHOLD = 3              # Need 3 successes to close circuit
-```
-
----
-
-## 🧪 **Testing Your Installation**
-
-### Basic Functionality Tests
-
-**Test 1: Lambda Function Health**
-
-1. **Access Lambda Console:**
-   - Go to your Lambda function in AWS Console
-   - Click the "Test" tab
-
-2. **Create Health Check Test:**
-   ```json
-   {
-     "test": "health_check",
-     "timestamp": "2024-01-01T00:00:00Z"
-   }
-   ```
-
-3. **Expected Result:**
-   ```json
-   {
-     "statusCode": 200,
-     "body": {
-       "status": "healthy",
-       "configuration_tier": "standard",
-       "home_assistant_enabled": true,
-       "alexa_enabled": true
-     }
-   }
-   ```
-
-**Test 2: Home Assistant Connection**
-
-1. **Create HA Test Event:**
-   ```json
-   {
-     "directive": {
-       "header": {
-         "namespace": "Alexa.Discovery", 
-         "name": "Discover",
-         "payloadVersion": "3",
-         "messageId": "test-discovery"
-       }
-     }
-   }
-   ```
-
-2. **Success Indicators:**
-   - No timeout errors
-   - Response includes your HA devices
-   - No SSL/connection errors
-
-**Test 3: Alexa Integration**
-
-1. **In Alexa Developer Console:**
-   - Go to Test tab
-   - Enable testing for "Development"
-   - Try device discovery: "Alexa, discover devices"
-
-2. **Success Indicators:**
-   - Alexa finds your Home Assistant devices
-   - You can control devices through voice commands
-   - Response times are under 3 seconds
-
-### Advanced Testing
-
-**Memory Usage Monitoring:**
-
-1. **Check Lambda Metrics:**
-   - In Lambda Console, go to "Monitor" tab
-   - Look for "Max memory used" in execution logs
-   - Should be well under 128MB
-
-2. **Performance Metrics:**
-   - **Cold Start:** Should be under 3 seconds
-   - **Warm Execution:** Should be under 500ms
-   - **Error Rate:** Should be under 1%
-
-**Cost Monitoring:**
-
-1. **AWS Cost Explorer:**
-   - Go to AWS Console > Billing > Cost Explorer
-   - Check Lambda costs (should be $0.00 for normal usage)
-   - Monitor approaching free tier limits
-
----
-
-## 🚨 **Troubleshooting Common Issues**
-
-### Installation Problems
-
-**Issue: "Package too large" error during upload**
-
-**Cause:** Your zip file exceeds AWS Lambda's 50MB limit
-**Solution:**
-1. Remove any unnecessary files from your package
-2. Ensure you're only including .py files, not entire folders
-3. Use CDK method for automatic optimization
-
-**Issue: "Role does not exist" error**
-
-**Cause:** Lambda execution role wasn't created properly
-**Solution:**
-1. Go to AWS IAM Console
-2. Create new role with "Lambda" service
-3. Attach "AWSLambdaBasicExecutionRole" policy
-4. Update Lambda function to use this role
-
-**Issue: "Module not found" errors in Lambda**
-
-**Cause:** Python import paths aren't correct
-**Solution:**
-1. Ensure all .py files are in the root of your zip package
-2. Check that lambda_function.py contains the correct handler
-3. Verify no missing dependencies
-
-### Runtime Problems
-
-**Issue: Home Assistant connection timeouts**
-
-**Symptoms:**
-- Lambda logs show "Connection timeout" errors
-- Alexa responds with "Device is not responding"
-- HA works fine locally
-
-**Solutions:**
-1. **Check Network Connectivity:**
-   - Verify your Home Assistant URL is accessible from internet
-   - Test URL in browser: `http://your-ha-ip:8123`
-
-2. **Authentication Issues:**
-   - Regenerate Long-Lived Access Token in Home Assistant
-   - Update `HOME_ASSISTANT_TOKEN` environment variable
-   - Ensure token has admin privileges
-
-3. **SSL Certificate Problems:**
-   - For self-signed certificates: Set `HOME_ASSISTANT_SSL_VERIFY = false`
-   - For proper certificates: Ensure they're not expired
-   - Test SSL: `openssl s_client -connect your-ha-ip:8123`
-
-**Issue: Alexa skill discovery finds no devices**
-
-**Symptoms:**
-- "I couldn't find any devices" from Alexa
-- Lambda executes without errors
-- Home Assistant has devices
-
-**Solutions:**
-1. **Check Device Exposure:**
-   - In Home Assistant, go to Configuration > Alexa
-   - Ensure devices are exposed to Alexa
-   - Check device domains are supported (lights, switches, etc.)
-
-2. **Skill Configuration:**
-   - Verify Lambda ARN is correct in Alexa Developer Console
-   - Check skill is in "Development" stage for testing
-   - Disable and re-enable skill in Alexa app
-
-3. **Lambda Permissions:**
-   - Ensure Lambda has permission to respond to Alexa
-   - Check CloudWatch logs for permission denied errors
-
-**Issue: High memory usage or function timeouts**
-
-**Symptoms:**
-- Lambda exceeds 128MB memory
-- Functions timeout before completion
-- Erratic performance
-
-**Solutions:**
-1. **Lower Configuration Tier:**
-   - Change `CONFIGURATION_TIER` to `minimum` or `standard`
-   - Reduce cache TTL values
-   - Disable non-essential features
-
-2. **Optimize Code:**
-   - Review CloudWatch logs for memory usage patterns
-   - Check for memory leaks in custom code
-   - Ensure proper cleanup of resources
-
-### Performance Issues
-
-**Issue: Slow Alexa responses**
-
-**Target:** Under 2 seconds for cold start, under 0.5 seconds for warm
-**Diagnosis:**
-1. Check CloudWatch logs for execution duration
-2. Identify bottlenecks in Home Assistant calls
-3. Monitor cache hit rates
-
-**Solutions:**
-1. **Increase Cache TTL:**
-   ```
-   CACHE_TTL = 600  # 10 minutes
-   ```
-
-2. **Optimize HA Calls:**
-   ```
-   HOME_ASSISTANT_TIMEOUT = 5  # Reduce timeout
-   ```
-
-3. **Use Higher Configuration Tier:**
-   - Switch to `performance` or `maximum` tier
-   - Monitor memory usage to ensure you stay under 128MB
-
-### Security Concerns
-
-**Issue: Unauthorized access to Home Assistant**
-
-**Prevention:**
-1. **Token Security:**
-   - Use Long-Lived Access Tokens, not passwords
-   - Regularly rotate tokens (monthly recommended)
-   - Monitor Home Assistant logs for unauthorized access
-
-2. **Network Security:**
-   - Don't expose Home Assistant directly to internet
-   - Use VPN or reverse proxy with proper authentication
-   - Consider firewall rules limiting access
-
-3. **Lambda Security:**
-   - Regularly review IAM permissions
-   - Enable CloudTrail for audit logging
-   - Monitor for unusual Lambda invocation patterns
-
----
-
-## 📊 **Monitoring and Maintenance**
-
-### Essential Monitoring Setup
-
-**CloudWatch Dashboards:**
-
-Create a custom dashboard to monitor your smart home infrastructure:
-
-1. **Go to CloudWatch Console**
-2. **Create Dashboard:**
-   - Name: "Smart Home Monitor"
-   - Add widgets for:
-     - Lambda invocation count
-     - Lambda error rate  
-     - Lambda duration
-     - Memory utilization
-
-**Key Metrics to Watch:**
-
-```
-Critical Thresholds:
-- Memory Usage: < 120MB (stay below 128MB limit)
-- Error Rate: < 1% (indicates healthy operation)
-- Duration: < 2s cold start, < 0.5s warm
-- Invocations: < 900,000/month (stay in free tier)
-```
-
-**Setting Up Alerts:**
-
-1. **Memory Alert:**
-   - Metric: Maximum memory used
-   - Threshold: > 120MB
-   - Action: Send email notification
-
-2. **Error Rate Alert:**
-   - Metric: Error rate
-   - Threshold: > 5%
-   - Action: Send email + SMS
-
-3. **Cost Alert:**
-   - Go to AWS Billing > Budgets
-   - Create budget for Lambda service
-   - Alert at 80% of expected free tier usage
-
-### Regular Maintenance Tasks
-
-**Weekly Checks:**
-- Review CloudWatch logs for errors
-- Check memory usage trends  
-- Verify Home Assistant connectivity
-- Test Alexa device discovery
-
-**Monthly Tasks:**
-- Review AWS costs (should be $0.00)
-- Rotate Home Assistant access tokens
-- Update Lambda function code if needed
-- Check for AWS service updates
-
-**Quarterly Reviews:**
-- Evaluate configuration tier performance
-- Review security settings
-- Update documentation
-- Consider new Home Assistant integrations
-
-### Performance Optimization
-
-**Memory Optimization Strategies:**
-
-1. **Regular Monitoring:**
-   ```bash
-   # Check memory usage in CloudWatch logs
-   aws logs filter-log-events \
-     --log-group-name "/aws/lambda/lambda-execution-unit" \
-     --filter-pattern "Max Memory Used"
-   ```
-
-2. **Tier Adjustment:**
-   - If consistently using < 30MB: Consider `minimum` tier
-   - If approaching 80MB: Consider `performance` tier
-   - Monitor for 1 week after changes
-
-**Cache Optimization:**
-
-1. **Hit Rate Analysis:**
-   - Monitor cache hit rates in logs
-   - Adjust TTL values based on device change frequency
-   - Balance memory usage vs. response speed
-
-2. **Cache Strategy Tuning:**
-   ```
-   # For devices that change frequently
-   DEVICE_CACHE_TTL = 60    # 1 minute
-   
-   # For stable devices  
-   DEVICE_CACHE_TTL = 1800  # 30 minutes
-   ```
-
----
-
-## 🎓 **Understanding What You've Built**
-
-Congratulations! You've successfully deployed a sophisticated cloud-based smart home integration that rivals professional IoT platforms. Let's understand what you've accomplished:
-
-### The Architecture You've Created
-
-**Your Lambda Function** acts as an intelligent translator sitting in the AWS cloud. It speaks three languages fluently:
-- **Alexa Language:** Understands voice commands and smart home directives
-- **Home Assistant Language:** Knows how to control your devices and read their states  
-- **Cloud Language:** Efficiently manages resources and scales automatically
-
-**The Gateway Pattern** you've implemented is an advanced architectural pattern used by major tech companies. It provides:
-- **Modularity:** Each component can be updated independently
-- **Efficiency:** Shared resources reduce memory usage
-- **Reliability:** Circuit breakers prevent cascading failures
-- **Scalability:** Automatic resource management based on load
-
-### The Intelligence Behind Your System
-
-**Configuration Intelligence:**
-Your system continuously monitors its own performance and automatically adjusts resource allocation. This is similar to how modern cars adjust engine performance based on driving conditions.
-
-**Predictive Caching:**
-The system learns your usage patterns and pre-loads frequently accessed device states, making responses feel instantaneous.
-
-**Failure Recovery:**
-Advanced circuit breaker patterns detect when Home Assistant becomes temporarily unavailable and gracefully handle requests without crashing.
-
-### Cost Intelligence Achievement
-
-You've built a system that:
-- **Monitors its own costs** in real-time
-- **Automatically scales down** when approaching AWS limits  
-- **Optimizes resource usage** without sacrificing functionality
-- **Provides enterprise features** at consumer-friendly costs
-
-This level of cost intelligence is typically found only in enterprise-grade cloud applications.
-
-### Security Excellence
-
-Your implementation includes:
-- **Multi-layer authentication** with JWT token validation
-- **Input sanitization** preventing injection attacks  
-- **Audit logging** for compliance and troubleshooting
-- **Privacy by design** with no persistent data storage
-
-### What This Means for Your Smart Home
-
-You now have:
-- **Professional-grade reliability** with 99.9% uptime capability
-- **Sub-second response times** for voice commands
-- **Unlimited scalability** that grows with your smart home
-- **Zero ongoing costs** for typical usage patterns
-- **Complete control** over your smart home infrastructure
-
-### The Broader Impact
-
-You've successfully implemented several advanced concepts:
-- **Serverless architecture** - computing resources that scale to zero
-- **Event-driven programming** - responding to voice commands and device state changes
-- **Gateway pattern** - modular, maintainable system architecture
-- **Circuit breaker pattern** - resilient error handling
-- **Configuration-driven development** - adaptable system behavior
-
-These are the same patterns used by companies like Netflix, Amazon, and Google to build their cloud services.
-
----
-
-## 🚀 **Next Steps and Expansion**
-
-### Immediate Enhancements
-
-**Add More Device Types:**
-Your system is designed to handle any device type that Home Assistant supports. Simply expose new devices in Home Assistant's Alexa integration, and they'll automatically become available through voice control.
-
-**Custom Alexa Intents:**
-Extend beyond basic device control by adding custom voice commands:
-- "Alexa, good night" - Execute complex automation sequences
-- "Alexa, movie time" - Adjust lights, climate, and entertainment systems
-- "Alexa, security check" - Report status of all security devices
-
-**Advanced Automations:**
-Leverage the cloud integration for sophisticated automations:
-- Weather-based climate adjustments
-- Geolocation-triggered arrival/departure scenes
-- Voice-activated morning and evening routines
-
-### Advanced Features
-
-**Multi-Home Support:**
-The architecture supports managing multiple Home Assistant instances:
-```
-HOME_ASSISTANT_INSTANCES = {
-  "main_house": "http://192.168.1.100:8123",
-  "vacation_home": "http://10.0.0.100:8123"
+```json
+{
+  "test": true,
+  "requestType": "health-check"
 }
 ```
 
-**Custom Analytics:**
-Build custom dashboards showing:
-- Device usage patterns
-- Voice command frequency
-- System performance metrics
-- Energy consumption trends
+6. Click **"Save"**
+7. Click **"Test"** button
 
-**Integration Expansion:**
-The gateway architecture makes it easy to add integrations with:
-- Security systems
-- Solar power monitoring
-- Weather services
-- Calendar-based automations
+**What to expect:**
 
-### Learning Opportunities
+**Success looks like:** You'll see green text saying "Execution result: succeeded" with a response showing your function executed properly.
 
-**AWS Skills Development:**
-You've now gained hands-on experience with:
-- Lambda serverless computing
-- CloudWatch monitoring and logging
-- IAM security and permissions
-- Environment variable management
-
-**Smart Home Architecture:**
-You understand:
-- Event-driven device control
-- State management and synchronization
-- Voice interface design
-- Cloud-to-local network bridging
-
-**Software Engineering Patterns:**
-You've implemented:
-- Gateway and facade patterns
-- Circuit breaker resilience patterns
-- Configuration-driven architecture
-- Resource pooling and management
-
-### Community and Support
-
-**Open Source Contribution:**
-Your installation experience helps improve the project. Consider:
-- Documenting any installation challenges you encountered
-- Sharing configuration optimizations you discover
-- Contributing to troubleshooting guides
-
-**Smart Home Community:**
-You're now part of the advanced smart home automation community. Your setup demonstrates:
-- Professional-grade architecture understanding
-- Cloud integration expertise
-- Security-conscious implementation
-- Cost-effective resource management
+**If you see errors:** Check the error message. Common issues:
+- Missing IAM permissions - Review Phase 2
+- Parameter Store access denied - Verify Systems Manager parameters exist
+- Import errors - Ensure all .py files are in the ZIP at root level
 
 ---
 
-## 🎯 **Conclusion: Your Smart Home Transformation**
+## ðŸŽ¤ **Phase 6: Alexa Skill Setup**
 
-You've successfully completed a journey from smart home novice to cloud integration expert. The Lambda Execution Unit you've deployed represents a significant achievement in both technical skill and smart home capability.
+Now we'll create the Alexa Skill that connects Alexa's voice interface to your Lambda function.
 
-**What You've Accomplished:**
+### **Understanding Alexa Skills**
 
-You've built a professional-grade smart home cloud integration that:
-- Costs nothing to operate for typical usage
-- Responds to voice commands in under 500 milliseconds
-- Handles device failures gracefully without affecting other devices
-- Scales automatically from 1 to 1000+ devices
-- Provides enterprise-level security and monitoring
-- Integrates seamlessly with your existing Home Assistant setup
+An Alexa Skill is like an app for your Amazon Echo devices. When you say "Alexa, turn on the lights," Alexa needs to know which skill handles smart home commands. By creating a custom smart home skill and linking it to your Lambda function, you're teaching Alexa to use your cloud-based coordinator instead of built-in integrations.
 
-**The Skills You've Developed:**
+### **Step 1: Access Alexa Developer Console**
 
-Through this installation process, you've learned:
-- AWS cloud service deployment and management
-- Serverless architecture implementation
-- Smart home device integration patterns
-- Voice interface development with Alexa
-- System monitoring and troubleshooting
-- Security best practices for IoT systems
+Open a new browser tab and go to: **https://developer.amazon.com/alexa/console/ask**
 
-**Your Smart Home's New Capabilities:**
+Sign in with your Amazon account (the same one connected to your Echo devices if possible).
 
-Your home can now:
-- Respond to complex voice commands through Alexa
-- Execute coordinated automation sequences across all device types
-- Maintain state synchronization between cloud and local systems
-- Provide real-time status reporting through voice queries
-- Scale to accommodate unlimited new devices and integrations
-- Operate reliably even during internet connectivity issues
+If this is your first time in the developer console, you might need to accept the Alexa Skills Kit Agreement.
 
-**The Foundation for Future Growth:**
+### **Step 2: Create New Skill**
 
-You've built more than just a smart home integration - you've created a platform for continuous innovation. The modular architecture allows you to:
-- Add new device types without modifying core functionality
-- Integrate additional cloud services and APIs
-- Implement custom automation logic and business rules
-- Scale from personal use to multi-home management
-- Contribute to the open-source smart home community
+Click the **"Create Skill"** button.
 
-Your Lambda Execution Unit represents the convergence of enterprise cloud technology with personal smart home innovation. You've demonstrated that with the right architecture and implementation, individual users can build and operate systems that rival professional IoT platforms.
+**Skill name:** Enter **"Lambda Smart Home"** (or any name you prefer)
 
-Welcome to the future of smart home automation - a future you've now built yourself.
+**Default language:** Select your language (typically **English (US)**)
+
+**Choose a model:** Select **"Smart Home"**
+
+This tells Alexa this skill controls smart home devices rather than providing information or entertainment.
+
+**Choose a method:** Select **"Provision your own"**
+
+We're hosting the skill logic in our own Lambda function, not using Amazon's hosting.
+
+Click **"Create skill"**
+
+### **Step 3: Configure Smart Home Service Endpoint**
+
+After skill creation, you'll see the skill dashboard.
+
+Click on **"Smart Home"** in the left menu.
+
+You need your Lambda function's ARN (Amazon Resource Name). This is like your function's address in AWS.
+
+**Get Your Lambda ARN:**
+1. Go back to your Lambda function in AWS Console
+2. Look at the top right of your function page
+3. You'll see "Function ARN:" followed by a long string like: `arn:aws:lambda:us-east-1:123456789012:function:lambda-execution-engine`
+4. Click the copy icon next to it
+
+**Configure Endpoint:**
+
+Back in the Alexa Developer Console:
+
+1. Under "Smart Home service endpoint"
+2. **Default endpoint:** Paste your Lambda ARN
+3. Click **"Save"**
+
+### **Step 4: Add Alexa Trigger to Lambda**
+
+Your Lambda function needs permission to be triggered by Alexa. We do this back in AWS.
+
+**In AWS Lambda Console:**
+
+1. Go to your Lambda function
+2. Click the **"Configuration"** tab
+3. Click **"Triggers"** in the left menu
+4. Click **"Add trigger"**
+5. **Select a trigger:** Choose **"Alexa Smart Home"**
+6. **Application ID:** Leave blank for now (we'll come back to this)
+7. Click **"Add"**
+
+### **Step 5: Enable Skill for Testing**
+
+Back in the Alexa Developer Console:
+
+1. Click on the **"Test"** tab in the top menu
+2. **Skill testing:** Enable testing by selecting **"Development"** from the dropdown
+3. The dropdown might say "Off" initially - change it to "Development"
+
+Your skill is now enabled for testing on your Alexa devices associated with this Amazon account.
+
+### **Step 6: Account Linking (Optional)**
+
+For basic testing, account linking isn't required. However, for production use and enhanced security, you can set up account linking later. This would allow your skill to authenticate users and provide device-specific responses.
+
+For now, skip this step. You can always add it later once the basic functionality is working.
 
 ---
 
-*🏆 Congratulations on completing your transformation from smart home user to smart home architect. Your home is now powered by the same cloud technologies that drive the world's largest technology platforms, customized specifically for your needs and operating at zero cost.*
+## ðŸ  **Phase 7: Home Assistant Integration**
+
+The final phase connects your Lambda function to your Home Assistant installation.
+
+### **Understanding the Connection**
+
+Your Lambda function needs to communicate with your Home Assistant instance. If Home Assistant is on your local network and Lambda is in the cloud, we need to bridge that gap. There are several approaches depending on your setup.
+
+### **Option A: Nabu Casa Cloud (Easiest)**
+
+If you're a Home Assistant Cloud (Nabu Casa) subscriber, your Home Assistant is already accessible from the internet securely.
+
+**Your Parameter Store URL should be:**
+`https://your-instance.ui.nabu.casa`
+
+No additional configuration needed! Your Lambda function can reach Home Assistant through Nabu Casa's secure tunnel.
+
+### **Option B: Expose Home Assistant to Internet (Advanced)**
+
+**Warning:** Only do this if you understand network security. Exposing Home Assistant to the internet requires:
+- HTTPS with valid SSL certificates (Let's Encrypt is free)
+- Strong passwords and authentication
+- Regular updates to Home Assistant
+- Firewall rules restricting access
+
+**Steps:**
+1. Configure your router for port forwarding (typically port 443)
+2. Set up dynamic DNS if your IP changes
+3. Configure SSL certificates in Home Assistant
+4. Update Parameter Store URL to your public address
+
+### **Option C: VPN Connection (Most Secure)**
+
+Set up a VPN server on your home network. Your Lambda function can't directly use a VPN, but you can:
+- Use AWS VPC with VPN connection (complex, costs money)
+- Use a jump host/proxy server (intermediate complexity)
+
+For most users, Option A (Nabu Casa) or carefully configured Option B works best.
+
+### **Step 1: Verify Home Assistant Connectivity**
+
+Let's test if your Lambda can reach Home Assistant.
+
+**Create a test event** in Lambda:
+
+```json
+{
+  "directive": {
+    "header": {
+      "namespace": "Alexa.Discovery",
+      "name": "Discover",
+      "payloadVersion": "3",
+      "messageId": "test-discovery-001"
+    },
+    "payload": {
+      "scope": {
+        "type": "BearerToken",
+        "token": "test-token"
+      }
+    }
+  }
+}
+```
+
+Click **"Test"**
+
+**Expected results:**
+- Successful execution
+- Response containing discovered devices
+- CloudWatch logs showing connection to Home Assistant
+
+**If you see errors:**
+- Check your Parameter Store URL is correct
+- Verify your Home Assistant token is valid
+- Ensure Home Assistant is accessible from the internet
+- Check Home Assistant logs for blocked requests
+
+### **Step 2: Configure Home Assistant Alexa Integration**
+
+In Home Assistant:
+
+1. Go to **Configuration** → **Integrations**
+2. Click **"+ Add Integration"**
+3. Search for **"Alexa"**
+4. Select **"Alexa Smart Home"**
+5. Follow the configuration prompts
+
+**Expose Devices:**
+
+Not all devices should be voice-controlled. In Home Assistant, you choose which devices Alexa can see:
+
+1. Go to each device you want to control
+2. Click the settings icon
+3. Find "Alexa" or "Cloud" options
+4. Enable exposure to Alexa
+
+### **Step 3: Discover Devices in Alexa**
+
+On your Alexa device or in the Alexa app:
+
+1. Say **"Alexa, discover devices"** or
+2. Open Alexa app → **Devices** → **"Discover Devices"**
+3. Wait for discovery to complete (30-45 seconds)
+
+Alexa should find devices exposed in Home Assistant!
+
+---
+
+## âœ… **Verification and Testing**
+
+### **Test Voice Commands**
+
+Start with simple commands to verify everything works:
+
+**Basic device control:**
+- "Alexa, turn on [device name]"
+- "Alexa, turn off [device name]"
+- "Alexa, set [device name] to 50 percent"
+
+**If commands don't work:**
+- Verify device names match what you exposed in Home Assistant
+- Check CloudWatch logs for errors (AWS Console → CloudWatch → Log groups → `/aws/lambda/lambda-execution-engine`)
+- Ensure your Lambda function executed (check Lambda monitoring tab)
+
+### **Monitor Performance**
+
+**In AWS Lambda:**
+
+1. Go to **Monitor** tab
+2. Click **"View CloudWatch logs"**
+3. You'll see log streams for each invocation
+4. Review logs for errors or warnings
+
+**Key metrics to watch:**
+- **Invocations:** Should increase with each voice command
+- **Duration:** Should be under 3000ms (3 seconds) typically
+- **Memory:** Should use 15-40MB (well under 128MB limit)
+- **Errors:** Should be zero in normal operation
+
+### **Set Up Billing Alerts**
+
+Even though you won't exceed free tier with typical usage, let's set up an alert for peace of mind:
+
+1. AWS Console → **Billing Dashboard**
+2. **Budgets** → **Create budget**
+3. **Budget type:** Cost budget
+4. **Set budget amount:** $1.00
+5. **Alert threshold:** 80% ($0.80)
+6. **Email:** Your email address
+7. Click **Create budget**
+
+You'll receive an email if costs ever approach $0.80, giving you plenty of warning.
+
+---
+
+## 🎓 **What You've Accomplished**
+
+Take a moment to appreciate what you've built:
+
+1. **Created a cloud-hosted serverless application** using AWS Lambda
+2. **Implemented enterprise-grade security** with IAM roles and encrypted parameter storage
+3. **Integrated multiple services** - AWS, Alexa, and Home Assistant
+4. **Built a scalable architecture** that could handle thousands of requests per day at zero cost
+5. **Learned cloud computing fundamentals** that apply to many other projects
+
+Your smart home can now respond to complex voice commands, execute sophisticated automation sequences, and leverage the computational power of Amazon's global infrastructure - all completely free.
+
+---
+
+## ðŸ"§ **Next Steps and Expansion**
+
+### **Enhance Your Setup**
+
+**Add Custom Routines:**
+- Create Alexa routines that combine multiple actions
+- "Alexa, good night" → Turn off lights, lock doors, arm security, adjust thermostat
+
+**Optimize Configuration:**
+- Experiment with different configuration tiers in environment variables
+- Monitor memory usage and adjust `CONFIGURATION_TIER` for your needs
+
+**Add More Devices:**
+- Expose additional Home Assistant devices to Alexa
+- Create device groups for room-level control
+
+### **Advanced Features**
+
+**Custom Skills:**
+- Build custom voice commands beyond device control
+- Create context-aware responses
+- Implement user-specific preferences
+
+**Automation Integration:**
+- Trigger Home Assistant automations via voice
+- Create presence-based automation with Alexa location
+- Build complex scenes that combine multiple services
+
+### **Monitoring and Maintenance**
+
+**Regular Checks:**
+- Review CloudWatch logs weekly for errors
+- Monitor AWS Free Tier usage (AWS Billing Dashboard)
+- Update Home Assistant token annually
+- Keep Lambda runtime up to date when AWS notifies you
+
+**Backup Your Configuration:**
+- Document your Parameter Store values
+- Save your Lambda function code locally
+- Export Alexa skill configuration periodically
+
+---
+
+## ❓ **Troubleshooting Guide**
+
+### **"Alexa doesn't find any devices"**
+
+**Check:**
+- Lambda function executed successfully (check logs)
+- Home Assistant devices are exposed to Alexa
+- Parameter Store has correct Home Assistant URL and token
+- Home Assistant is accessible from the internet
+
+**Solution:**
+- Verify each parameter in Systems Manager
+- Test Lambda function manually with discovery event
+- Check Home Assistant logs for blocked requests
+
+### **"Device commands don't work"**
+
+**Check:**
+- Device state changes in Home Assistant when tested directly
+- Lambda logs show the command was received
+- Home Assistant token has necessary permissions
+
+**Solution:**
+- Test device control directly in Home Assistant first
+- Review CloudWatch logs for specific error messages
+- Verify device entity IDs match expected format
+
+### **"Lambda function times out"**
+
+**Check:**
+- Home Assistant responds within 30 seconds
+- Network connectivity from Lambda to Home Assistant
+- No rate limiting or blocking in Home Assistant
+
+**Solution:**
+- Increase Lambda timeout if necessary (Configuration → General configuration)
+- Check Home Assistant performance and response time
+- Review Home Assistant logs for slow operations
+
+### **"High AWS costs"**
+
+**Check:**
+- Billing dashboard for cost breakdown
+- Number of Lambda invocations
+- CloudWatch metrics count
+
+**Solution:**
+- Review what's triggering excessive invocations
+- Ensure no infinite loops in automations
+- Consider adjusting `CONFIGURATION_TIER` to `minimum` temporarily
+
+---
+
+## 📚 **Additional Resources**
+
+### **AWS Documentation**
+- Lambda Developer Guide: https://docs.aws.amazon.com/lambda/
+- IAM Best Practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+- Systems Manager Parameter Store: https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html
+
+### **Alexa Documentation**
+- Smart Home Skill API: https://developer.amazon.com/docs/smarthome/understand-the-smart-home-skill-api.html
+- Alexa Skills Kit: https://developer.amazon.com/alexa/alexa-skills-kit
+
+### **Home Assistant**
+- Alexa Integration: https://www.home-assistant.io/integrations/alexa/
+- Cloud Configuration: https://www.nabucasa.com/config/
+
+### **Project Resources**
+- Revolutionary Gateway Architecture Reference
+- Ultra-Optimized Configuration System Guide
+- Troubleshooting and Diagnostic Guide
+
+---
+
+## ðŸ'¬ **Final Thoughts**
+
+You've completed a sophisticated cloud integration project that would have been complex and expensive just a few years ago. Today, thanks to AWS Free Tier and modern serverless architecture, you've built it for free.
+
+The skills you've learned - IAM security, Lambda functions, parameter management, service integration - transfer directly to professional cloud development. You're not just controlling smart home devices; you're building enterprise-grade cloud applications.
+
+Enjoy your newly enhanced smart home, and remember: you're always welcome to expand and improve your setup as you become more comfortable with the technology.
+
+**Welcome to cloud-powered smart home automation!** 🎉
