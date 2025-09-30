@@ -1,16 +1,12 @@
 """
 http_client_state.py - HTTP Client State Management
-Version: 2025.09.24.01
-Description: HTTP client state management using singleton.py gateway interface
+Version: 2025.09.30.02
+Daily Revision: 002 - Gateway Architecture Compliance
 
 ARCHITECTURE: SECONDARY IMPLEMENTATION
-- Client lifecycle management via singleton.py
-- Connection pool state via singleton.py
-- Configuration state via config.py
-- Metrics state via metrics.py
-
-PRIMARY FILE: http_client.py (interface)
-SECONDARY FILE: http_client_state.py (state management)
+- Uses gateway.py for all operations
+- Client lifecycle and state management
+- 100% Free Tier AWS compliant
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,26 +21,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 import logging
 
-# Gateway imports
-from . import singleton
-from . import config
-from . import metrics
+from gateway import (
+    get_singleton, register_singleton,
+    create_success_response, create_error_response,
+    log_info, log_error,
+    get_parameter, set_parameter,
+    record_metric,
+    execute_operation, GatewayInterface
+)
 
 logger = logging.getLogger(__name__)
 
-# ===== CLIENT STATE MANAGEMENT FUNCTIONS =====
-
 def get_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
-    """Get HTTP client state via singleton.py."""
-    
+    """Get HTTP client state via gateway singleton."""
     try:
         singleton_key = f'http_client_{client_type}'
-        
-        # Use singleton.py for state retrieval
-        client = singleton.get_singleton(singleton_key)
+        client = get_singleton(singleton_key)
         
         if not client:
             return {
@@ -53,7 +48,6 @@ def get_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
                 'state': 'not_initialized'
             }
         
-        # Extract client state information
         state_info = {
             'exists': True,
             'client_type': client_type,
@@ -61,310 +55,214 @@ def get_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
             'instance_id': id(client)
         }
         
-        # Add urllib3-specific state if available
         if hasattr(client, 'pools'):
             state_info['pool_count'] = len(client.pools)
             state_info['pool_info'] = _get_pool_state(client)
         
         return state_info
-        
+    
     except Exception as e:
-        logger.error(f"Failed to get client state: {e}")
-        return {
-            'exists': False,
-            'error': str(e)
-        }
+        log_error(f"Failed to get client state: {e}")
+        return {'exists': False, 'error': str(e)}
 
 def reset_client_state(client_type: str = None) -> Dict[str, Any]:
-    """Reset HTTP client state via singleton.py."""
-    
+    """Reset HTTP client state via gateway singleton."""
     try:
         if client_type:
             singleton_key = f'http_client_{client_type}'
-            
-            # Use singleton.py for state reset
-            result = singleton.manage_singletons('reset', singleton_key)
-            
-            metrics.increment_counter(f'http_client_state.{client_type}.reset')
-            
-            return {
-                'success': True,
+            result = execute_operation(
+                GatewayInterface.SINGLETON,
+                'reset',
+                singleton_name=singleton_key
+            )
+            record_metric(f'http_client_state.{client_type}.reset', 1.0)
+        else:
+            result = execute_operation(
+                GatewayInterface.SINGLETON,
+                'reset_all'
+            )
+            record_metric('http_client_state.reset_all', 1.0)
+        
+        return create_success_response("Client state reset", result)
+    
+    except Exception as e:
+        log_error(f"Failed to reset client state: {e}")
+        return create_error_response(str(e))
+
+def initialize_client(client_type: str, configuration: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Initialize HTTP client with configuration."""
+    try:
+        singleton_key = f'http_client_{client_type}'
+        existing_client = get_singleton(singleton_key)
+        
+        if existing_client:
+            log_info(f"Client {client_type} already initialized")
+            return create_success_response("Client already exists", {
                 'client_type': client_type,
-                'action': 'reset',
-                'result': result
-            }
-        else:
-            # Reset all HTTP clients
-            result = singleton.manage_singletons('reset_all', 'http_client')
+                'reused': True
+            })
+        
+        if client_type == 'urllib3':
+            import urllib3
             
-            metrics.increment_counter('http_client_state.all.reset')
+            config = configuration or {}
+            timeout = config.get('timeout', get_parameter('http_timeout', 30))
+            retries = config.get('retries', get_parameter('http_retries', 3))
             
-            return {
-                'success': True,
-                'client_type': 'all',
-                'action': 'reset_all',
-                'result': result
-            }
-        
-    except Exception as e:
-        logger.error(f"Failed to reset client state: {e}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-def get_all_client_states() -> Dict[str, Any]:
-    """Get state of all HTTP clients via singleton.py."""
-    
-    try:
-        # Use singleton.py to get system status
-        singleton_status = singleton.get_system_status()
-        
-        client_states = {}
-        
-        # Filter for HTTP client singletons
-        for key, info in singleton_status.items():
-            if key.startswith('http_client_'):
-                client_type = key.replace('http_client_', '')
-                client_states[client_type] = {
-                    'state': 'initialized' if info else 'not_initialized',
-                    'singleton_info': info
-                }
-        
-        return {
-            'client_count': len(client_states),
-            'clients': client_states
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get all client states: {e}")
-        return {
-            'client_count': 0,
-            'clients': {},
-            'error': str(e)
-        }
-
-def optimize_client_state(client_type: str = None) -> Dict[str, Any]:
-    """Optimize HTTP client state for memory efficiency."""
-    
-    try:
-        results = {}
-        
-        if client_type:
-            result = _optimize_single_client(client_type)
-            results[client_type] = result
+            client = urllib3.PoolManager(
+                timeout=urllib3.Timeout(connect=10, read=timeout),
+                retries=urllib3.Retry(total=retries)
+            )
         else:
-            # Optimize all clients
-            all_states = get_all_client_states()
-            for client_name in all_states.get('clients', {}):
-                result = _optimize_single_client(client_name)
-                results[client_name] = result
+            return create_error_response(f"Unsupported client type: {client_type}")
         
-        return {
-            'success': True,
-            'optimized_clients': results
-        }
+        register_singleton(singleton_key, client)
+        record_metric(f'http_client_state.{client_type}.initialized', 1.0)
         
-    except Exception as e:
-        logger.error(f"Client optimization failed: {e}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-# ===== CONNECTION POOL STATE FUNCTIONS =====
-
-def get_pool_statistics(client_type: str = 'urllib3') -> Dict[str, Any]:
-    """Get connection pool statistics."""
+        return create_success_response("Client initialized", {
+            'client_type': client_type,
+            'configuration': configuration
+        })
     
+    except Exception as e:
+        log_error(f"Failed to initialize client: {e}")
+        return create_error_response(str(e))
+
+def cleanup_connections(client_type: str = 'urllib3', max_age_seconds: int = 300) -> Dict[str, Any]:
+    """Cleanup old HTTP connections."""
     try:
         singleton_key = f'http_client_{client_type}'
-        client = singleton.get_singleton(singleton_key)
+        client = get_singleton(singleton_key)
         
-        if not client or not hasattr(client, 'pools'):
-            return {
-                'pool_count': 0,
-                'pools': {}
-            }
-        
-        pool_stats = {}
-        for pool_key, pool in client.pools.items():
-            pool_stats[pool_key] = _get_individual_pool_stats(pool)
-        
-        return {
-            'pool_count': len(pool_stats),
-            'pools': pool_stats,
-            'total_connections': sum(p.get('num_connections', 0) for p in pool_stats.values())
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get pool statistics: {e}")
-        return {
-            'pool_count': 0,
-            'pools': {},
-            'error': str(e)
-        }
-
-def cleanup_idle_connections(client_type: str = 'urllib3') -> Dict[str, Any]:
-    """Clean up idle connections in pools."""
-    
-    try:
-        singleton_key = f'http_client_{client_type}'
-        client = singleton.get_singleton(singleton_key)
-        
-        if not client or not hasattr(client, 'pools'):
-            return {
-                'success': False,
-                'error': 'Client or pools not available'
-            }
+        if not client:
+            return create_success_response("No client to cleanup", {
+                'client_type': client_type,
+                'cleaned_pools': 0
+            })
         
         cleaned_count = 0
+        if hasattr(client, 'pools'):
+            initial_count = len(client.pools)
+            client.clear()
+            cleaned_count = initial_count
+            record_metric(f'http_client_state.{client_type}.cleanup', cleaned_count)
         
-        for pool_key, pool in list(client.pools.items()):
-            if hasattr(pool, 'num_connections') and pool.num_connections == 0:
-                # Remove idle pools
-                del client.pools[pool_key]
-                cleaned_count += 1
-        
-        metrics.increment_counter(f'http_client_state.{client_type}.cleanup')
-        
-        return {
-            'success': True,
+        return create_success_response("Connections cleaned", {
             'cleaned_pools': cleaned_count,
-            'remaining_pools': len(client.pools)
-        }
-        
+            'remaining_pools': len(client.pools) if hasattr(client, 'pools') else 0
+        })
+    
     except Exception as e:
-        logger.error(f"Connection cleanup failed: {e}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-# ===== CONFIGURATION STATE FUNCTIONS =====
+        log_error(f"Connection cleanup failed: {e}")
+        return create_error_response(str(e))
 
 def get_client_configuration(client_type: str) -> Dict[str, Any]:
-    """Get client configuration via config.py."""
-    
+    """Get client configuration via gateway config."""
     try:
         config_key = f'http_client_{client_type}'
+        client_config = get_parameter(config_key, {})
         
-        # Use config.py for configuration retrieval
-        client_config = config.get_parameter(config_key, {})
-        
-        # Add default configuration
         default_config = {
-            'timeout': config.get_parameter('http_timeout', 30),
-            'retries': config.get_parameter('http_retries', 3),
-            'pool_size': config.get_parameter('http_pool_size', 10)
+            'timeout': get_parameter('http_timeout', 30),
+            'retries': get_parameter('http_retries', 3),
+            'pool_size': get_parameter('http_pool_size', 10)
         }
         
         return {
             'client_type': client_type,
             'configuration': {**default_config, **client_config}
         }
-        
+    
     except Exception as e:
-        logger.error(f"Failed to get client configuration: {e}")
+        log_error(f"Failed to get client configuration: {e}")
         return {
             'client_type': client_type,
             'configuration': {},
             'error': str(e)
         }
 
-def update_client_configuration(client_type: str, 
-                              new_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Update client configuration via config.py."""
-    
+def update_client_configuration(client_type: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Update client configuration via gateway config."""
     try:
         config_key = f'http_client_{client_type}'
-        
-        # Use config.py for configuration update
-        success = config.set_parameter(config_key, new_config)
+        success = set_parameter(config_key, new_config)
         
         if success:
-            # Reset client to pick up new configuration
             reset_result = reset_client_state(client_type)
+            record_metric(f'http_client_state.{client_type}.config_updated', 1.0)
             
-            metrics.increment_counter(f'http_client_state.{client_type}.config_updated')
-            
-            return {
-                'success': True,
+            return create_success_response("Configuration updated", {
                 'client_type': client_type,
                 'configuration_updated': True,
                 'client_reset': reset_result.get('success', False)
-            }
+            })
         else:
+            return create_error_response('Failed to update configuration')
+    
+    except Exception as e:
+        log_error(f"Configuration update failed: {e}")
+        return create_error_response(str(e))
+
+def get_connection_statistics(client_type: str = 'urllib3') -> Dict[str, Any]:
+    """Get connection statistics for client."""
+    try:
+        singleton_key = f'http_client_{client_type}'
+        client = get_singleton(singleton_key)
+        
+        if not client:
             return {
-                'success': False,
-                'error': 'Failed to update configuration'
+                'client_type': client_type,
+                'statistics': {},
+                'available': False
             }
         
+        stats = {
+            'client_type': client_type,
+            'available': True
+        }
+        
+        if hasattr(client, 'pools'):
+            stats['total_pools'] = len(client.pools)
+            stats['pool_details'] = _get_pool_statistics(client)
+        
+        return stats
+    
     except Exception as e:
-        logger.error(f"Configuration update failed: {e}")
+        log_error(f"Failed to get connection statistics: {e}")
         return {
-            'success': False,
+            'client_type': client_type,
+            'statistics': {},
             'error': str(e)
         }
-
-# ===== HELPER FUNCTIONS =====
 
 def _get_pool_state(client) -> Dict[str, Any]:
     """Get detailed pool state information."""
-    
     try:
-        pool_info = {}
+        pool_info = {
+            'total_pools': len(client.pools),
+            'pools': []
+        }
         
-        for pool_key, pool in client.pools.items():
-            pool_info[pool_key] = _get_individual_pool_stats(pool)
+        for key, pool in client.pools.items():
+            pool_info['pools'].append({
+                'host': key[0] if isinstance(key, tuple) else str(key),
+                'num_connections': pool.num_connections if hasattr(pool, 'num_connections') else 0
+            })
         
         return pool_info
-        
-    except Exception as e:
-        logger.error(f"Failed to get pool state: {e}")
-        return {}
+    except Exception:
+        return {'total_pools': 0, 'pools': []}
 
-def _get_individual_pool_stats(pool) -> Dict[str, Any]:
-    """Get statistics for individual pool."""
-    
+def _get_pool_statistics(client) -> List[Dict[str, Any]]:
+    """Get detailed statistics for each pool."""
+    stats = []
     try:
-        stats = {}
-        
-        # Common pool attributes
-        if hasattr(pool, 'num_connections'):
-            stats['num_connections'] = pool.num_connections
-        
-        if hasattr(pool, 'pool'):
-            stats['pool_size'] = len(pool.pool._queue)
-        
-        if hasattr(pool, 'timeout'):
-            stats['timeout'] = str(pool.timeout)
-        
-        return stats
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-def _optimize_single_client(client_type: str) -> Dict[str, Any]:
-    """Optimize single client state."""
-    
-    try:
-        # Clean up idle connections
-        cleanup_result = cleanup_idle_connections(client_type)
-        
-        # Get current state
-        current_state = get_client_state(client_type)
-        
-        return {
-            'client_type': client_type,
-            'cleanup_performed': cleanup_result.get('success', False),
-            'current_state': current_state
-        }
-        
-    except Exception as e:
-        return {
-            'client_type': client_type,
-            'error': str(e)
-        }
-
-# EOF
+        for key, pool in client.pools.items():
+            pool_stat = {
+                'host': key[0] if isinstance(key, tuple) else str(key),
+                'connections': pool.num_connections if hasattr(pool, 'num_connections') else 0
+            }
+            stats.append(pool_stat)
+    except Exception:
+        pass
+    return stats
