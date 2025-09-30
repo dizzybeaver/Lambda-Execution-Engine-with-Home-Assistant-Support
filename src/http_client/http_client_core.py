@@ -1,267 +1,96 @@
 """
-http_client_core.py - Core HTTP Client Implementation for SUGA
-Version: 2025.09.29.03
-Daily Revision: 01
-
-REVOLUTIONARY ARCHITECTURE - Optimized for Single Universal Gateway
-FREE TIER COMPLIANCE: 100% - Lightweight HTTP operations
+HTTP Client Core - HTTP Request Handling
+Version: 2025.09.29.01
+Daily Revision: 001
 """
 
 import json
-import urllib.request
-import urllib.parse
-import urllib.error
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Optional
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-_DEFAULT_TIMEOUT = 30
-_DEFAULT_HEADERS = {
-    "User-Agent": "Lambda-Gateway/1.0",
-    "Content-Type": "application/json"
-}
-
-def http_get(
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = _DEFAULT_TIMEOUT,
-    **kwargs
-) -> Dict[str, Any]:
-    """Execute HTTP GET request."""
-    request_headers = _DEFAULT_HEADERS.copy()
-    if headers:
-        request_headers.update(headers)
+class HTTPClientCore:
+    """HTTP client for making requests."""
     
-    try:
-        req = urllib.request.Request(url, headers=request_headers, method='GET')
+    def __init__(self):
+        self.timeout = 30
+        self.default_headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Lambda-Gateway/1.0'
+        }
+    
+    def get(self, url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+        """Perform HTTP GET request."""
+        return self._request('GET', url, headers=headers, timeout=timeout)
+    
+    def post(self, url: str, data: Dict, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+        """Perform HTTP POST request."""
+        return self._request('POST', url, data=data, headers=headers, timeout=timeout)
+    
+    def put(self, url: str, data: Dict, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+        """Perform HTTP PUT request."""
+        return self._request('PUT', url, data=data, headers=headers, timeout=timeout)
+    
+    def delete(self, url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+        """Perform HTTP DELETE request."""
+        return self._request('DELETE', url, headers=headers, timeout=timeout)
+    
+    def _request(self, method: str, url: str, data: Optional[Dict] = None, 
+                 headers: Optional[Dict] = None, timeout: Optional[int] = None) -> Dict:
+        """Internal request handler."""
+        request_headers = {**self.default_headers}
+        if headers:
+            request_headers.update(headers)
         
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            status_code = response.getcode()
-            body = response.read().decode('utf-8')
-            response_headers = dict(response.headers)
-            
-            try:
-                body_json = json.loads(body)
-            except json.JSONDecodeError:
-                body_json = body
-            
-            return {
-                "status_code": status_code,
-                "body": body_json,
-                "headers": response_headers,
-                "success": 200 <= status_code < 300
-            }
-    
-    except urllib.error.HTTPError as e:
-        return {
-            "status_code": e.code,
-            "body": e.read().decode('utf-8') if e.fp else None,
-            "headers": dict(e.headers) if e.headers else {},
-            "success": False,
-            "error": str(e)
-        }
-    
-    except urllib.error.URLError as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e.reason)
-        }
-    
-    except Exception as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e)
-        }
-
-def http_post(
-    url: str,
-    data: Any = None,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = _DEFAULT_TIMEOUT,
-    **kwargs
-) -> Dict[str, Any]:
-    """Execute HTTP POST request."""
-    request_headers = _DEFAULT_HEADERS.copy()
-    if headers:
-        request_headers.update(headers)
-    
-    if data is not None:
-        if isinstance(data, (dict, list)):
-            post_data = json.dumps(data).encode('utf-8')
-            request_headers['Content-Type'] = 'application/json'
-        elif isinstance(data, str):
-            post_data = data.encode('utf-8')
-        else:
-            post_data = str(data).encode('utf-8')
-    else:
-        post_data = None
-    
-    try:
-        req = urllib.request.Request(
-            url,
-            data=post_data,
-            headers=request_headers,
-            method='POST'
-        )
+        request_data = None
+        if data:
+            request_data = json.dumps(data).encode('utf-8')
         
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            status_code = response.getcode()
-            body = response.read().decode('utf-8')
-            response_headers = dict(response.headers)
-            
-            try:
-                body_json = json.loads(body)
-            except json.JSONDecodeError:
-                body_json = body
-            
-            return {
-                "status_code": status_code,
-                "body": body_json,
-                "headers": response_headers,
-                "success": 200 <= status_code < 300
-            }
-    
-    except urllib.error.HTTPError as e:
-        return {
-            "status_code": e.code,
-            "body": e.read().decode('utf-8') if e.fp else None,
-            "headers": dict(e.headers) if e.headers else {},
-            "success": False,
-            "error": str(e)
-        }
-    
-    except urllib.error.URLError as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e.reason)
-        }
-    
-    except Exception as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e)
-        }
-
-def http_put(
-    url: str,
-    data: Any = None,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = _DEFAULT_TIMEOUT,
-    **kwargs
-) -> Dict[str, Any]:
-    """Execute HTTP PUT request."""
-    request_headers = _DEFAULT_HEADERS.copy()
-    if headers:
-        request_headers.update(headers)
-    
-    if data is not None:
-        if isinstance(data, (dict, list)):
-            post_data = json.dumps(data).encode('utf-8')
-        elif isinstance(data, str):
-            post_data = data.encode('utf-8')
-        else:
-            post_data = str(data).encode('utf-8')
-    else:
-        post_data = None
-    
-    try:
-        req = urllib.request.Request(
-            url,
-            data=post_data,
-            headers=request_headers,
-            method='PUT'
-        )
+        req = Request(url, data=request_data, headers=request_headers, method=method)
         
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            status_code = response.getcode()
-            body = response.read().decode('utf-8')
-            response_headers = dict(response.headers)
-            
-            try:
-                body_json = json.loads(body)
-            except json.JSONDecodeError:
-                body_json = body
-            
+        try:
+            with urlopen(req, timeout=timeout or self.timeout) as response:
+                response_data = response.read().decode('utf-8')
+                return {
+                    'status_code': response.status,
+                    'body': json.loads(response_data) if response_data else {},
+                    'headers': dict(response.headers)
+                }
+        except HTTPError as e:
             return {
-                "status_code": status_code,
-                "body": body_json,
-                "headers": response_headers,
-                "success": 200 <= status_code < 300
+                'status_code': e.code,
+                'body': {'error': str(e)},
+                'headers': dict(e.headers) if hasattr(e, 'headers') else {}
             }
-    
-    except urllib.error.HTTPError as e:
-        return {
-            "status_code": e.code,
-            "body": e.read().decode('utf-8') if e.fp else None,
-            "headers": dict(e.headers) if e.headers else {},
-            "success": False,
-            "error": str(e)
-        }
-    
-    except Exception as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e)
-        }
+        except URLError as e:
+            return {
+                'status_code': 0,
+                'body': {'error': f'Connection error: {str(e)}'},
+                'headers': {}
+            }
+        except Exception as e:
+            return {
+                'status_code': 0,
+                'body': {'error': f'Request failed: {str(e)}'},
+                'headers': {}
+            }
 
-def http_delete(
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = _DEFAULT_TIMEOUT,
-    **kwargs
-) -> Dict[str, Any]:
-    """Execute HTTP DELETE request."""
-    request_headers = _DEFAULT_HEADERS.copy()
-    if headers:
-        request_headers.update(headers)
-    
-    try:
-        req = urllib.request.Request(url, headers=request_headers, method='DELETE')
-        
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            status_code = response.getcode()
-            body = response.read().decode('utf-8')
-            response_headers = dict(response.headers)
-            
-            try:
-                body_json = json.loads(body)
-            except json.JSONDecodeError:
-                body_json = body
-            
-            return {
-                "status_code": status_code,
-                "body": body_json,
-                "headers": response_headers,
-                "success": 200 <= status_code < 300
-            }
-    
-    except urllib.error.HTTPError as e:
-        return {
-            "status_code": e.code,
-            "body": e.read().decode('utf-8') if e.fp else None,
-            "headers": dict(e.headers) if e.headers else {},
-            "success": False,
-            "error": str(e)
-        }
-    
-    except Exception as e:
-        return {
-            "status_code": 0,
-            "body": None,
-            "headers": {},
-            "success": False,
-            "error": str(e)
-        }
+_HTTP_CLIENT = HTTPClientCore()
+
+def _execute_get_implementation(url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+    """Execute HTTP GET."""
+    return _HTTP_CLIENT.get(url, headers, timeout, **kwargs)
+
+def _execute_post_implementation(url: str, data: Dict, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+    """Execute HTTP POST."""
+    return _HTTP_CLIENT.post(url, data, headers, timeout, **kwargs)
+
+def _execute_put_implementation(url: str, data: Dict, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+    """Execute HTTP PUT."""
+    return _HTTP_CLIENT.put(url, data, headers, timeout, **kwargs)
+
+def _execute_delete_implementation(url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None, **kwargs) -> Dict:
+    """Execute HTTP DELETE."""
+    return _HTTP_CLIENT.delete(url, headers, timeout, **kwargs)
+
+#EOF
