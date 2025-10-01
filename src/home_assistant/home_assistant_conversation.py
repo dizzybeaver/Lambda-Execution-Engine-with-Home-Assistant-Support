@@ -1,14 +1,9 @@
 """
 home_assistant_conversation.py - Alexa Conversation Integration
-Version: 2025.09.30.06
-Daily Revision: Performance Optimization Phase 1
+Version: 2025.09.30.07
+Daily Revision: Performance Optimization Phase 2
 
-Alexa Custom Skill integration for Home Assistant Conversation API
-
-ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
-- Uses ha_common for shared functionality
-- Lazy loading compatible
-- 100% Free Tier AWS compliant
+Phase 2: Consolidated cache + entity minimization
 
 Licensed under the Apache License, Version 2.0
 """
@@ -20,14 +15,15 @@ from gateway import (
     log_info, log_error, log_warning,
     create_success_response, create_error_response,
     generate_correlation_id,
-    record_metric, increment_counter,
-    cache_get, cache_set
+    record_metric, increment_counter
 )
 
 from ha_common import (
     HABaseManager,
     call_ha_api,
-    SingletonManager
+    SingletonManager,
+    get_consolidated_cache,
+    set_consolidated_cache
 )
 
 
@@ -58,12 +54,16 @@ class HAConversationManager(HABaseManager):
                 "language": language
             })
             
-            cache_key = f"conversation_{hash(user_text)}_{language}"
-            cached = cache_get(cache_key)
-            if cached:
-                self.record_cache_hit()
-                increment_counter("conversation_cache_hits")
-                return self._create_alexa_response(cached.get("speech", ""))
+            cache_key = f"{hash(user_text)}_{language}"
+            cache_data = get_consolidated_cache()
+            conversations = cache_data.get("conversations", {})
+            
+            if cache_key in conversations:
+                cached_response = conversations[cache_key]
+                if time.time() - cached_response.get("timestamp", 0) < 300:
+                    self.record_cache_hit()
+                    increment_counter("conversation_cache_hits")
+                    return self._create_alexa_response(cached_response.get("speech", ""))
             
             self.record_cache_miss()
             
@@ -88,7 +88,12 @@ class HAConversationManager(HABaseManager):
                 ha_response = result.get("data", {})
                 speech_text = self._extract_speech(ha_response)
                 
-                cache_set(cache_key, {"speech": speech_text}, ttl=300)
+                conversations[cache_key] = {
+                    "speech": speech_text,
+                    "timestamp": time.time()
+                }
+                cache_data["conversations"] = conversations
+                set_consolidated_cache(cache_data, ttl=300)
                 
                 self.record_success()
                 record_metric("ha_conversation_success", 1.0, {
@@ -119,47 +124,24 @@ class HAConversationManager(HABaseManager):
                 
         except Exception as e:
             self.record_failure()
-            
-            log_error(f"Conversation exception [{correlation_id}]", {
-                "error": str(e)
-            })
-            
-            record_metric("ha_conversation_exception", 1.0, {
-                "error_type": type(e).__name__
-            })
-            
+            log_error(f"Conversation exception [{correlation_id}]: {str(e)}")
             return self._create_alexa_error_response(
-                "Sorry, I encountered an error processing your request."
+                "Sorry, an error occurred while processing your request."
             )
     
     def _extract_speech(self, ha_response: Dict[str, Any]) -> str:
-        """Extract speech text from Home Assistant conversation response."""
-        try:
-            response_data = ha_response.get("response", {})
-            
-            if isinstance(response_data, dict):
-                speech = response_data.get("speech", {})
-                
-                if isinstance(speech, dict):
-                    return speech.get("plain", {}).get("speech", "No response available.")
-                elif isinstance(speech, str):
-                    return speech
-            
-            if "speech" in ha_response:
-                return str(ha_response["speech"])
-            
-            return "Home Assistant processed your request."
-            
-        except Exception as e:
-            log_warning(f"Error extracting speech: {e}")
-            return "Response received from Home Assistant."
+        """Extract speech text from Home Assistant response."""
+        response = ha_response.get("response", {})
+        speech = response.get("speech", {})
+        plain = speech.get("plain", {})
+        return plain.get("speech", "I processed your request.")
     
     def _create_alexa_response(
         self,
         speech_text: str,
         conversation_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create Alexa custom skill response."""
+        """Create Alexa-formatted response."""
         response = {
             "version": "1.0",
             "response": {
@@ -179,7 +161,7 @@ class HAConversationManager(HABaseManager):
         return response
     
     def _create_alexa_error_response(self, error_text: str) -> Dict[str, Any]:
-        """Create Alexa error response."""
+        """Create Alexa-formatted error response."""
         return {
             "version": "1.0",
             "response": {
