@@ -1,14 +1,9 @@
 """
 home_assistant_automation.py - Automation Triggering
-Version: 2025.09.30.06
-Daily Revision: Performance Optimization Phase 1
+Version: 2025.09.30.07
+Daily Revision: Performance Optimization Phase 2
 
-Home Assistant automation triggering via voice commands
-
-ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
-- Uses ha_common for shared functionality
-- Lazy loading compatible
-- 100% Free Tier AWS compliant
+Phase 2: Consolidated cache + entity minimization
 
 Licensed under the Apache License, Version 2.0
 """
@@ -27,7 +22,10 @@ from ha_common import (
     HABaseManager,
     resolve_entity_id,
     call_ha_service,
-    SingletonManager
+    SingletonManager,
+    get_cache_section,
+    set_cache_section,
+    minimize_entity_list
 )
 
 
@@ -51,7 +49,7 @@ class HAAutomationManager(HABaseManager):
             log_info(f"Triggering automation: {automation_id} [{correlation_id}]")
             increment_counter("ha_automation_trigger_request")
             
-            entity_id = resolve_entity_id(automation_id, "automation", ha_config)
+            entity_id = automation_id if "." in automation_id else resolve_entity_id(automation_id, "automation", ha_config)
             if not entity_id:
                 self.record_failure()
                 return create_error_response("Automation not found", {"automation_id": automation_id})
@@ -80,6 +78,32 @@ class HAAutomationManager(HABaseManager):
             self.record_failure()
             log_error(f"Automation trigger exception: {str(e)}")
             return create_error_response("Automation trigger exception", {"error": str(e)})
+    
+    def list(self, ha_config: Dict[str, Any]) -> Dict[str, Any]:
+        """List all automations with consolidated cache."""
+        try:
+            cached = get_cache_section("automations", ttl=300)
+            if cached:
+                self.record_cache_hit()
+                return create_success_response("Automations retrieved from cache", {"automations": cached})
+            
+            self.record_cache_miss()
+            from ha_common import call_ha_api
+            response = call_ha_api("/api/states", ha_config)
+            
+            if not isinstance(response, list):
+                return create_error_response("Invalid API response", {})
+            
+            automations = [e for e in response if e.get("entity_id", "").startswith("automation.")]
+            minimized = minimize_entity_list(automations)
+            
+            set_cache_section("automations", minimized, ttl=300)
+            
+            return create_success_response("Automations retrieved", {"automations": minimized})
+            
+        except Exception as e:
+            log_error(f"List automations exception: {str(e)}")
+            return create_error_response("List automations exception", {"error": str(e)})
 
 
 def trigger_automation(
@@ -92,10 +116,16 @@ def trigger_automation(
     return manager.trigger(automation_id, ha_config, skip_condition)
 
 
+def list_automations(ha_config: Dict[str, Any]) -> Dict[str, Any]:
+    """List all automations."""
+    manager = SingletonManager.get_instance(HAAutomationManager)
+    return manager.list(ha_config)
+
+
 def get_automation_stats() -> Dict[str, Any]:
     """Get automation statistics."""
     manager = SingletonManager.get_instance(HAAutomationManager)
     return manager.get_stats()
 
 
-__all__ = ["trigger_automation", "get_automation_stats"]
+__all__ = ["trigger_automation", "list_automations", "get_automation_stats"]
