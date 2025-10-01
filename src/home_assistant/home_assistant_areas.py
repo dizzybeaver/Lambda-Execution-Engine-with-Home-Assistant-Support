@@ -1,13 +1,12 @@
 """
-home_assistant_areas.py - Area/Room Control
-Version: 2025.09.30.05
-Daily Revision: Ultra-Optimized
+home_assistant_areas.py - Area Control
+Version: 2025.09.30.06
+Daily Revision: Performance Optimization Phase 1
 
 Home Assistant area-based device control
 
 ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
 - Uses ha_common for shared functionality
-- Uses gateway.py for all operations
 - Lazy loading compatible
 - 100% Free Tier AWS compliant
 
@@ -15,201 +14,154 @@ Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List, Optional
 
 from gateway import (
-    log_info, log_error, log_warning,
-    make_get_request,
+    log_info, log_error,
     create_success_response, create_error_response,
     generate_correlation_id,
-    increment_counter,
-    cache_get, cache_set
+    increment_counter
 )
 
 from ha_common import (
     HABaseManager,
-    call_ha_service_generic,
+    call_ha_api,
+    call_ha_service,
     SingletonManager
 )
 
 
 class HAAreaManager(HABaseManager):
-    """Manages Home Assistant area-based operations."""
-    
-    def __init__(self):
-        super().__init__()
-        self._devices_controlled = 0
-        self._controllable_domains = {"light", "switch", "fan", "cover", "climate", "media_player"}
+    """Manages Home Assistant area operations."""
     
     def get_feature_name(self) -> str:
         return "area"
     
-    def control_devices(
+    def control_area(
         self,
         area_name: str,
         action: str,
         ha_config: Dict[str, Any],
-        domain_filter: Optional[str] = None
+        domain: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Control all devices in an area."""
+        """Control all devices in area."""
         start_time = time.time()
         correlation_id = generate_correlation_id()
         
         try:
-            log_info(f"Controlling area {area_name}: {action} [{correlation_id}]")
+            log_info(f"Controlling area: {area_name} -> {action} [{correlation_id}]")
             increment_counter("ha_area_control_request")
             
-            area_id = self._resolve_area(area_name, ha_config)
+            area_id = self._find_area_id(area_name, ha_config)
             if not area_id:
+                self.record_failure()
                 return create_error_response("Area not found", {"area_name": area_name})
             
-            devices = self._get_area_devices(area_id, ha_config, domain_filter)
+            devices = self._get_area_devices(area_id, ha_config, domain)
             if not devices:
-                return create_error_response(
-                    "No devices found in area",
-                    {"area_name": area_name, "domain_filter": domain_filter}
-                )
+                self.record_failure()
+                return create_error_response("No controllable devices in area", {"area_name": area_name})
             
-            results = []
-            success_count = 0
-            
-            for device in devices:
-                entity_id = device["entity_id"]
-                domain = entity_id.split(".")[0]
-                
-                result = call_ha_service_generic(ha_config, domain, action, entity_id)
-                
-                if result.get("success", False):
-                    success_count += 1
-                    self._devices_controlled += 1
-                
-                results.append({
-                    "entity_id": entity_id,
-                    "success": result.get("success", False)
-                })
+            results = self._control_devices(devices, action, ha_config)
             
             duration_ms = (time.time() - start_time) * 1000
-            overall_success = success_count > 0
+            success_count = sum(1 for r in results if r.get("success", False))
             
-            self._stats.record(overall_success, duration_ms)
-            self._record_metric("control", overall_success)
-            
-            log_info(f"Area control: {success_count}/{len(devices)} succeeded [{correlation_id}]")
-            
-            return create_success_response(
-                f"Controlled {success_count}/{len(devices)} devices in {area_name}",
-                {
-                    "area_name": area_name,
-                    "action": action,
-                    "total_devices": len(devices),
-                    "successful": success_count,
-                    "results": results,
-                    "processing_time_ms": duration_ms,
-                    "correlation_id": correlation_id
-                }
-            )
+            if success_count > 0:
+                self.record_success()
+                log_info(f"Area control: {success_count}/{len(devices)} successful [{correlation_id}]")
+                return create_success_response(
+                    f"Controlled {success_count} devices in {area_name}",
+                    {
+                        "area_name": area_name,
+                        "action": action,
+                        "devices_controlled": success_count,
+                        "total_devices": len(devices),
+                        "processing_time_ms": duration_ms,
+                        "correlation_id": correlation_id
+                    }
+                )
+            else:
+                self.record_failure()
+                return create_error_response("Failed to control area devices", {})
                 
         except Exception as e:
-            log_error(f"Area control exception: {str(e)}")
-            self._stats.record(False)
-            self._record_metric("control", False)
-            return create_error_response("Area control exception", {"error": str(e)})
+            self.record_failure()
+            log_error(f"Control area exception: {str(e)}")
+            return create_error_response("Control area exception", {"error": str(e)})
     
-    def _resolve_area(self, area_name: str, ha_config: Dict[str, Any]) -> Optional[str]:
-        """Resolve area ID from name."""
-        areas = self._get_areas(ha_config)
-        area_name_lower = area_name.lower()
+    def _find_area_id(self, area_name: str, ha_config: Dict[str, Any]) -> Optional[str]:
+        """Find area ID by name."""
+        result = call_ha_api("/api/config/area_registry/list", ha_config)
+        if not result.get("success", False):
+            return None
         
+        areas = result.get("data", [])
         for area in areas:
-            name = area.get("name", "").lower()
-            if name == area_name_lower or area_name_lower in name:
+            if area.get("name", "").lower() == area_name.lower():
                 return area.get("area_id")
         
         return None
     
-    def _get_areas(self, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Get all areas with caching."""
-        cache_key = "ha_areas"
-        cached = cache_get(cache_key)
-        if cached:
-            return cached
+    def _get_area_devices(self, area_id: str, ha_config: Dict[str, Any], domain: Optional[str]) -> List[str]:
+        """Get controllable devices in area."""
+        result = call_ha_api("/api/states", ha_config)
+        if not result.get("success", False):
+            return []
         
-        try:
-            url = f"{ha_config['base_url']}/api/config/area_registry/list"
-            headers = {"Authorization": f"Bearer {ha_config['access_token']}"}
-            
-            result = make_get_request(url=url, headers=headers, timeout=ha_config.get('timeout', 30))
-            
-            if result.get("success", False):
-                areas = result.get("data", [])
-                cache_set(cache_key, areas, ttl=300)
-                return areas
-        except Exception as e:
-            log_error(f"Get areas error: {str(e)}")
+        entities = result.get("data", [])
+        area_entities = []
         
-        return []
+        for entity in entities:
+            entity_id = entity.get("entity_id", "")
+            entity_domain = entity_id.split(".")[0]
+            entity_area = entity.get("attributes", {}).get("area_id")
+            
+            if entity_area == area_id:
+                if domain is None or entity_domain == domain:
+                    if entity_domain in ["light", "switch", "fan", "cover"]:
+                        area_entities.append(entity_id)
+        
+        return area_entities
     
-    def _get_area_devices(
-        self,
-        area_id: str,
-        ha_config: Dict[str, Any],
-        domain_filter: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Get devices in area with caching."""
-        cache_key = f"ha_area_devices_{area_id}_{domain_filter or 'all'}"
-        cached = cache_get(cache_key)
-        if cached:
-            return cached
+    def _control_devices(self, devices: List[str], action: str, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Control multiple devices."""
+        results = []
+        for device in devices:
+            domain = device.split(".")[0]
+            service = self._action_to_service(action)
+            result = call_ha_service(domain, service, ha_config, device)
+            results.append(result)
         
-        try:
-            url = f"{ha_config['base_url']}/api/config/entity_registry/list"
-            headers = {"Authorization": f"Bearer {ha_config['access_token']}"}
-            
-            result = make_get_request(url=url, headers=headers, timeout=ha_config.get('timeout', 30))
-            
-            if result.get("success", False):
-                all_entities = result.get("data", [])
-                
-                devices = []
-                for entity in all_entities:
-                    if entity.get("area_id") == area_id:
-                        entity_id = entity.get("entity_id", "")
-                        domain = entity_id.split(".")[0]
-                        
-                        if domain in self._controllable_domains:
-                            if domain_filter is None or domain == domain_filter:
-                                devices.append(entity)
-                
-                cache_set(cache_key, devices, ttl=300)
-                return devices
-        except Exception as e:
-            log_error(f"Get area devices error: {str(e)}")
-        
-        return []
+        return results
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Get area statistics."""
-        base_stats = super().get_stats()
-        base_stats["devices_controlled"] = self._devices_controlled
-        return base_stats
+    def _action_to_service(self, action: str) -> str:
+        """Convert action to service name."""
+        action = action.lower()
+        if action in ["on", "turn_on", "enable"]:
+            return "turn_on"
+        elif action in ["off", "turn_off", "disable"]:
+            return "turn_off"
+        elif action in ["toggle"]:
+            return "toggle"
+        return "turn_on"
 
 
-_manager_singleton = SingletonManager(HAAreaManager)
-
-
-def control_area_devices(
+def control_area(
     area_name: str,
     action: str,
     ha_config: Dict[str, Any],
-    domain_filter: Optional[str] = None
+    domain: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Control area devices."""
-    return _manager_singleton.get().control_devices(area_name, action, ha_config, domain_filter)
+    """Control devices in area."""
+    manager = SingletonManager.get_instance(HAAreaManager)
+    return manager.control_area(area_name, action, ha_config, domain)
 
 
 def get_area_stats() -> Dict[str, Any]:
     """Get area statistics."""
-    return _manager_singleton.get().get_stats()
+    manager = SingletonManager.get_instance(HAAreaManager)
+    return manager.get_stats()
 
 
-__all__ = ['control_area_devices', 'get_area_stats']
+__all__ = ["control_area", "get_area_stats"]
