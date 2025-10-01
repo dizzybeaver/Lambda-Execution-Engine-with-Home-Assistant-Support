@@ -1,16 +1,18 @@
 """
 Lambda Function Handler - Main Entry Point
-Version: 2025.09.30.01
+Version: 2025.09.30.04
 Daily Revision: 001
 
-Revolutionary Gateway Architecture with Alexa Conversation Support
-Handles both Smart Home and Custom Skill requests
+Revolutionary Gateway Architecture with Enhanced HA Features
+UPDATED: Added automation, script, input helper, notification, area, and timer intents
+
+Licensed under the Apache License, Version 2.0
 """
 
 import json
 from typing import Dict, Any
 from gateway import (
-    log_info, log_error, log_debug,
+    log_info, log_error, log_debug, log_warning,
     validate_request, validate_token,
     cache_get, cache_set,
     record_metric, increment_counter,
@@ -27,15 +29,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Handles:
     - Alexa Smart Home skill requests (directives)
-    - Alexa Custom Skill requests (intents)
+    - Alexa Custom Skill requests (intents) - ENHANCED
     - Health checks and analytics
-    
-    OPTIMIZED:
-    - Single import from gateway.py
-    - Lazy module loading (only loads what's used)
-    - Automatic usage analytics
-    - 50-60% faster cold start
-    - 30% memory reduction
     """
     
     try:
@@ -88,17 +83,7 @@ def _determine_request_type(event: Dict[str, Any]) -> str:
 
 
 def process_request(event: Dict[str, Any], context: Any, request_type: str) -> Dict[str, Any]:
-    """
-    Process the request based on type.
-    
-    Args:
-        event: Lambda event
-        context: Lambda context
-        request_type: Type of request
-        
-    Returns:
-        Processed result
-    """
+    """Process the request based on type."""
     if request_type == 'health_check':
         return handle_health_check(event)
     elif request_type == 'analytics':
@@ -187,7 +172,8 @@ def handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str, 
 def _handle_launch_request(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle skill launch request."""
     return _create_custom_skill_response(
-        "Welcome to Home Assistant. What would you like to ask?",
+        "Welcome to Home Assistant. You can control devices, trigger automations, run scripts, "
+        "make announcements, or manage timers. What would you like to do?",
         should_end_session=False
     )
 
@@ -195,8 +181,7 @@ def _handle_launch_request(event: Dict[str, Any]) -> Dict[str, Any]:
 def _handle_intent_request(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle intent request."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled, _get_ha_config_gateway
-        from home_assistant_conversation import process_alexa_conversation
+        from homeassistant_extension import is_ha_extension_enabled
         
         if not is_ha_extension_enabled():
             return _create_custom_skill_response(
@@ -209,34 +194,31 @@ def _handle_intent_request(event: Dict[str, Any]) -> Dict[str, Any]:
         intent_name = intent.get('name', '')
         
         if intent_name == 'TalkToHomeAssistant':
-            slots = intent.get('slots', {})
-            query_slot = slots.get('query', {})
-            user_text = query_slot.get('value', '')
-            
-            if not user_text:
-                return _create_custom_skill_response(
-                    "I didn't hear what you wanted to say. Please try again.",
-                    should_end_session=False
-                )
-            
-            ha_config = _get_ha_config_gateway()
-            session_attributes = event.get('session', {}).get('attributes', {})
-            
-            log_info(f"Processing conversation: {user_text}")
-            record_metric("ha_conversation_request", 1.0)
-            
-            result = process_alexa_conversation(
-                user_text=user_text,
-                ha_config=ha_config,
-                session_attributes=session_attributes
-            )
-            
-            return result
-            
+            return _handle_conversation_intent(event)
+        
+        elif intent_name == 'TriggerAutomation':
+            return _handle_trigger_automation_intent(event)
+        
+        elif intent_name == 'RunScript':
+            return _handle_run_script_intent(event)
+        
+        elif intent_name == 'SetInputHelper':
+            return _handle_set_input_helper_intent(event)
+        
+        elif intent_name == 'MakeAnnouncement':
+            return _handle_make_announcement_intent(event)
+        
+        elif intent_name == 'ControlArea':
+            return _handle_control_area_intent(event)
+        
+        elif intent_name == 'ManageTimer':
+            return _handle_manage_timer_intent(event)
+        
         elif intent_name == 'AMAZON.HelpIntent':
             return _create_custom_skill_response(
-                "You can say things like 'ask home assistant about the temperature' "
-                "or 'tell home assistant to turn on the lights'. What would you like to know?",
+                "You can say things like: trigger good morning routine, run bedtime script, "
+                "set house mode to away, announce dinner is ready, turn off everything in the kitchen, "
+                "or start a 10 minute timer. What would you like to do?",
                 should_end_session=False
             )
             
@@ -257,6 +239,319 @@ def _handle_intent_request(event: Dict[str, Any]) -> Dict[str, Any]:
         log_error(f"Intent processing failed: {str(e)}")
         return _create_custom_skill_response(
             "Sorry, I encountered an error processing your request.",
+            should_end_session=True
+        )
+
+
+def _handle_conversation_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle TalkToHomeAssistant intent."""
+    try:
+        from homeassistant_extension import is_ha_extension_enabled, _get_ha_config_gateway
+        from home_assistant_conversation import process_alexa_conversation
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        query_slot = slots.get('query', {})
+        user_text = query_slot.get('value', '')
+        
+        if not user_text:
+            return _create_custom_skill_response(
+                "I didn't hear what you wanted to say. Please try again.",
+                should_end_session=False
+            )
+        
+        ha_config = _get_ha_config_gateway()
+        session_attributes = event.get('session', {}).get('attributes', {})
+        
+        log_info(f"Processing conversation: {user_text}")
+        record_metric("ha_conversation_request", 1.0)
+        
+        result = process_alexa_conversation(
+            user_text=user_text,
+            ha_config=ha_config,
+            session_attributes=session_attributes
+        )
+        
+        return result
+        
+    except Exception as e:
+        log_error(f"Conversation intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't process your conversation request.",
+            should_end_session=True
+        )
+
+
+def _handle_trigger_automation_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle TriggerAutomation intent."""
+    try:
+        from homeassistant_extension import trigger_ha_automation
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        automation_name = slots.get('AutomationName', {}).get('value', '')
+        
+        if not automation_name:
+            return _create_custom_skill_response(
+                "I didn't catch the automation name. Please try again.",
+                should_end_session=False
+            )
+        
+        log_info(f"Triggering automation: {automation_name}")
+        record_metric("ha_automation_trigger_request", 1.0)
+        
+        result = trigger_ha_automation(automation_name)
+        
+        if result.get("success", False):
+            return _create_custom_skill_response(
+                f"Automation {automation_name} triggered successfully.",
+                should_end_session=True
+            )
+        else:
+            return _create_custom_skill_response(
+                f"I couldn't trigger the automation {automation_name}.",
+                should_end_session=True
+            )
+            
+    except Exception as e:
+        log_error(f"Trigger automation intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't trigger the automation.",
+            should_end_session=True
+        )
+
+
+def _handle_run_script_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle RunScript intent."""
+    try:
+        from homeassistant_extension import execute_ha_script
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        script_name = slots.get('ScriptName', {}).get('value', '')
+        
+        if not script_name:
+            return _create_custom_skill_response(
+                "I didn't catch the script name. Please try again.",
+                should_end_session=False
+            )
+        
+        log_info(f"Executing script: {script_name}")
+        record_metric("ha_script_execution_request", 1.0)
+        
+        result = execute_ha_script(script_name)
+        
+        if result.get("success", False):
+            return _create_custom_skill_response(
+                f"Script {script_name} executed successfully.",
+                should_end_session=True
+            )
+        else:
+            return _create_custom_skill_response(
+                f"I couldn't execute the script {script_name}.",
+                should_end_session=True
+            )
+            
+    except Exception as e:
+        log_error(f"Run script intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't execute the script.",
+            should_end_session=True
+        )
+
+
+def _handle_set_input_helper_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle SetInputHelper intent."""
+    try:
+        from homeassistant_extension import set_ha_input_helper
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        helper_name = slots.get('HelperName', {}).get('value', '')
+        helper_value = slots.get('HelperValue', {}).get('value', '')
+        
+        if not helper_name or not helper_value:
+            return _create_custom_skill_response(
+                "I need both the helper name and value. Please try again.",
+                should_end_session=False
+            )
+        
+        log_info(f"Setting input helper: {helper_name} = {helper_value}")
+        record_metric("ha_input_helper_set_request", 1.0)
+        
+        result = set_ha_input_helper(helper_name, helper_value)
+        
+        if result.get("success", False):
+            return _create_custom_skill_response(
+                f"Set {helper_name} to {helper_value}.",
+                should_end_session=True
+            )
+        else:
+            return _create_custom_skill_response(
+                f"I couldn't set {helper_name}.",
+                should_end_session=True
+            )
+            
+    except Exception as e:
+        log_error(f"Set input helper intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't set the input helper.",
+            should_end_session=True
+        )
+
+
+def _handle_make_announcement_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle MakeAnnouncement intent."""
+    try:
+        from homeassistant_extension import send_ha_announcement
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        message = slots.get('Message', {}).get('value', '')
+        
+        if not message:
+            return _create_custom_skill_response(
+                "I didn't catch the message. Please try again.",
+                should_end_session=False
+            )
+        
+        log_info(f"Making announcement: {message[:50]}...")
+        record_metric("ha_announcement_request", 1.0)
+        
+        result = send_ha_announcement(message)
+        
+        if result.get("success", False):
+            return _create_custom_skill_response(
+                "Announcement sent.",
+                should_end_session=True
+            )
+        else:
+            return _create_custom_skill_response(
+                "I couldn't send the announcement.",
+                should_end_session=True
+            )
+            
+    except Exception as e:
+        log_error(f"Make announcement intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't make the announcement.",
+            should_end_session=True
+        )
+
+
+def _handle_control_area_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle ControlArea intent."""
+    try:
+        from homeassistant_extension import control_ha_area
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        area_name = slots.get('AreaName', {}).get('value', '')
+        action = slots.get('Action', {}).get('value', 'turn_off')
+        
+        if not area_name:
+            return _create_custom_skill_response(
+                "I didn't catch the area name. Please try again.",
+                should_end_session=False
+            )
+        
+        log_info(f"Controlling area: {area_name} - {action}")
+        record_metric("ha_area_control_request", 1.0)
+        
+        result = control_ha_area(area_name, action)
+        
+        if result.get("success", False):
+            data = result.get("data", {})
+            successful = data.get("successful", 0)
+            return _create_custom_skill_response(
+                f"Controlled {successful} devices in {area_name}.",
+                should_end_session=True
+            )
+        else:
+            return _create_custom_skill_response(
+                f"I couldn't control devices in {area_name}.",
+                should_end_session=True
+            )
+            
+    except Exception as e:
+        log_error(f"Control area intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't control the area.",
+            should_end_session=True
+        )
+
+
+def _handle_manage_timer_intent(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle ManageTimer intent."""
+    try:
+        from homeassistant_extension import start_ha_timer, cancel_ha_timer
+        
+        request = event.get('request', {})
+        intent = request.get('intent', {})
+        slots = intent.get('slots', {})
+        
+        timer_action = slots.get('TimerAction', {}).get('value', 'start')
+        timer_name = slots.get('TimerName', {}).get('value', 'timer')
+        duration = slots.get('Duration', {}).get('value', '')
+        
+        log_info(f"Managing timer: {timer_action} - {timer_name}")
+        record_metric("ha_timer_manage_request", 1.0)
+        
+        if timer_action in ['start', 'create']:
+            if not duration:
+                return _create_custom_skill_response(
+                    "How long should the timer run?",
+                    should_end_session=False
+                )
+            
+            result = start_ha_timer(timer_name, duration)
+            
+            if result.get("success", False):
+                return _create_custom_skill_response(
+                    f"Timer {timer_name} started for {duration}.",
+                    should_end_session=True
+                )
+            else:
+                return _create_custom_skill_response(
+                    f"I couldn't start the timer.",
+                    should_end_session=True
+                )
+        
+        elif timer_action in ['cancel', 'stop']:
+            result = cancel_ha_timer(timer_name)
+            
+            if result.get("success", False):
+                return _create_custom_skill_response(
+                    f"Timer {timer_name} cancelled.",
+                    should_end_session=True
+                )
+            else:
+                return _create_custom_skill_response(
+                    f"I couldn't cancel the timer.",
+                    should_end_session=True
+                )
+        
+        else:
+            return _create_custom_skill_response(
+                "I can start or cancel timers. What would you like to do?",
+                should_end_session=False
+            )
+            
+    except Exception as e:
+        log_error(f"Manage timer intent failed: {str(e)}")
+        return _create_custom_skill_response(
+            "Sorry, I couldn't manage the timer.",
             should_end_session=True
         )
 
@@ -287,12 +582,14 @@ def _create_custom_skill_response(speech_text: str,
 
 def _create_alexa_error_response(error_message: str) -> Dict[str, Any]:
     """Create Alexa Smart Home error response."""
+    from gateway import generate_correlation_id
+    
     return {
         "event": {
             "header": {
                 "namespace": "Alexa",
                 "name": "ErrorResponse",
-                "messageId": "error-message",
+                "messageId": generate_correlation_id(),
                 "payloadVersion": "3"
             },
             "payload": {
@@ -304,12 +601,11 @@ def _create_alexa_error_response(error_message: str) -> Dict[str, Any]:
 
 
 def handle_data_request(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle data request."""
-    data_type = event.get('dataType', 'default')
-    
-    log_debug(f"Processing data request: {data_type}")
-    
-    return format_response(200, {
-        "data": f"Processed {data_type} data",
-        "timestamp": "2025-09-30T00:00:00Z"
-    })
+    """Handle generic data request."""
+    log_info("Processing data request")
+    return format_response(200, {"message": "Data request processed"})
+
+
+__all__ = ['lambda_handler']
+
+#EOF
