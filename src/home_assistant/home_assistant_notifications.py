@@ -1,379 +1,238 @@
 """
 home_assistant_notifications.py - TTS and Notifications
-Version: 2025.09.30.04
-Daily Revision: 001
+Version: 2025.09.30.05
+Daily Revision: Ultra-Optimized
 
 Home Assistant TTS and notification services
-Supports whole-home announcements via media players
 
 ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
+- Uses ha_common for shared functionality
 - Uses gateway.py for all operations
 - Lazy loading compatible
 - 100% Free Tier AWS compliant
-- Self-contained within extension
 
 Licensed under the Apache License, Version 2.0
 """
 
 import time
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 
 from gateway import (
-    log_info, log_error, log_warning, log_debug,
-    make_post_request, make_get_request,
+    log_info, log_error,
+    make_get_request,
     create_success_response, create_error_response,
     generate_correlation_id,
-    record_metric, increment_counter,
+    increment_counter,
     cache_get, cache_set
 )
 
-
-@dataclass
-class NotificationStats:
-    """Statistics for notification operations."""
-    total_sent: int = 0
-    successful_sent: int = 0
-    failed_sent: int = 0
-    tts_sent: int = 0
-    persistent_sent: int = 0
+from ha_common import (
+    HABaseManager,
+    call_ha_service_generic,
+    SingletonManager
+)
 
 
-class HANotificationManager:
+class HANotificationManager(HABaseManager):
     """Manages Home Assistant notifications and TTS."""
     
     def __init__(self):
-        self._stats = NotificationStats()
-        self._initialized_time = time.time()
+        super().__init__()
+        self._tts_count = 0
+        self._persistent_count = 0
     
-    def send_tts_announcement(self,
-                             message: str,
-                             ha_config: Dict[str, Any],
-                             media_player_ids: Optional[List[str]] = None,
-                             language: str = "en") -> Dict[str, Any]:
-        """
-        Send TTS announcement to media players.
-        
-        Args:
-            message: Message to announce
-            ha_config: HA configuration dict
-            media_player_ids: Optional list of media player entity_ids (all if None)
-            language: TTS language code
-            
-        Returns:
-            Result dict with success status
-        """
+    def get_feature_name(self) -> str:
+        return "notification"
+    
+    def send_tts(
+        self,
+        message: str,
+        ha_config: Dict[str, Any],
+        media_player_ids: Optional[List[str]] = None,
+        language: str = "en"
+    ) -> Dict[str, Any]:
+        """Send TTS announcement to media players."""
         start_time = time.time()
         correlation_id = generate_correlation_id()
         
         try:
-            log_info(f"Sending TTS announcement: {message[:50]}... [{correlation_id}]")
+            log_info(f"Sending TTS: {message[:50]}... [{correlation_id}]")
             increment_counter("ha_tts_announcement_request")
             
             if media_player_ids is None:
-                media_players = self._get_all_media_players(ha_config)
-                if not media_players:
+                players = self._get_media_players(ha_config)
+                if not players:
                     return create_error_response("No media players found", {})
-                media_player_ids = [mp["entity_id"] for mp in media_players]
+                media_player_ids = [p["entity_id"] for p in players]
             
-            url = f"{ha_config['base_url']}/api/services/tts/cloud_say"
-            headers = {
-                "Authorization": f"Bearer {ha_config['access_token']}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
+            service_data = {
                 "entity_id": media_player_ids,
                 "message": message,
                 "language": language
             }
             
-            result = make_post_request(
-                url=url,
-                headers=headers,
-                json_data=payload,
-                timeout=ha_config.get('timeout', 30)
-            )
+            result = call_ha_service_generic(ha_config, "tts", "cloud_say", None, service_data)
             
-            processing_time = (time.time() - start_time) * 1000
+            duration_ms = (time.time() - start_time) * 1000
+            success = result.get("success", False)
             
-            if result.get("success", False):
-                log_info(f"TTS announcement sent [{correlation_id}]")
-                record_metric("ha_tts_announcement_success", 1.0)
-                self._update_stats(True, "tts")
-                
+            self._stats.record(success, duration_ms)
+            self._record_metric("tts", success)
+            if success:
+                self._tts_count += 1
+            
+            if success:
+                log_info(f"TTS sent [{correlation_id}]")
                 return create_success_response(
-                    "Announcement sent successfully",
+                    "Announcement sent",
                     {
                         "media_players": media_player_ids,
                         "message_length": len(message),
-                        "processing_time_ms": processing_time,
+                        "processing_time_ms": duration_ms,
                         "correlation_id": correlation_id
                     }
                 )
             else:
-                log_error(f"TTS announcement failed: {result}")
-                self._update_stats(False, "tts")
-                return create_error_response(
-                    "Failed to send announcement",
-                    {"result": result}
-                )
+                return create_error_response("Failed to send announcement", {"result": result})
                 
         except Exception as e:
-            log_error(f"TTS announcement exception: {str(e)}")
-            record_metric("ha_tts_announcement_error", 1.0)
-            self._update_stats(False, "tts")
-            return create_error_response(
-                "TTS announcement exception",
-                {"error": str(e)}
-            )
+            log_error(f"TTS exception: {str(e)}")
+            self._stats.record(False)
+            self._record_metric("tts", False)
+            return create_error_response("TTS exception", {"error": str(e)})
     
-    def send_persistent_notification(self,
-                                    message: str,
-                                    ha_config: Dict[str, Any],
-                                    title: Optional[str] = None,
-                                    notification_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Send persistent notification to Home Assistant.
-        
-        Args:
-            message: Notification message
-            ha_config: HA configuration dict
-            title: Optional notification title
-            notification_id: Optional notification ID
-            
-        Returns:
-            Result dict with success status
-        """
-        start_time = time.time()
-        correlation_id = generate_correlation_id()
-        
+    def send_persistent(
+        self,
+        message: str,
+        ha_config: Dict[str, Any],
+        title: Optional[str] = None,
+        notification_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Send persistent notification."""
         try:
-            log_info(f"Sending persistent notification [{correlation_id}]")
             increment_counter("ha_persistent_notification_request")
             
-            url = f"{ha_config['base_url']}/api/services/persistent_notification/create"
-            headers = {
-                "Authorization": f"Bearer {ha_config['access_token']}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "message": message
-            }
-            
+            service_data = {"message": message}
             if title:
-                payload["title"] = title
-            
+                service_data["title"] = title
             if notification_id:
-                payload["notification_id"] = notification_id
+                service_data["notification_id"] = notification_id
             
-            result = make_post_request(
-                url=url,
-                headers=headers,
-                json_data=payload,
-                timeout=ha_config.get('timeout', 30)
+            result = call_ha_service_generic(
+                ha_config, "persistent_notification", "create",
+                None, service_data
             )
             
-            processing_time = (time.time() - start_time) * 1000
+            success = result.get("success", False)
+            self._stats.record(success)
+            self._record_metric("persistent", success)
             
-            if result.get("success", False):
-                log_info(f"Persistent notification sent [{correlation_id}]")
-                record_metric("ha_persistent_notification_success", 1.0)
-                self._update_stats(True, "persistent")
-                
+            if success:
+                self._persistent_count += 1
                 return create_success_response(
-                    "Notification sent successfully",
-                    {
-                        "title": title,
-                        "notification_id": notification_id,
-                        "processing_time_ms": processing_time,
-                        "correlation_id": correlation_id
-                    }
+                    "Notification created",
+                    {"notification_id": notification_id or "auto"}
                 )
             else:
-                log_error(f"Persistent notification failed: {result}")
-                self._update_stats(False, "persistent")
-                return create_error_response(
-                    "Failed to send notification",
-                    {"result": result}
-                )
+                return create_error_response("Failed to create notification", {"result": result})
                 
         except Exception as e:
             log_error(f"Persistent notification exception: {str(e)}")
-            record_metric("ha_persistent_notification_error", 1.0)
-            self._update_stats(False, "persistent")
-            return create_error_response(
-                "Persistent notification exception",
-                {"error": str(e)}
-            )
+            self._stats.record(False)
+            self._record_metric("persistent", False)
+            return create_error_response("Notification exception", {"error": str(e)})
     
-    def dismiss_notification(self,
-                           notification_id: str,
-                           ha_config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Dismiss persistent notification.
-        
-        Args:
-            notification_id: Notification ID to dismiss
-            ha_config: HA configuration dict
-            
-        Returns:
-            Result dict with success status
-        """
+    def dismiss(
+        self,
+        notification_id: str,
+        ha_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Dismiss persistent notification."""
         try:
-            log_info(f"Dismissing notification: {notification_id}")
-            
-            url = f"{ha_config['base_url']}/api/services/persistent_notification/dismiss"
-            headers = {
-                "Authorization": f"Bearer {ha_config['access_token']}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "notification_id": notification_id
-            }
-            
-            result = make_post_request(
-                url=url,
-                headers=headers,
-                json_data=payload,
-                timeout=ha_config.get('timeout', 30)
+            result = call_ha_service_generic(
+                ha_config, "persistent_notification", "dismiss",
+                None, {"notification_id": notification_id}
             )
             
             if result.get("success", False):
-                return create_success_response(
-                    "Notification dismissed",
-                    {"notification_id": notification_id}
-                )
+                return create_success_response("Notification dismissed", {"notification_id": notification_id})
             else:
-                return create_error_response(
-                    "Failed to dismiss notification",
-                    {"result": result}
-                )
+                return create_error_response("Failed to dismiss notification", {"result": result})
                 
         except Exception as e:
             log_error(f"Dismiss notification exception: {str(e)}")
-            return create_error_response(
-                "Dismiss notification exception",
-                {"error": str(e)}
-            )
+            return create_error_response("Dismiss exception", {"error": str(e)})
     
-    def _get_all_media_players(self, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Get all available media players."""
+    def _get_media_players(self, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get all media players with caching."""
+        cache_key = "ha_media_players"
+        cached = cache_get(cache_key)
+        if cached:
+            return cached
+        
         try:
-            cache_key = "ha_media_players"
-            cached = cache_get(cache_key)
-            if cached:
-                return cached
-            
             url = f"{ha_config['base_url']}/api/states"
-            headers = {
-                "Authorization": f"Bearer {ha_config['access_token']}"
-            }
+            headers = {"Authorization": f"Bearer {ha_config['access_token']}"}
             
-            result = make_get_request(
-                url=url,
-                headers=headers,
-                timeout=ha_config.get('timeout', 30)
-            )
+            result = make_get_request(url=url, headers=headers, timeout=ha_config.get('timeout', 30))
             
-            if not result.get("success", False):
-                return []
-            
-            states = result.get("data", [])
-            media_players = [
-                {
-                    "entity_id": state.get("entity_id"),
-                    "friendly_name": state.get("attributes", {}).get("friendly_name", ""),
-                    "state": state.get("state")
-                }
-                for state in states
-                if state.get("entity_id", "").startswith("media_player.")
-            ]
-            
-            cache_set(cache_key, media_players, ttl=300)
-            
-            return media_players
-            
+            if result.get("success", False):
+                all_states = result.get("data", [])
+                players = [s for s in all_states if s.get("entity_id", "").startswith("media_player.")]
+                cache_set(cache_key, players, ttl=300)
+                return players
         except Exception as e:
-            log_error(f"Get media players exception: {str(e)}")
-            return []
-    
-    def _update_stats(self, success: bool, notification_type: str) -> None:
-        """Update notification statistics."""
-        self._stats.total_sent += 1
+            log_error(f"Get media players error: {str(e)}")
         
-        if success:
-            self._stats.successful_sent += 1
-        else:
-            self._stats.failed_sent += 1
-        
-        if notification_type == "tts":
-            self._stats.tts_sent += 1
-        elif notification_type == "persistent":
-            self._stats.persistent_sent += 1
+        return []
     
     def get_stats(self) -> Dict[str, Any]:
         """Get notification statistics."""
-        return {
-            "total_sent": self._stats.total_sent,
-            "successful_sent": self._stats.successful_sent,
-            "failed_sent": self._stats.failed_sent,
-            "success_rate": (self._stats.successful_sent / self._stats.total_sent * 100
-                           if self._stats.total_sent > 0 else 0.0),
-            "tts_sent": self._stats.tts_sent,
-            "persistent_sent": self._stats.persistent_sent,
-            "uptime_seconds": time.time() - self._initialized_time
-        }
+        base_stats = super().get_stats()
+        base_stats["tts_sent"] = self._tts_count
+        base_stats["persistent_sent"] = self._persistent_count
+        return base_stats
 
 
-_notification_manager: Optional[HANotificationManager] = None
+_manager_singleton = SingletonManager(HANotificationManager)
 
 
-def _get_notification_manager() -> HANotificationManager:
-    """Get or create notification manager singleton."""
-    global _notification_manager
-    if _notification_manager is None:
-        _notification_manager = HANotificationManager()
-    return _notification_manager
-
-
-def send_tts_announcement(message: str,
-                         ha_config: Dict[str, Any],
-                         media_player_ids: Optional[List[str]] = None,
-                         language: str = "en") -> Dict[str, Any]:
+def send_tts_announcement(
+    message: str,
+    ha_config: Dict[str, Any],
+    media_player_ids: Optional[List[str]] = None,
+    language: str = "en"
+) -> Dict[str, Any]:
     """Send TTS announcement."""
-    manager = _get_notification_manager()
-    return manager.send_tts_announcement(message, ha_config, media_player_ids, language)
+    return _manager_singleton.get().send_tts(message, ha_config, media_player_ids, language)
 
 
-def send_persistent_notification(message: str,
-                                 ha_config: Dict[str, Any],
-                                 title: Optional[str] = None,
-                                 notification_id: Optional[str] = None) -> Dict[str, Any]:
+def send_persistent_notification(
+    message: str,
+    ha_config: Dict[str, Any],
+    title: Optional[str] = None,
+    notification_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Send persistent notification."""
-    manager = _get_notification_manager()
-    return manager.send_persistent_notification(message, ha_config, title, notification_id)
+    return _manager_singleton.get().send_persistent(message, ha_config, title, notification_id)
 
 
-def dismiss_notification(notification_id: str, ha_config: Dict[str, Any]) -> Dict[str, Any]:
+def dismiss_notification(
+    notification_id: str,
+    ha_config: Dict[str, Any]
+) -> Dict[str, Any]:
     """Dismiss persistent notification."""
-    manager = _get_notification_manager()
-    return manager.dismiss_notification(notification_id, ha_config)
+    return _manager_singleton.get().dismiss(notification_id, ha_config)
 
 
 def get_notification_stats() -> Dict[str, Any]:
     """Get notification statistics."""
-    manager = _get_notification_manager()
-    return manager.get_stats()
+    return _manager_singleton.get().get_stats()
 
 
 __all__ = [
     'send_tts_announcement',
     'send_persistent_notification',
     'dismiss_notification',
-    'get_notification_stats',
+    'get_notification_stats'
 ]
-
-#EOF
