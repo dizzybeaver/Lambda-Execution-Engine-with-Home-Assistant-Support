@@ -1,20 +1,15 @@
 """
 home_assistant_input_helpers.py - Input Helper Management
-Version: 2025.09.30.06
-Daily Revision: Performance Optimization Phase 1
+Version: 2025.09.30.07
+Daily Revision: Performance Optimization Phase 2
 
-Home Assistant input helper management via voice commands
-
-ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
-- Uses ha_common for shared functionality
-- Lazy loading compatible
-- 100% Free Tier AWS compliant
+Phase 2: Consolidated cache + entity minimization
 
 Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from gateway import (
     log_info, log_error,
@@ -28,7 +23,10 @@ from ha_common import (
     resolve_entity_id,
     call_ha_service,
     parse_boolean_value,
-    SingletonManager
+    SingletonManager,
+    get_cache_section,
+    set_cache_section,
+    minimize_entity_list
 )
 
 
@@ -93,6 +91,46 @@ class HAInputHelperManager(HABaseManager):
             log_error(f"Set input helper exception: {str(e)}")
             return create_error_response("Set input helper exception", {"error": str(e)})
     
+    def list_helpers(
+        self,
+        ha_config: Dict[str, Any],
+        helper_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """List input helpers by type with consolidated cache."""
+        try:
+            if helper_type:
+                cache_key = f"{helper_type}s"
+                cached = get_cache_section(cache_key, ttl=300)
+                if cached:
+                    self.record_cache_hit()
+                    return create_success_response("Input helpers retrieved from cache", {"helpers": cached})
+                
+                self.record_cache_miss()
+                from ha_common import call_ha_api
+                response = call_ha_api("/api/states", ha_config)
+                
+                if not isinstance(response, list):
+                    return create_error_response("Invalid API response", {})
+                
+                helpers = [e for e in response if e.get("entity_id", "").startswith(f"{helper_type}.")]
+                minimized = minimize_entity_list(helpers)
+                
+                set_cache_section(cache_key, minimized, ttl=300)
+                
+                return create_success_response("Input helpers retrieved", {"helpers": minimized})
+            else:
+                all_helpers = []
+                for htype in ["input_boolean", "input_select", "input_number", "input_text"]:
+                    result = self.list_helpers(ha_config, htype)
+                    if result.get("success"):
+                        all_helpers.extend(result.get("data", {}).get("helpers", []))
+                
+                return create_success_response("All input helpers retrieved", {"helpers": all_helpers})
+            
+        except Exception as e:
+            log_error(f"List input helpers exception: {str(e)}")
+            return create_error_response("List input helpers exception", {"error": str(e)})
+    
     def _resolve_helper(self, helper_id: str, ha_config: Dict[str, Any]) -> str:
         """Resolve input helper ID."""
         if helper_id.startswith("input_"):
@@ -150,6 +188,15 @@ def set_input_helper(
     return manager.set_helper(helper_id, value, ha_config)
 
 
+def list_input_helpers(
+    ha_config: Dict[str, Any],
+    helper_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """List input helpers by type."""
+    manager = SingletonManager.get_instance(HAInputHelperManager)
+    return manager.list_helpers(ha_config, helper_type)
+
+
 def get_input_helper_stats() -> Dict[str, Any]:
     """Get input helper statistics."""
     manager = SingletonManager.get_instance(HAInputHelperManager)
@@ -158,4 +205,4 @@ def get_input_helper_stats() -> Dict[str, Any]:
     return stats
 
 
-__all__ = ["set_input_helper", "get_input_helper_stats"]
+__all__ = ["set_input_helper", "list_input_helpers", "get_input_helper_stats"]
