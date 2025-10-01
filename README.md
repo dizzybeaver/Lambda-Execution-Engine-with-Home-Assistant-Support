@@ -1,5 +1,5 @@
 # ⚡ Lambda Execution Engine
-## This projext is in development flux.
+## This project is in development flux.
 ## It should be fully working, but fully test it before fully deploying it.
 ### *Enterprise-Grade Serverless Cloud Platform for Smart Home Voice Control*
 
