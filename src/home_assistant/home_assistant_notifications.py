@@ -1,14 +1,9 @@
 """
 home_assistant_notifications.py - TTS & Notifications
-Version: 2025.09.30.06
-Daily Revision: Performance Optimization Phase 1
+Version: 2025.09.30.07
+Daily Revision: Performance Optimization Phase 2
 
-Home Assistant TTS announcements and notifications
-
-ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
-- Uses ha_common for shared functionality
-- Lazy loading compatible
-- 100% Free Tier AWS compliant
+Phase 2: Consolidated cache + entity minimization
 
 Licensed under the Apache License, Version 2.0
 """
@@ -26,8 +21,10 @@ from gateway import (
 from ha_common import (
     HABaseManager,
     call_ha_service,
-    list_entities_by_domain,
-    SingletonManager
+    SingletonManager,
+    get_cache_section,
+    set_cache_section,
+    minimize_entity_list
 )
 
 
@@ -58,7 +55,7 @@ class HANotificationManager(HABaseManager):
             increment_counter("ha_announcement_request")
             
             if not media_player_ids:
-                media_players = list_entities_by_domain("media_player", ha_config)
+                media_players = self._get_media_players(ha_config)
                 media_player_ids = [e["entity_id"] for e in media_players]
             
             if not media_player_ids:
@@ -139,6 +136,26 @@ class HANotificationManager(HABaseManager):
             self.record_failure()
             log_error(f"Send notification exception: {str(e)}")
             return create_error_response("Send notification exception", {"error": str(e)})
+    
+    def _get_media_players(self, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get media players with consolidated cache."""
+        cached = get_cache_section("media_players", ttl=300)
+        if cached:
+            self.record_cache_hit()
+            return cached
+        
+        self.record_cache_miss()
+        from ha_common import call_ha_api
+        response = call_ha_api("/api/states", ha_config)
+        
+        if not isinstance(response, list):
+            return []
+        
+        media_players = [e for e in response if e.get("entity_id", "").startswith("media_player.")]
+        minimized = minimize_entity_list(media_players)
+        
+        set_cache_section("media_players", minimized, ttl=300)
+        return minimized
 
 
 def send_tts_announcement(
