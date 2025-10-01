@@ -1,14 +1,9 @@
 """
 home_assistant_areas.py - Area Control
-Version: 2025.09.30.06
-Daily Revision: Performance Optimization Phase 1
+Version: 2025.09.30.07
+Daily Revision: Performance Optimization Phase 2
 
-Home Assistant area-based device control
-
-ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
-- Uses ha_common for shared functionality
-- Lazy loading compatible
-- 100% Free Tier AWS compliant
+Phase 2: Consolidated cache + entity minimization
 
 Licensed under the Apache License, Version 2.0
 """
@@ -27,12 +22,15 @@ from ha_common import (
     HABaseManager,
     call_ha_api,
     call_ha_service,
-    SingletonManager
+    SingletonManager,
+    get_cache_section,
+    set_cache_section,
+    minimize_entity_list
 )
 
 
 class HAAreaManager(HABaseManager):
-    """Manages Home Assistant area operations."""
+    """Manages Home Assistant area-based device control."""
     
     def get_feature_name(self) -> str:
         return "area"
@@ -90,13 +88,38 @@ class HAAreaManager(HABaseManager):
             log_error(f"Control area exception: {str(e)}")
             return create_error_response("Control area exception", {"error": str(e)})
     
+    def list_areas(self, ha_config: Dict[str, Any]) -> Dict[str, Any]:
+        """List all areas with consolidated cache."""
+        try:
+            cached = get_cache_section("areas", ttl=300)
+            if cached:
+                self.record_cache_hit()
+                return create_success_response("Areas retrieved from cache", {"areas": cached})
+            
+            self.record_cache_miss()
+            result = call_ha_api("/api/config/area_registry/list", ha_config)
+            
+            if not result.get("success", False):
+                return create_error_response("Failed to list areas", {})
+            
+            areas = result.get("data", [])
+            minimized = [{"area_id": a.get("area_id"), "name": a.get("name")} for a in areas]
+            
+            set_cache_section("areas", minimized, ttl=300)
+            
+            return create_success_response("Areas retrieved", {"areas": minimized})
+            
+        except Exception as e:
+            log_error(f"List areas exception: {str(e)}")
+            return create_error_response("List areas exception", {"error": str(e)})
+    
     def _find_area_id(self, area_name: str, ha_config: Dict[str, Any]) -> Optional[str]:
         """Find area ID by name."""
-        result = call_ha_api("/api/config/area_registry/list", ha_config)
-        if not result.get("success", False):
+        result = self.list_areas(ha_config)
+        if not result.get("success"):
             return None
         
-        areas = result.get("data", [])
+        areas = result.get("data", {}).get("areas", [])
         for area in areas:
             if area.get("name", "").lower() == area_name.lower():
                 return area.get("area_id")
@@ -104,24 +127,28 @@ class HAAreaManager(HABaseManager):
         return None
     
     def _get_area_devices(self, area_id: str, ha_config: Dict[str, Any], domain: Optional[str]) -> List[str]:
-        """Get controllable devices in area."""
-        result = call_ha_api("/api/states", ha_config)
-        if not result.get("success", False):
+        """Get controllable devices in area with consolidated cache."""
+        cache_key = f"area_devices_{area_id}_{domain or 'all'}"
+        cached = get_cache_section(cache_key, ttl=300)
+        if cached:
+            return cached
+        
+        response = call_ha_api("/api/states", ha_config)
+        if not isinstance(response, list):
             return []
         
-        entities = result.get("data", [])
         area_entities = []
-        
-        for entity in entities:
+        for entity in response:
             entity_id = entity.get("entity_id", "")
             entity_domain = entity_id.split(".")[0]
             entity_area = entity.get("attributes", {}).get("area_id")
             
             if entity_area == area_id:
                 if domain is None or entity_domain == domain:
-                    if entity_domain in ["light", "switch", "fan", "cover"]:
+                    if entity_domain in ["light", "switch", "fan", "cover", "climate", "media_player"]:
                         area_entities.append(entity_id)
         
+        set_cache_section(cache_key, area_entities, ttl=300)
         return area_entities
     
     def _control_devices(self, devices: List[str], action: str, ha_config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -158,10 +185,16 @@ def control_area(
     return manager.control_area(area_name, action, ha_config, domain)
 
 
+def list_areas(ha_config: Dict[str, Any]) -> Dict[str, Any]:
+    """List all areas."""
+    manager = SingletonManager.get_instance(HAAreaManager)
+    return manager.list_areas(ha_config)
+
+
 def get_area_stats() -> Dict[str, Any]:
     """Get area statistics."""
     manager = SingletonManager.get_instance(HAAreaManager)
     return manager.get_stats()
 
 
-__all__ = ["control_area", "get_area_stats"]
+__all__ = ["control_area", "list_areas", "get_area_stats"]
