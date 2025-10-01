@@ -1,13 +1,12 @@
 """
 home_assistant_scripts.py - Script Execution
-Version: 2025.09.30.05
-Daily Revision: Ultra-Optimized
+Version: 2025.09.30.06
+Daily Revision: Performance Optimization Phase 1
 
 Home Assistant script execution via voice commands
 
 ARCHITECTURE: HOME ASSISTANT EXTENSION MODULE
 - Uses ha_common for shared functionality
-- Uses gateway.py for all operations
 - Lazy loading compatible
 - 100% Free Tier AWS compliant
 
@@ -27,7 +26,7 @@ from gateway import (
 from ha_common import (
     HABaseManager,
     resolve_entity_id,
-    call_ha_service_generic,
+    call_ha_service,
     SingletonManager
 )
 
@@ -52,19 +51,17 @@ class HAScriptManager(HABaseManager):
             log_info(f"Executing script: {script_id} [{correlation_id}]")
             increment_counter("ha_script_execution_request")
             
-            entity_id = resolve_entity_id(script_id, ha_config, "script", "scripts")
+            entity_id = resolve_entity_id(script_id, "script", ha_config)
             if not entity_id:
+                self.record_failure()
                 return create_error_response("Script not found", {"script_id": script_id})
             
-            result = call_ha_service_generic(ha_config, "script", "turn_on", entity_id, variables)
+            result = call_ha_service("script", "turn_on", ha_config, entity_id, variables)
             
             duration_ms = (time.time() - start_time) * 1000
-            success = result.get("success", False)
             
-            self._stats.record(success, duration_ms)
-            self._record_metric("execute", success)
-            
-            if success:
+            if result.get("success", False):
+                self.record_success()
                 log_info(f"Script executed: {entity_id} [{correlation_id}]")
                 return create_success_response(
                     f"Script {script_id} executed",
@@ -75,16 +72,13 @@ class HAScriptManager(HABaseManager):
                     }
                 )
             else:
+                self.record_failure()
                 return create_error_response("Failed to execute script", {"result": result})
                 
         except Exception as e:
+            self.record_failure()
             log_error(f"Script execution exception: {str(e)}")
-            self._stats.record(False)
-            self._record_metric("execute", False)
             return create_error_response("Script execution exception", {"error": str(e)})
-
-
-_manager_singleton = SingletonManager(HAScriptManager)
 
 
 def execute_script(
@@ -93,12 +87,14 @@ def execute_script(
     variables: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Execute script."""
-    return _manager_singleton.get().execute(script_id, ha_config, variables)
+    manager = SingletonManager.get_instance(HAScriptManager)
+    return manager.execute(script_id, ha_config, variables)
 
 
 def get_script_stats() -> Dict[str, Any]:
     """Get script statistics."""
-    return _manager_singleton.get().get_stats()
+    manager = SingletonManager.get_instance(HAScriptManager)
+    return manager.get_stats()
 
 
-__all__ = ['execute_script', 'get_script_stats']
+__all__ = ["execute_script", "get_script_stats"]
