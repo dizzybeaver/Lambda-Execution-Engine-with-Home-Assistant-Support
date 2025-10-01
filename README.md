@@ -11,7 +11,7 @@
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/lambda/)
 [![100% Free Tier](https://img.shields.io/badge/AWS_Cost-$0.00/month-00C851?style=for-the-badge)](https://aws.amazon.com/free/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
-[![Production Ready](https://img.shields.io/badge/Status-Production_Ready-success?style=for-the-badge)](.)
+[![Production Ready](https://img.shields.io/badge/Status-Please_Test-yellow?style=for-the-badge)](.)
 [![Home Assistant](https://img.shields.io/badge/Home_Assistant-Optional-41BDF5?style=for-the-badge&logo=home-assistant)](https://www.home-assistant.io/)
 
 ```
