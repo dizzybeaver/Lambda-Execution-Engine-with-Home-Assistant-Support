@@ -1,20 +1,7 @@
 """
-Logging Core - Enhanced Logging with Template Optimization
+Logging Core - Logging System with Message Template Optimization
 Version: 2025.10.02.01
-Daily Revision: Template Optimization Phase 1
-
-ARCHITECTURE: CORE IMPLEMENTATION
-- Template-based log message generation (60% faster)
-- Pre-compiled log format strings for common patterns
-- Correlation tracking and performance profiling
-- Memory-optimized logging infrastructure
-
-OPTIMIZATION: Template Optimization Phase 1
-- ADDED: Pre-compiled log message templates
-- ADDED: Fast-path log formatting with templates
-- ADDED: Common log pattern caching
-- Performance: 0.2-0.5ms savings per invocation
-- Memory: Reduced string formatting overhead
+Description: Centralized logging with pre-compiled message templates for performance
 
 Copyright 2025 Joseph Hersey
 
@@ -34,10 +21,12 @@ Copyright 2025 Joseph Hersey
 import logging
 import time
 import json
-from typing import Dict, Any, Optional
+import os
+from typing import Dict, Any, Optional, Union
 from enum import Enum
+import threading
 
-# ===== LOG MESSAGE TEMPLATES (Phase 1 Optimization) =====
+# ===== LOG MESSAGE TEMPLATES (Phase 2 Optimization) =====
 
 _CACHE_HIT_LOG = "Cache hit: %s"
 _CACHE_MISS_LOG = "Cache miss: %s"
@@ -47,212 +36,339 @@ _CACHE_DELETE_LOG = "Cache delete: %s"
 _HA_SUCCESS_LOG = "HA operation successful - %dms"
 _HA_ERROR_LOG = "HA operation failed: %s"
 _HA_REQUEST_LOG = "HA request: %s.%s"
+_HA_RESPONSE_LOG = "HA response: %d entities"
 
 _HTTP_REQUEST_LOG = "HTTP %s %s"
-_HTTP_SUCCESS_LOG = "HTTP request successful: %d"
-_HTTP_ERROR_LOG = "HTTP request failed: %s"
+_HTTP_SUCCESS_LOG = "HTTP %s %s - %dms (%d)"
+_HTTP_ERROR_LOG = "HTTP %s %s failed: %s"
+_HTTP_TIMEOUT_LOG = "HTTP %s %s timeout after %ds"
 
-_OPERATION_START_LOG = "Starting %s.%s"
-_OPERATION_COMPLETE_LOG = "Completed %s.%s in %dms"
-_OPERATION_ERROR_LOG = "Error in %s.%s: %s"
+_OPERATION_START_LOG = "Operation started: %s.%s"
+_OPERATION_SUCCESS_LOG = "Operation completed: %s.%s - %dms"
+_OPERATION_ERROR_LOG = "Operation failed: %s.%s - %s"
 
-_STRUCTURED_LOG = '{"timestamp":%f,"level":"%s","message":"%s","correlation_id":"%s"}'
-_STRUCTURED_LOG_WITH_OP = '{"timestamp":%f,"level":"%s","message":"%s","correlation_id":"%s","operation":"%s","module":"%s"}'
+_LAMBDA_START_LOG = "Lambda invocation started: %s"
+_LAMBDA_SUCCESS_LOG = "Lambda invocation completed - %dms"
+_LAMBDA_ERROR_LOG = "Lambda invocation failed: %s"
 
+_METRIC_RECORD_LOG = "Metric recorded: %s = %f"
+_CONFIG_UPDATE_LOG = "Config updated: %s = %s"
+_SECURITY_EVENT_LOG = "Security event: %s - %s"
+
+_CACHE_EXTRA_TEMPLATE = '{"correlation_id":"%s","access_count":%d,"source_module":"%s"}'
+_HA_EXTRA_TEMPLATE = '{"correlation_id":"%s","response_time_ms":%d,"operation":"%s"}'
+_HTTP_EXTRA_TEMPLATE = '{"correlation_id":"%s","method":"%s","url":"%s","status_code":%d}'
+_OPERATION_EXTRA_TEMPLATE = '{"correlation_id":"%s","interface":"%s","operation":"%s","duration_ms":%d}'
+_METRIC_EXTRA_TEMPLATE = '{"correlation_id":"%s","metric_name":"%s","value":%f,"dimensions":%s}'
+
+_USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'true').lower() == 'true'
 
 class LogLevel(Enum):
-    DEBUG = "debug"
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
-
+    """Log level enumeration."""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
 
 class LoggingCore:
-    """Enhanced logging with template optimization."""
+    """Core logging implementation with template optimization."""
     
     def __init__(self):
-        self.logger = logging.getLogger('lambda_engine')
-        self._structured_logging_enabled = True
-        self._template_usage_count = 0
-    
-    def log(self, level: LogLevel, message: str, correlation_id: Optional[str] = None,
-            operation: Optional[str] = None, module: Optional[str] = None,
-            metadata: Optional[Dict] = None):
-        """Enhanced logging with correlation context."""
-        log_data = {
-            'timestamp': time.time(),
-            'level': level.value,
-            'message': message
+        self.logger = logging.getLogger('lambda_execution_engine')
+        self._setup_logger()
+        self._stats = {
+            'log_count': 0,
+            'template_usage': 0,
+            'legacy_usage': 0,
+            'level_counts': {level.value: 0 for level in LogLevel}
         }
-        
-        if correlation_id:
-            log_data['correlation_id'] = correlation_id
-        
-        if operation:
-            log_data['operation'] = operation
-        
-        if module:
-            log_data['module'] = module
-        
-        if metadata:
-            log_data['metadata'] = metadata
-        
-        if self._structured_logging_enabled:
-            log_message = json.dumps(log_data)
-        else:
-            log_message = f"[{level.value}] {message}"
-            if correlation_id:
-                log_message += f" [correlation_id={correlation_id}]"
-        
-        getattr(self.logger, level.value.lower())(log_message)
+        self._lock = threading.RLock()
     
-    def log_fast(self, level: LogLevel, template: str, *args,
-                correlation_id: Optional[str] = None,
-                operation: Optional[str] = None,
-                module: Optional[str] = None):
-        """Fast logging with pre-compiled templates."""
-        try:
-            message = template % args
-            self._template_usage_count += 1
-            
-            if self._structured_logging_enabled and correlation_id:
-                timestamp = time.time()
-                if operation and module:
-                    log_message = _STRUCTURED_LOG_WITH_OP % (
-                        timestamp, level.value, message, correlation_id, operation, module
-                    )
-                else:
-                    log_message = _STRUCTURED_LOG % (
-                        timestamp, level.value, message, correlation_id
-                    )
-            else:
-                log_message = message
-            
-            getattr(self.logger, level.value.lower())(log_message)
-        except Exception as e:
-            self.logger.error(f"Fast logging failed: {e}")
+    def _setup_logger(self):
+        """Setup logger configuration."""
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
     
-    def log_debug(self, message: str, **kwargs):
-        """Log debug message."""
-        self.log(LogLevel.DEBUG, message, **kwargs)
-    
-    def log_info(self, message: str, **kwargs):
+    def log_info(self, message: str, extra: Optional[Dict[str, Any]] = None):
         """Log info message."""
-        self.log(LogLevel.INFO, message, **kwargs)
+        self._log_message(LogLevel.INFO, message, extra)
     
-    def log_warning(self, message: str, **kwargs):
-        """Log warning message."""
-        self.log(LogLevel.WARNING, message, **kwargs)
-    
-    def log_error(self, message: str, **kwargs):
+    def log_error(self, message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None):
         """Log error message."""
-        self.log(LogLevel.ERROR, message, **kwargs)
+        if error:
+            message = f"{message}: {str(error)}"
+        self._log_message(LogLevel.ERROR, message, extra)
     
-    def log_critical(self, message: str, **kwargs):
-        """Log critical message."""
-        self.log(LogLevel.CRITICAL, message, **kwargs)
+    def log_warning(self, message: str, extra: Optional[Dict[str, Any]] = None):
+        """Log warning message."""
+        self._log_message(LogLevel.WARNING, message, extra)
     
-    def log_cache_hit(self, key: str, correlation_id: Optional[str] = None,
-                     access_count: int = 0, source_module: Optional[str] = None):
-        """Fast cache hit logging."""
-        self.log_fast(LogLevel.DEBUG, _CACHE_HIT_LOG, key,
-                     correlation_id=correlation_id, operation="cache_hit", module="cache")
+    def log_debug(self, message: str, extra: Optional[Dict[str, Any]] = None):
+        """Log debug message."""
+        self._log_message(LogLevel.DEBUG, message, extra)
     
-    def log_cache_miss(self, key: str, correlation_id: Optional[str] = None):
-        """Fast cache miss logging."""
-        self.log_fast(LogLevel.DEBUG, _CACHE_MISS_LOG, key,
-                     correlation_id=correlation_id, operation="cache_miss", module="cache")
+    def log_cache_hit(self, key: str, correlation_id: str, access_count: int, source_module: str):
+        """Log cache hit using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _CACHE_HIT_LOG % key
+                extra_json = _CACHE_EXTRA_TEMPLATE % (correlation_id, access_count, source_module)
+                extra = json.loads(extra_json)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Cache hit: {key}"
+                extra = {
+                    "correlation_id": correlation_id,
+                    "access_count": access_count,
+                    "source_module": source_module
+                }
+                self._stats['legacy_usage'] += 1
+            
+            self._log_message(LogLevel.DEBUG, message, extra)
+            
+        except Exception as e:
+            self._log_message(LogLevel.DEBUG, f"Cache hit: {key}", {
+                "correlation_id": correlation_id,
+                "template_error": str(e)
+            })
     
-    def log_cache_set(self, key: str, correlation_id: Optional[str] = None, ttl: Optional[int] = None):
-        """Fast cache set logging."""
-        self.log_fast(LogLevel.DEBUG, _CACHE_SET_LOG, key,
-                     correlation_id=correlation_id, operation="cache_set", module="cache")
+    def log_cache_miss(self, key: str, correlation_id: str):
+        """Log cache miss using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _CACHE_MISS_LOG % key
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Cache miss: {key}"
+                self._stats['legacy_usage'] += 1
+            
+            extra = {"correlation_id": correlation_id}
+            self._log_message(LogLevel.DEBUG, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.DEBUG, f"Cache miss: {key}", {"correlation_id": correlation_id})
     
-    def log_ha_success(self, response_time_ms: int, correlation_id: Optional[str] = None):
-        """Fast HA success logging."""
-        self.log_fast(LogLevel.INFO, _HA_SUCCESS_LOG, response_time_ms,
-                     correlation_id=correlation_id, operation="ha_request", module="home_assistant")
+    def log_ha_success(self, response_time_ms: int, correlation_id: str, operation: str):
+        """Log HA operation success using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _HA_SUCCESS_LOG % response_time_ms
+                extra_json = _HA_EXTRA_TEMPLATE % (correlation_id, response_time_ms, operation)
+                extra = json.loads(extra_json)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"HA operation successful - {response_time_ms}ms"
+                extra = {
+                    "correlation_id": correlation_id,
+                    "response_time_ms": response_time_ms,
+                    "operation": operation
+                }
+                self._stats['legacy_usage'] += 1
+            
+            self._log_message(LogLevel.INFO, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.INFO, f"HA operation successful - {response_time_ms}ms", {
+                "correlation_id": correlation_id
+            })
     
-    def log_ha_error(self, error: str, correlation_id: Optional[str] = None):
-        """Fast HA error logging."""
-        self.log_fast(LogLevel.ERROR, _HA_ERROR_LOG, error,
-                     correlation_id=correlation_id, operation="ha_request", module="home_assistant")
+    def log_ha_error(self, error_message: str, correlation_id: str):
+        """Log HA operation error using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _HA_ERROR_LOG % error_message
+                self._stats['template_usage'] += 1
+            else:
+                message = f"HA operation failed: {error_message}"
+                self._stats['legacy_usage'] += 1
+            
+            extra = {"correlation_id": correlation_id}
+            self._log_message(LogLevel.ERROR, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.ERROR, f"HA operation failed: {error_message}", {
+                "correlation_id": correlation_id
+            })
     
-    def log_http_request(self, method: str, url: str, correlation_id: Optional[str] = None):
-        """Fast HTTP request logging."""
-        self.log_fast(LogLevel.DEBUG, _HTTP_REQUEST_LOG, method, url,
-                     correlation_id=correlation_id, operation="http_request", module="http_client")
+    def log_http_request(self, method: str, url: str, correlation_id: str):
+        """Log HTTP request using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _HTTP_REQUEST_LOG % (method, url)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"HTTP {method} {url}"
+                self._stats['legacy_usage'] += 1
+            
+            extra = {"correlation_id": correlation_id, "method": method, "url": url}
+            self._log_message(LogLevel.DEBUG, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.DEBUG, f"HTTP {method} {url}", {"correlation_id": correlation_id})
     
-    def log_http_success(self, status_code: int, correlation_id: Optional[str] = None):
-        """Fast HTTP success logging."""
-        self.log_fast(LogLevel.INFO, _HTTP_SUCCESS_LOG, status_code,
-                     correlation_id=correlation_id, operation="http_request", module="http_client")
+    def log_http_success(self, method: str, url: str, response_time_ms: int, status_code: int, correlation_id: str):
+        """Log HTTP success using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _HTTP_SUCCESS_LOG % (method, url, response_time_ms, status_code)
+                extra_json = _HTTP_EXTRA_TEMPLATE % (correlation_id, method, url, status_code)
+                extra = json.loads(extra_json)
+                extra['response_time_ms'] = response_time_ms
+                self._stats['template_usage'] += 1
+            else:
+                message = f"HTTP {method} {url} - {response_time_ms}ms ({status_code})"
+                extra = {
+                    "correlation_id": correlation_id,
+                    "method": method,
+                    "url": url,
+                    "status_code": status_code,
+                    "response_time_ms": response_time_ms
+                }
+                self._stats['legacy_usage'] += 1
+            
+            self._log_message(LogLevel.INFO, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.INFO, f"HTTP {method} {url} - {response_time_ms}ms ({status_code})", {
+                "correlation_id": correlation_id
+            })
     
-    def log_operation_start(self, module: str, operation: str, correlation_id: Optional[str] = None):
-        """Fast operation start logging."""
-        self.log_fast(LogLevel.DEBUG, _OPERATION_START_LOG, module, operation,
-                     correlation_id=correlation_id, operation=operation, module=module)
+    def log_operation_start(self, interface: str, operation: str, correlation_id: str):
+        """Log operation start using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _OPERATION_START_LOG % (interface, operation)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Operation started: {interface}.{operation}"
+                self._stats['legacy_usage'] += 1
+            
+            extra = {"correlation_id": correlation_id, "interface": interface, "operation": operation}
+            self._log_message(LogLevel.DEBUG, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.DEBUG, f"Operation started: {interface}.{operation}", {
+                "correlation_id": correlation_id
+            })
     
-    def log_operation_complete(self, module: str, operation: str, duration_ms: int,
-                              correlation_id: Optional[str] = None):
-        """Fast operation complete logging."""
-        self.log_fast(LogLevel.DEBUG, _OPERATION_COMPLETE_LOG, module, operation, duration_ms,
-                     correlation_id=correlation_id, operation=operation, module=module)
+    def log_operation_success(self, interface: str, operation: str, duration_ms: int, correlation_id: str):
+        """Log operation success using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _OPERATION_SUCCESS_LOG % (interface, operation, duration_ms)
+                extra_json = _OPERATION_EXTRA_TEMPLATE % (correlation_id, interface, operation, duration_ms)
+                extra = json.loads(extra_json)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Operation completed: {interface}.{operation} - {duration_ms}ms"
+                extra = {
+                    "correlation_id": correlation_id,
+                    "interface": interface,
+                    "operation": operation,
+                    "duration_ms": duration_ms
+                }
+                self._stats['legacy_usage'] += 1
+            
+            self._log_message(LogLevel.INFO, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.INFO, f"Operation completed: {interface}.{operation} - {duration_ms}ms", {
+                "correlation_id": correlation_id
+            })
     
-    def log_operation_error(self, module: str, operation: str, error: str,
-                           correlation_id: Optional[str] = None):
-        """Fast operation error logging."""
-        self.log_fast(LogLevel.ERROR, _OPERATION_ERROR_LOG, module, operation, error,
-                     correlation_id=correlation_id, operation=operation, module=module)
+    def log_lambda_start(self, request_id: str):
+        """Log Lambda start using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _LAMBDA_START_LOG % request_id
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Lambda invocation started: {request_id}"
+                self._stats['legacy_usage'] += 1
+            
+            extra = {"request_id": request_id}
+            self._log_message(LogLevel.INFO, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.INFO, f"Lambda invocation started: {request_id}")
+    
+    def log_metric_recorded(self, metric_name: str, value: float, dimensions: Dict[str, str], correlation_id: str):
+        """Log metric recording using template optimization."""
+        try:
+            if _USE_LOG_TEMPLATES:
+                message = _METRIC_RECORD_LOG % (metric_name, value)
+                dimensions_json = json.dumps(dimensions) if dimensions else "{}"
+                extra_json = _METRIC_EXTRA_TEMPLATE % (correlation_id, metric_name, value, dimensions_json)
+                extra = json.loads(extra_json)
+                self._stats['template_usage'] += 1
+            else:
+                message = f"Metric recorded: {metric_name} = {value}"
+                extra = {
+                    "correlation_id": correlation_id,
+                    "metric_name": metric_name,
+                    "value": value,
+                    "dimensions": dimensions or {}
+                }
+                self._stats['legacy_usage'] += 1
+            
+            self._log_message(LogLevel.DEBUG, message, extra)
+            
+        except Exception:
+            self._log_message(LogLevel.DEBUG, f"Metric recorded: {metric_name} = {value}", {
+                "correlation_id": correlation_id
+            })
+    
+    def _log_message(self, level: LogLevel, message: str, extra: Optional[Dict[str, Any]] = None):
+        """Internal logging method."""
+        with self._lock:
+            try:
+                self._stats['log_count'] += 1
+                self._stats['level_counts'][level.value] += 1
+                
+                if level == LogLevel.DEBUG:
+                    self.logger.debug(message, extra=extra)
+                elif level == LogLevel.INFO:
+                    self.logger.info(message, extra=extra)
+                elif level == LogLevel.WARNING:
+                    self.logger.warning(message, extra=extra)
+                elif level == LogLevel.ERROR:
+                    self.logger.error(message, extra=extra)
+                elif level == LogLevel.CRITICAL:
+                    self.logger.critical(message, extra=extra)
+                    
+            except Exception:
+                pass
     
     def get_stats(self) -> Dict[str, Any]:
         """Get logging statistics."""
-        return {
-            'structured_logging_enabled': self._structured_logging_enabled,
-            'template_usage_count': self._template_usage_count,
-            'timestamp': time.time()
-        }
-
-
-_logging_core_instance = None
-
-
-def get_logging_core() -> LoggingCore:
-    """Get singleton logging core instance."""
-    global _logging_core_instance
-    if _logging_core_instance is None:
-        _logging_core_instance = LoggingCore()
-    return _logging_core_instance
-
-
-def _execute_log_debug_implementation(message: str, **kwargs):
-    """Execute debug logging."""
-    get_logging_core().log_debug(message, **kwargs)
-
-
-def _execute_log_info_implementation(message: str, **kwargs):
-    """Execute info logging."""
-    get_logging_core().log_info(message, **kwargs)
-
-
-def _execute_log_warning_implementation(message: str, **kwargs):
-    """Execute warning logging."""
-    get_logging_core().log_warning(message, **kwargs)
-
-
-def _execute_log_error_implementation(message: str, **kwargs):
-    """Execute error logging."""
-    get_logging_core().log_error(message, **kwargs)
-
-
-__all__ = [
-    'LogLevel',
-    'get_logging_core',
-    '_execute_log_debug_implementation',
-    '_execute_log_info_implementation',
-    '_execute_log_warning_implementation',
-    '_execute_log_error_implementation',
-]
-
-#EOF
+        with self._lock:
+            total_template_operations = self._stats['template_usage'] + self._stats['legacy_usage']
+            template_usage_rate = self._stats['template_usage'] / max(total_template_operations, 1)
+            
+            return {
+                'log_count': self._stats['log_count'],
+                'template_usage_rate': template_usage_rate,
+                'template_optimization_enabled': _USE_LOG_TEMPLATES,
+                'level_counts': self._stats['level_counts'].copy(),
+                'stats': {
+                    'template_usage': self._stats['template_usage'],
+                    'legacy_usage': self._stats['legacy_usage']
+                }
+            }
+    
+    def reset_stats(self):
+        """Reset logging statistics."""
+        with self._lock:
+            self._stats = {
+                'log_count': 0,
+                'template_usage': 0,
+                'legacy_usage': 0,
+                'level_counts': {level.value: 0 for level in LogLevel}
+            }
