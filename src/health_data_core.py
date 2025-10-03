@@ -1,6 +1,6 @@
 """
 Health Data Core - Health Data Management with Template Optimization
-Version: 2025.10.02.01
+Version: 2025.10.03.01
 Description: Health data structures with pre-compiled templates for performance
 
 Copyright 2025 Joseph Hersey
@@ -21,12 +21,12 @@ Copyright 2025 Joseph Hersey
 import time
 import json
 import os
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from collections import deque
 from dataclasses import dataclass, field
 import threading
 
-# ===== HEALTH DATA TEMPLATES (Phase 3 Optimization) =====
+# ===== HEALTH DATA TEMPLATES (Template Optimization) =====
 
 _HEALTH_DATA_TEMPLATE = {
     "total_requests": 0,
@@ -109,22 +109,20 @@ _USE_HEALTH_TEMPLATES = os.environ.get('USE_HEALTH_TEMPLATES', 'true').lower() =
 @dataclass
 class HealthMetrics:
     """Health metrics data structure."""
+    component: str
+    status: str
     timestamp: float = field(default_factory=time.time)
-    status: str = "unknown"
     response_time_ms: float = 0.0
     error_count: int = 0
     success_count: int = 0
     details: Dict[str, Any] = field(default_factory=dict)
 
 def get_fresh_health_data() -> Dict[str, Any]:
-    """Get fresh health data from template."""
+    """Get fresh health data using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _HEALTH_DATA_TEMPLATE.copy()
-            data["response_times"] = []
-            data["recent_errors"] = []
             data["last_check"] = time.time()
-            data["status"] = "initializing"
             return data
         else:
             return {
@@ -134,33 +132,29 @@ def get_fresh_health_data() -> Dict[str, Any]:
                 "response_times": [],
                 "recent_errors": [],
                 "last_check": time.time(),
-                "status": "initializing"
+                "status": "unknown"
             }
     except Exception:
         return {
             "total_requests": 0,
             "successful_requests": 0,
             "failed_requests": 0,
-            "response_times": [],
-            "recent_errors": [],
             "last_check": time.time(),
             "status": "error"
         }
 
 def get_fresh_component_health(component_name: str) -> Dict[str, Any]:
-    """Get fresh component health data from template."""
+    """Get fresh component health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _COMPONENT_HEALTH_TEMPLATE.copy()
             data["component_name"] = component_name
             data["last_check"] = time.time()
-            data["status"] = "initializing"
-            data["details"] = {}
             return data
         else:
             return {
                 "component_name": component_name,
-                "status": "initializing",
+                "status": "unknown",
                 "last_check": time.time(),
                 "response_time_ms": 0.0,
                 "error_count": 0,
@@ -172,29 +166,19 @@ def get_fresh_component_health(component_name: str) -> Dict[str, Any]:
         return {
             "component_name": component_name,
             "status": "error",
-            "last_check": time.time(),
-            "response_time_ms": 0.0,
-            "error_count": 1,
-            "success_count": 0,
-            "availability_percentage": 0.0,
-            "details": {"error": "Template initialization failed"}
+            "last_check": time.time()
         }
 
 def get_fresh_system_health() -> Dict[str, Any]:
-    """Get fresh system health data from template."""
+    """Get fresh system health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _SYSTEM_HEALTH_TEMPLATE.copy()
-            data["components"] = {}
-            data["health_trends"] = []
-            data["critical_issues"] = []
-            data["warnings"] = []
             data["last_full_check"] = time.time()
-            data["overall_status"] = "initializing"
             return data
         else:
             return {
-                "overall_status": "initializing",
+                "overall_status": "unknown",
                 "overall_score": 0.0,
                 "components": {},
                 "checks_performed": 0,
@@ -207,22 +191,15 @@ def get_fresh_system_health() -> Dict[str, Any]:
         return {
             "overall_status": "error",
             "overall_score": 0.0,
-            "components": {},
-            "checks_performed": 0,
-            "last_full_check": time.time(),
-            "health_trends": [],
-            "critical_issues": ["System health initialization failed"],
-            "warnings": []
+            "last_full_check": time.time()
         }
 
 def get_fresh_ha_health() -> Dict[str, Any]:
-    """Get fresh Home Assistant health data from template."""
+    """Get fresh Home Assistant health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _HA_HEALTH_TEMPLATE.copy()
-            data["ha_available_domains"] = []
             data["ha_last_update"] = time.time()
-            data["ha_connection_status"] = "unknown"
             return data
         else:
             return {
@@ -238,17 +215,12 @@ def get_fresh_ha_health() -> Dict[str, Any]:
     except Exception:
         return {
             "ha_connection_status": "error",
-            "ha_response_time_ms": 0.0,
-            "ha_entity_count": 0,
             "ha_last_update": time.time(),
-            "ha_error_count": 1,
-            "ha_success_rate": 0.0,
-            "ha_available_domains": [],
-            "ha_config_status": "error"
+            "ha_error_count": 1
         }
 
 def get_fresh_lambda_health() -> Dict[str, Any]:
-    """Get fresh Lambda health data from template."""
+    """Get fresh Lambda health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _LAMBDA_HEALTH_TEMPLATE.copy()
@@ -267,17 +239,11 @@ def get_fresh_lambda_health() -> Dict[str, Any]:
     except Exception:
         return {
             "lambda_memory_used_mb": 0.0,
-            "lambda_memory_limit_mb": 0.0,
-            "lambda_remaining_time_ms": 0.0,
-            "lambda_invocation_count": 0,
-            "lambda_error_rate": 1.0,
-            "lambda_avg_duration_ms": 0.0,
-            "lambda_cold_starts": 0,
-            "lambda_warm_starts": 0
+            "lambda_error_rate": 1.0
         }
 
 def get_fresh_cache_health() -> Dict[str, Any]:
-    """Get fresh cache health data from template."""
+    """Get fresh cache health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _CACHE_HEALTH_TEMPLATE.copy()
@@ -297,17 +263,12 @@ def get_fresh_cache_health() -> Dict[str, Any]:
     except Exception:
         return {
             "cache_size": 0,
-            "cache_max_size": 0,
-            "cache_hit_rate": 0.0,
-            "cache_memory_usage_mb": 0.0,
-            "cache_evictions": 0,
-            "cache_expired_items": 0,
             "cache_error_count": 1,
             "cache_last_cleanup": time.time()
         }
 
 def get_fresh_http_health() -> Dict[str, Any]:
-    """Get fresh HTTP health data from template."""
+    """Get fresh HTTP health using template optimization."""
     try:
         if _USE_HEALTH_TEMPLATES:
             data = _HTTP_HEALTH_TEMPLATE.copy()
@@ -328,11 +289,7 @@ def get_fresh_http_health() -> Dict[str, Any]:
         return {
             "http_total_requests": 0,
             "http_success_rate": 0.0,
-            "http_avg_response_time_ms": 0.0,
-            "http_timeout_count": 0,
             "http_connection_errors": 1,
-            "http_active_connections": 0,
-            "http_pool_size": 0,
             "http_last_request": time.time()
         }
 
@@ -497,3 +454,5 @@ _health_data_manager = HealthDataManager()
 def get_health_data_manager() -> HealthDataManager:
     """Get global health data manager."""
     return _health_data_manager
+
+# EOF
