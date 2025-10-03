@@ -1,31 +1,28 @@
 """
-home_assistant_automation.py - Automation Triggering
-Version: 2025.10.01.03
-Description: Automation triggering with circuit breaker and shared utilities integration
+Home Assistant Automation - Gateway-Optimized Automation Management
+Version: 2025.10.03.02
+Description: Revolutionary gateway-integrated automation control with zero custom error handling
 
-ARCHITECTURE: HA EXTENSION FEATURE MODULE
-- Uses ha_common for all HA API interactions
-- Circuit breaker protection via ha_common
-- Comprehensive operation tracking
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 6 Complete
-- ADDED: Operation context tracking for all operations
-- ADDED: Circuit breaker awareness via is_ha_available()
-- ADDED: Comprehensive error handling via handle_operation_error()
-- ADDED: Enhanced metrics recording
-- 100% architecture compliance achieved
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright 2024 Anthropic PBC
-Licensed under the Apache License, Version 2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from gateway import (
-    log_info, log_error, log_warning,
+    log_info, log_error,
     create_success_response, create_error_response,
     generate_correlation_id,
     increment_counter
@@ -33,196 +30,219 @@ from gateway import (
 
 from ha_common import (
     get_ha_config,
-    resolve_entity_id,
     call_ha_service,
-    list_entities_by_domain,
+    batch_get_states,
     is_ha_available,
     get_cache_section,
     set_cache_section,
+    fuzzy_match_name,
     HA_CACHE_TTL_ENTITIES
 )
 
 
 class HAAutomationManager:
-    """Manages Home Assistant automation triggering with comprehensive tracking."""
+    """Manages Home Assistant automation triggers with circuit breaker protection."""
     
     def __init__(self):
         self._stats = {
-            'operations': 0,
-            'successes': 0,
-            'failures': 0,
-            'avg_duration_ms': 0.0
+            'total_triggers': 0,
+            'successful_triggers': 0,
+            'failed_triggers': 0
         }
-        self._total_duration = 0.0
     
     def get_feature_name(self) -> str:
         return "automation"
     
-    def trigger(
+    def trigger_automation(
         self,
         automation_id: str,
         ha_config: Optional[Dict[str, Any]] = None,
         skip_condition: bool = False
     ) -> Dict[str, Any]:
-        """Trigger automation with circuit breaker protection and operation tracking."""
-        from shared_utilities import create_operation_context, close_operation_context
+        """Trigger automation with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        context = create_operation_context('ha_automation', 'trigger', automation_id=automation_id)
-        start_time = time.time()
+        context = create_operation_context('ha_automation', 'trigger',
+                                          automation_id=automation_id,
+                                          skip_condition=skip_condition)
         
         try:
-            log_info(f"Triggering automation: {automation_id} [{context['correlation_id']}]", {
-                'skip_condition': skip_condition
-            })
-            
             if not is_ha_available():
-                log_warning("Home Assistant unavailable (circuit breaker open)", {
-                    'correlation_id': context['correlation_id']
-                })
                 close_operation_context(context, success=False)
-                return create_error_response(
-                    "Home Assistant unavailable (circuit breaker open)",
-                    {'correlation_id': context['correlation_id']}
+                return handle_operation_error(
+                    'ha_automation', 'trigger',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
                 )
             
-            increment_counter("ha_automation_trigger_request")
-            self._stats['operations'] += 1
-            
-            if not ha_config:
-                ha_config = get_ha_config()
-            
-            entity_id = automation_id if "." in automation_id else resolve_entity_id(
-                automation_id, "automation", ha_config
-            )
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_automation_id(automation_id, config)
             
             if not entity_id:
-                self._stats['failures'] += 1
                 close_operation_context(context, success=False)
-                return create_error_response("Automation not found", {
-                    "automation_id": automation_id,
-                    "correlation_id": context['correlation_id']
-                })
-            
-            service_data = {"skip_condition": skip_condition} if skip_condition else None
-            result = call_ha_service("automation", "trigger", ha_config, entity_id, service_data)
-            
-            duration_ms = (time.time() - start_time) * 1000
-            self._total_duration += duration_ms
-            self._stats['avg_duration_ms'] = self._total_duration / self._stats['operations']
-            
-            if result.get("success", False):
-                self._stats['successes'] += 1
-                log_info(f"Automation triggered: {entity_id} [{context['correlation_id']}]")
-                
-                response = create_success_response(
-                    f"Automation {automation_id} triggered",
-                    {
-                        "entity_id": entity_id,
-                        "processing_time_ms": duration_ms,
-                        "correlation_id": context['correlation_id']
-                    }
+                return handle_operation_error(
+                    'ha_automation', 'trigger',
+                    ValueError(f"Automation not found: {automation_id}"),
+                    context['correlation_id']
                 )
-                close_operation_context(context, success=True, result=response)
-                return response
+            
+            service_data = {
+                "entity_id": entity_id,
+                "skip_condition": skip_condition
+            }
+            
+            result = call_ha_service("automation", "trigger", config, entity_id, service_data)
+            
+            self._stats['total_triggers'] += 1
+            if result.get('success'):
+                self._stats['successful_triggers'] += 1
             else:
-                self._stats['failures'] += 1
-                close_operation_context(context, success=False)
-                return create_error_response("Failed to trigger automation", {
-                    "result": result,
-                    "correlation_id": context['correlation_id']
-                })
-                
+                self._stats['failed_triggers'] += 1
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_automation_trigger')
+            
+            return create_success_response(
+                f"Automation {entity_id} triggered successfully",
+                {
+                    'entity_id': entity_id,
+                    'skip_condition': skip_condition,
+                    'result': result
+                }
+            )
+            
         except Exception as e:
-            from shared_utilities import handle_operation_error
-            self._stats['failures'] += 1
+            self._stats['failed_triggers'] += 1
             close_operation_context(context, success=False)
             return handle_operation_error('ha_automation', 'trigger', e, context['correlation_id'])
     
-    def list(self, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """List all automations with caching and operation tracking."""
-        from shared_utilities import create_operation_context, close_operation_context
+    def list_automations(
+        self,
+        ha_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """List all automations with caching and circuit breaker."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context,
+            handle_operation_error, cache_operation_result
+        )
         
         context = create_operation_context('ha_automation', 'list')
         
         try:
-            log_info(f"Listing automations [{context['correlation_id']}]")
-            
             if not is_ha_available():
                 close_operation_context(context, success=False)
-                return create_error_response(
-                    "Home Assistant unavailable (circuit breaker open)",
-                    {'correlation_id': context['correlation_id']}
+                return handle_operation_error(
+                    'ha_automation', 'list',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
                 )
             
-            cached = get_cache_section("automations", HA_CACHE_TTL_ENTITIES)
-            if cached:
-                log_info(f"Automations retrieved from cache [{context['correlation_id']}]")
-                response = create_success_response("Automations retrieved from cache", {
-                    "automations": cached,
-                    "count": len(cached),
-                    "cached": True,
-                    "correlation_id": context['correlation_id']
-                })
-                close_operation_context(context, success=True, result=response)
-                return response
+            config = ha_config or get_ha_config()
             
-            if not ha_config:
-                ha_config = get_ha_config()
+            def _get_automations():
+                response = batch_get_states(None, config, use_cache=True)
+                if not response.get('success'):
+                    return []
+                
+                states = response.get('data', [])
+                return [
+                    {
+                        'entity_id': state.get('entity_id'),
+                        'name': state.get('attributes', {}).get('friendly_name', state.get('entity_id')),
+                        'state': state.get('state'),
+                        'last_triggered': state.get('attributes', {}).get('last_triggered')
+                    }
+                    for state in states
+                    if state.get('entity_id', '').startswith('automation.')
+                ]
             
-            automations = list_entities_by_domain("automation", ha_config, HA_CACHE_TTL_ENTITIES, minimize=True)
+            automations = cache_operation_result(
+                operation_name="list_automations",
+                func=_get_automations,
+                ttl=HA_CACHE_TTL_ENTITIES,
+                cache_key_prefix="ha_automations"
+            )
             
-            response = create_success_response("Automations retrieved", {
-                "automations": automations,
-                "count": len(automations),
-                "cached": False,
-                "correlation_id": context['correlation_id']
-            })
-            close_operation_context(context, success=True, result=response)
-            return response
+            close_operation_context(context, success=True)
+            
+            return create_success_response(
+                f"Retrieved {len(automations)} automations",
+                {
+                    'automations': automations,
+                    'count': len(automations)
+                }
+            )
             
         except Exception as e:
-            from shared_utilities import handle_operation_error
             close_operation_context(context, success=False)
             return handle_operation_error('ha_automation', 'list', e, context['correlation_id'])
     
+    def _resolve_automation_id(self, automation_id: str, config: Dict[str, Any]) -> Optional[str]:
+        """Resolve automation ID or name to entity ID."""
+        if automation_id.startswith('automation.'):
+            return automation_id
+        
+        automations_response = self.list_automations(config)
+        if not automations_response.get('success'):
+            return None
+        
+        automations = automations_response.get('data', {}).get('automations', [])
+        
+        automation_id_lower = automation_id.lower()
+        for auto in automations:
+            entity_id = auto.get('entity_id', '')
+            name = auto.get('name', '').lower()
+            
+            if entity_id.lower() == automation_id_lower or name == automation_id_lower:
+                return entity_id
+        
+        names = [auto.get('name', '') for auto in automations]
+        matched_name = fuzzy_match_name(automation_id, names)
+        
+        if matched_name:
+            for auto in automations:
+                if auto.get('name') == matched_name:
+                    return auto.get('entity_id')
+        
+        return None
+    
     def get_stats(self) -> Dict[str, Any]:
-        """Get automation statistics."""
+        """Get automation manager statistics."""
         return {
             "feature": self.get_feature_name(),
-            **self._stats
+            **self._stats,
+            "success_rate": (self._stats['successful_triggers'] / self._stats['total_triggers'] * 100)
+                           if self._stats['total_triggers'] > 0 else 0.0
         }
 
 
-_manager_instance = None
-
-def _get_manager() -> HAAutomationManager:
-    """Get singleton automation manager instance."""
-    global _manager_instance
-    if _manager_instance is None:
-        _manager_instance = HAAutomationManager()
-    return _manager_instance
+_automation_manager = HAAutomationManager()
 
 
-def trigger_automation(
-    automation_id: str,
-    ha_config: Optional[Dict[str, Any]] = None,
-    skip_condition: bool = False
-) -> Dict[str, Any]:
-    """Trigger automation."""
-    manager = _get_manager()
-    return manager.trigger(automation_id, ha_config, skip_condition)
+def trigger_automation(automation_id: str, ha_config: Optional[Dict[str, Any]] = None, 
+                      skip_condition: bool = False) -> Dict[str, Any]:
+    """Trigger automation via manager."""
+    return _automation_manager.trigger_automation(automation_id, ha_config, skip_condition)
 
 
 def list_automations(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """List all automations."""
-    manager = _get_manager()
-    return manager.list(ha_config)
+    """List automations via manager."""
+    return _automation_manager.list_automations(ha_config)
 
 
 def get_automation_stats() -> Dict[str, Any]:
-    """Get automation statistics."""
-    manager = _get_manager()
-    return manager.get_stats()
+    """Get automation manager statistics."""
+    return _automation_manager.get_stats()
 
 
-__all__ = ["trigger_automation", "list_automations", "get_automation_stats"]
+__all__ = [
+    'HAAutomationManager',
+    'trigger_automation',
+    'list_automations',
+    'get_automation_stats',
+]
+
+# EOF
