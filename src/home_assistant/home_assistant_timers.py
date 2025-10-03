@@ -1,24 +1,21 @@
 """
-home_assistant_timers.py - Timer Management
-Version: 2025.10.01.04
-Description: Timer management with circuit breaker and shared utilities integration
+Home Assistant Timers - Gateway-Optimized Timer Management
+Version: 2025.10.03.02
+Description: Revolutionary gateway-integrated timer management with zero custom error handling
 
-ARCHITECTURE: HA EXTENSION FEATURE MODULE
-- Uses ha_common for all HA API interactions
-- Circuit breaker protection via ha_common
-- Comprehensive operation tracking
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 6 Complete
-- ADDED: Operation context tracking for all operations
-- ADDED: Circuit breaker awareness via is_ha_available()
-- ADDED: Comprehensive error handling via handle_operation_error()
-- ADDED: Enhanced metrics recording
-- 100% architecture compliance achieved
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright 2024 Anthropic PBC
-Licensed under the Apache License, Version 2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
@@ -26,29 +23,23 @@ import re
 from typing import Dict, Any, Optional, Union
 
 from gateway import (
-    log_info, log_error, log_warning,
-    create_success_response, create_error_response,
-    generate_correlation_id,
-    increment_counter,
-    execute_operation,
-    handle_operation_error
+    log_info,
+    create_success_response,
+    increment_counter
 )
 
 from ha_common import (
     get_ha_config,
-    resolve_entity_id,
     call_ha_service,
-    list_entities_by_domain,
     get_entity_state,
+    batch_get_states,
     is_ha_available,
-    get_cache_section,
-    set_cache_section,
-    HA_CACHE_TTL_ENTITIES
+    HA_CACHE_TTL_STATE
 )
 
 
 class HATimerManager:
-    """Manages Home Assistant timers with comprehensive tracking."""
+    """Manages Home Assistant timers with circuit breaker protection."""
     
     def __init__(self):
         self._stats = {
@@ -57,16 +48,14 @@ class HATimerManager:
             'failures': 0,
             'by_action': {
                 'start': {'operations': 0, 'successes': 0},
-                'pause': {'operations': 0, 'successes': 0},
                 'cancel': {'operations': 0, 'successes': 0},
+                'pause': {'operations': 0, 'successes': 0},
                 'finish': {'operations': 0, 'successes': 0}
-            },
-            'avg_duration_ms': 0.0
+            }
         }
-        self._total_duration = 0.0
     
     def get_feature_name(self) -> str:
-        return "timers"
+        return "timer"
     
     def start_timer(
         self,
@@ -74,526 +63,416 @@ class HATimerManager:
         duration: Union[str, int],
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Start timer with circuit breaker protection and operation tracking."""
+        """Start timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        operation_start = time.time()
-        correlation_id = generate_correlation_id()
+        context = create_operation_context('ha_timer', 'start',
+                                          timer_id=timer_id, duration=str(duration))
         
-        def _operation():
-            # Circuit breaker check
+        try:
             if not is_ha_available():
-                raise Exception("Home Assistant circuit breaker open - service unavailable")
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'start',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
             
-            # Get HA config
             config = ha_config or get_ha_config()
-            if not config:
-                raise Exception("Home Assistant not configured")
+            entity_id = self._resolve_timer_id(timer_id, config)
             
-            # Resolve timer entity ID
-            entity_id = resolve_entity_id(timer_id, ["timer"])
             if not entity_id:
-                raise Exception(f"Timer not found: {timer_id}")
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'start',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
             
-            # Parse duration
-            duration_seconds = self._parse_duration(duration)
-            if duration_seconds <= 0:
-                raise Exception(f"Invalid duration: {duration}")
+            duration_str = self._parse_duration(duration)
             
-            # Convert to HH:MM:SS format
-            duration_str = self._seconds_to_duration_string(duration_seconds)
-            
-            # Start timer
             service_data = {
                 "entity_id": entity_id,
                 "duration": duration_str
             }
             
-            result = call_ha_service("timer.start", service_data, config)
+            result = call_ha_service("timer", "start", config, entity_id, service_data)
             
-            # Update stats
             self._stats['operations'] += 1
-            self._stats['successes'] += 1
-            self._stats['by_action']['start']['operations'] += 1
-            self._stats['by_action']['start']['successes'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['start']['operations'] += 1
+                self._stats['by_action']['start']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
             
-            duration_ms = (time.time() - operation_start) * 1000
-            self._total_duration += duration_ms
-            self._stats['avg_duration_ms'] = self._total_duration / self._stats['operations']
+            close_operation_context(context, success=result.get('success', False), result=result)
             
-            # Record metrics
-            increment_counter("ha_timer_action", {
-                "action": "start",
-                "success": "true",
-                "duration_range": self._get_duration_range(duration_seconds)
-            })
-            
-            log_info(f"Timer started successfully: {entity_id}", extra={
-                "correlation_id": correlation_id,
-                "entity_id": entity_id,
-                "duration_seconds": duration_seconds,
-                "duration_str": duration_str,
-                "duration_ms": duration_ms
-            })
+            increment_counter('ha_timer_start')
             
             return create_success_response(
-                message=f"Timer {entity_id} started for {duration_str}",
-                data={
-                    "entity_id": entity_id,
-                    "duration": duration_str,
-                    "duration_seconds": duration_seconds,
-                    "service_result": result
+                f"Timer {entity_id} started for {duration_str}",
+                {
+                    'entity_id': entity_id,
+                    'duration': duration_str,
+                    'result': result
                 }
             )
-        
-        try:
-            return execute_operation(
-                _operation,
-                operation_type="start_timer",
-                correlation_id=correlation_id,
-                context={
-                    "timer_id": timer_id,
-                    "duration": str(duration),
-                    "ha_config_present": bool(ha_config)
-                }
-            )
+            
         except Exception as e:
-            self._stats['operations'] += 1
             self._stats['failures'] += 1
-            self._stats['by_action']['start']['operations'] += 1
-            
-            increment_counter("ha_timer_action", {
-                "action": "start",
-                "success": "false",
-                "duration_range": "unknown"
-            })
-            
-            return handle_operation_error(
-                e,
-                operation_type="start_timer",
-                correlation_id=correlation_id,
-                context={"timer_id": timer_id, "duration": str(duration)}
-            )
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'start', e, context['correlation_id'])
     
     def cancel_timer(
         self,
         timer_id: str,
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Cancel timer with circuit breaker protection."""
+        """Cancel timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        operation_start = time.time()
-        correlation_id = generate_correlation_id()
-        
-        def _operation():
-            # Circuit breaker check
-            if not is_ha_available():
-                raise Exception("Home Assistant circuit breaker open - service unavailable")
-            
-            # Get HA config
-            config = ha_config or get_ha_config()
-            if not config:
-                raise Exception("Home Assistant not configured")
-            
-            # Resolve timer entity ID
-            entity_id = resolve_entity_id(timer_id, ["timer"])
-            if not entity_id:
-                raise Exception(f"Timer not found: {timer_id}")
-            
-            # Cancel timer
-            service_data = {"entity_id": entity_id}
-            result = call_ha_service("timer.cancel", service_data, config)
-            
-            # Update stats
-            self._stats['operations'] += 1
-            self._stats['successes'] += 1
-            self._stats['by_action']['cancel']['operations'] += 1
-            self._stats['by_action']['cancel']['successes'] += 1
-            
-            duration_ms = (time.time() - operation_start) * 1000
-            self._total_duration += duration_ms
-            self._stats['avg_duration_ms'] = self._total_duration / self._stats['operations']
-            
-            # Record metrics
-            increment_counter("ha_timer_action", {
-                "action": "cancel",
-                "success": "true"
-            })
-            
-            log_info(f"Timer cancelled successfully: {entity_id}", extra={
-                "correlation_id": correlation_id,
-                "entity_id": entity_id,
-                "duration_ms": duration_ms
-            })
-            
-            return create_success_response(
-                message=f"Timer {entity_id} cancelled",
-                data={
-                    "entity_id": entity_id,
-                    "service_result": result
-                }
-            )
+        context = create_operation_context('ha_timer', 'cancel', timer_id=timer_id)
         
         try:
-            return execute_operation(
-                _operation,
-                operation_type="cancel_timer",
-                correlation_id=correlation_id,
-                context={
-                    "timer_id": timer_id,
-                    "ha_config_present": bool(ha_config)
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'cancel',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'cancel',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            result = call_ha_service("timer", "cancel", config, entity_id)
+            
+            self._stats['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['cancel']['operations'] += 1
+                self._stats['by_action']['cancel']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_timer_cancel')
+            
+            return create_success_response(
+                f"Timer {entity_id} cancelled",
+                {
+                    'entity_id': entity_id,
+                    'result': result
                 }
             )
+            
         except Exception as e:
-            self._stats['operations'] += 1
             self._stats['failures'] += 1
-            self._stats['by_action']['cancel']['operations'] += 1
-            
-            increment_counter("ha_timer_action", {
-                "action": "cancel",
-                "success": "false"
-            })
-            
-            return handle_operation_error(
-                e,
-                operation_type="cancel_timer",
-                correlation_id=correlation_id,
-                context={"timer_id": timer_id}
-            )
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'cancel', e, context['correlation_id'])
     
     def pause_timer(
         self,
         timer_id: str,
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Pause timer with circuit breaker protection."""
+        """Pause timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        operation_start = time.time()
-        correlation_id = generate_correlation_id()
-        
-        def _operation():
-            # Circuit breaker check
-            if not is_ha_available():
-                raise Exception("Home Assistant circuit breaker open - service unavailable")
-            
-            # Get HA config
-            config = ha_config or get_ha_config()
-            if not config:
-                raise Exception("Home Assistant not configured")
-            
-            # Resolve timer entity ID
-            entity_id = resolve_entity_id(timer_id, ["timer"])
-            if not entity_id:
-                raise Exception(f"Timer not found: {timer_id}")
-            
-            # Pause timer
-            service_data = {"entity_id": entity_id}
-            result = call_ha_service("timer.pause", service_data, config)
-            
-            # Update stats
-            self._stats['operations'] += 1
-            self._stats['successes'] += 1
-            self._stats['by_action']['pause']['operations'] += 1
-            self._stats['by_action']['pause']['successes'] += 1
-            
-            duration_ms = (time.time() - operation_start) * 1000
-            self._total_duration += duration_ms
-            self._stats['avg_duration_ms'] = self._total_duration / self._stats['operations']
-            
-            # Record metrics
-            increment_counter("ha_timer_action", {
-                "action": "pause",
-                "success": "true"
-            })
-            
-            log_info(f"Timer paused successfully: {entity_id}", extra={
-                "correlation_id": correlation_id,
-                "entity_id": entity_id,
-                "duration_ms": duration_ms
-            })
-            
-            return create_success_response(
-                message=f"Timer {entity_id} paused",
-                data={
-                    "entity_id": entity_id,
-                    "service_result": result
-                }
-            )
+        context = create_operation_context('ha_timer', 'pause', timer_id=timer_id)
         
         try:
-            return execute_operation(
-                _operation,
-                operation_type="pause_timer",
-                correlation_id=correlation_id,
-                context={
-                    "timer_id": timer_id,
-                    "ha_config_present": bool(ha_config)
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'pause',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'pause',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            result = call_ha_service("timer", "pause", config, entity_id)
+            
+            self._stats['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['pause']['operations'] += 1
+                self._stats['by_action']['pause']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_timer_pause')
+            
+            return create_success_response(
+                f"Timer {entity_id} paused",
+                {
+                    'entity_id': entity_id,
+                    'result': result
                 }
             )
+            
         except Exception as e:
-            self._stats['operations'] += 1
             self._stats['failures'] += 1
-            self._stats['by_action']['pause']['operations'] += 1
-            
-            increment_counter("ha_timer_action", {
-                "action": "pause",
-                "success": "false"
-            })
-            
-            return handle_operation_error(
-                e,
-                operation_type="pause_timer",
-                correlation_id=correlation_id,
-                context={"timer_id": timer_id}
-            )
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'pause', e, context['correlation_id'])
     
     def finish_timer(
         self,
         timer_id: str,
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Finish timer immediately with circuit breaker protection."""
+        """Finish timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        operation_start = time.time()
-        correlation_id = generate_correlation_id()
-        
-        def _operation():
-            # Circuit breaker check
-            if not is_ha_available():
-                raise Exception("Home Assistant circuit breaker open - service unavailable")
-            
-            # Get HA config
-            config = ha_config or get_ha_config()
-            if not config:
-                raise Exception("Home Assistant not configured")
-            
-            # Resolve timer entity ID
-            entity_id = resolve_entity_id(timer_id, ["timer"])
-            if not entity_id:
-                raise Exception(f"Timer not found: {timer_id}")
-            
-            # Finish timer
-            service_data = {"entity_id": entity_id}
-            result = call_ha_service("timer.finish", service_data, config)
-            
-            # Update stats
-            self._stats['operations'] += 1
-            self._stats['successes'] += 1
-            self._stats['by_action']['finish']['operations'] += 1
-            self._stats['by_action']['finish']['successes'] += 1
-            
-            duration_ms = (time.time() - operation_start) * 1000
-            self._total_duration += duration_ms
-            self._stats['avg_duration_ms'] = self._total_duration / self._stats['operations']
-            
-            # Record metrics
-            increment_counter("ha_timer_action", {
-                "action": "finish",
-                "success": "true"
-            })
-            
-            log_info(f"Timer finished successfully: {entity_id}", extra={
-                "correlation_id": correlation_id,
-                "entity_id": entity_id,
-                "duration_ms": duration_ms
-            })
-            
-            return create_success_response(
-                message=f"Timer {entity_id} finished",
-                data={
-                    "entity_id": entity_id,
-                    "service_result": result
-                }
-            )
+        context = create_operation_context('ha_timer', 'finish', timer_id=timer_id)
         
         try:
-            return execute_operation(
-                _operation,
-                operation_type="finish_timer",
-                correlation_id=correlation_id,
-                context={
-                    "timer_id": timer_id,
-                    "ha_config_present": bool(ha_config)
-                }
-            )
-        except Exception as e:
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'finish',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'finish',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            result = call_ha_service("timer", "finish", config, entity_id)
+            
             self._stats['operations'] += 1
-            self._stats['failures'] += 1
-            self._stats['by_action']['finish']['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['finish']['operations'] += 1
+                self._stats['by_action']['finish']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
             
-            increment_counter("ha_timer_action", {
-                "action": "finish",
-                "success": "false"
-            })
+            close_operation_context(context, success=result.get('success', False), result=result)
             
-            return handle_operation_error(
-                e,
-                operation_type="finish_timer",
-                correlation_id=correlation_id,
-                context={"timer_id": timer_id}
-            )
-    
-    def _parse_duration(self, duration: Union[str, int]) -> int:
-        """Parse duration into seconds."""
-        if isinstance(duration, int):
-            return duration
-        
-        if isinstance(duration, str):
-            # Try to parse as integer seconds
-            try:
-                return int(duration)
-            except ValueError:
-                pass
+            increment_counter('ha_timer_finish')
             
-            # Parse natural language durations
-            duration_lower = duration.lower().strip()
-            
-            # Pattern: "5 minutes", "10 min", "1 hour", "30 seconds", etc.
-            pattern = r'(\d+)\s*(second|sec|minute|min|hour|hr)s?'
-            match = re.search(pattern, duration_lower)
-            
-            if match:
-                value = int(match.group(1))
-                unit = match.group(2)
-                
-                multipliers = {
-                    'second': 1, 'sec': 1,
-                    'minute': 60, 'min': 60,
-                    'hour': 3600, 'hr': 3600
+            return create_success_response(
+                f"Timer {entity_id} finished",
+                {
+                    'entity_id': entity_id,
+                    'result': result
                 }
-                
-                return value * multipliers.get(unit, 1)
+            )
             
-            # Pattern: "HH:MM:SS" or "MM:SS"
-            time_pattern = r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$'
-            time_match = re.match(time_pattern, duration_lower)
-            
-            if time_match:
-                if time_match.group(3):  # HH:MM:SS
-                    hours = int(time_match.group(1))
-                    minutes = int(time_match.group(2))
-                    seconds = int(time_match.group(3))
-                    return hours * 3600 + minutes * 60 + seconds
-                else:  # MM:SS
-                    minutes = int(time_match.group(1))
-                    seconds = int(time_match.group(2))
-                    return minutes * 60 + seconds
-        
-        return 0
-    
-    def _seconds_to_duration_string(self, seconds: int) -> str:
-        """Convert seconds to HH:MM:SS format."""
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        seconds = seconds % 60
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-    
-    def _get_duration_range(self, seconds: int) -> str:
-        """Get duration range for metrics."""
-        if seconds < 60:
-            return "under_1_min"
-        elif seconds < 300:
-            return "1_to_5_min"
-        elif seconds < 900:
-            return "5_to_15_min"
-        elif seconds < 3600:
-            return "15_to_60_min"
-        else:
-            return "over_1_hour"
+        except Exception as e:
+            self._stats['failures'] += 1
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'finish', e, context['correlation_id'])
     
     def list_timers(
         self,
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """List all timers with caching."""
+        """List timers with circuit breaker and caching."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context,
+            handle_operation_error, cache_operation_result
+        )
         
-        correlation_id = generate_correlation_id()
-        
-        def _operation():
-            # Circuit breaker check
-            if not is_ha_available():
-                raise Exception("Home Assistant circuit breaker open - service unavailable")
-            
-            # Get HA config
-            config = ha_config or get_ha_config()
-            if not config:
-                raise Exception("Home Assistant not configured")
-            
-            # Get timers with caching
-            cache_key = "timers_list"
-            timers = get_cache_section(cache_key)
-            
-            if timers is None:
-                timers = list_entities_by_domain("timer", config)
-                set_cache_section(cache_key, timers, HA_CACHE_TTL_ENTITIES)
-            
-            return create_success_response(
-                message=f"Retrieved {len(timers)} timers",
-                data={
-                    "timers": timers,
-                    "count": len(timers)
-                }
-            )
+        context = create_operation_context('ha_timer', 'list')
         
         try:
-            return execute_operation(
-                _operation,
-                operation_type="list_timers",
-                correlation_id=correlation_id,
-                context={
-                    "ha_config_present": bool(ha_config)
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'list',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            
+            def _get_timers():
+                response = batch_get_states(None, config, use_cache=True)
+                if not response.get('success'):
+                    return []
+                
+                states = response.get('data', [])
+                return [
+                    {
+                        'entity_id': state.get('entity_id'),
+                        'name': state.get('attributes', {}).get('friendly_name', state.get('entity_id')),
+                        'state': state.get('state'),
+                        'duration': state.get('attributes', {}).get('duration'),
+                        'remaining': state.get('attributes', {}).get('remaining')
+                    }
+                    for state in states
+                    if state.get('entity_id', '').startswith('timer.')
+                ]
+            
+            timers = cache_operation_result(
+                operation_name="list_timers",
+                func=_get_timers,
+                ttl=HA_CACHE_TTL_STATE,
+                cache_key_prefix="ha_timers"
+            )
+            
+            close_operation_context(context, success=True)
+            
+            return create_success_response(
+                f"Retrieved {len(timers)} timers",
+                {
+                    'timers': timers,
+                    'count': len(timers)
                 }
             )
+            
         except Exception as e:
-            return handle_operation_error(
-                e,
-                operation_type="list_timers",
-                correlation_id=correlation_id,
-                context={}
-            )
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'list', e, context['correlation_id'])
+    
+    def _parse_duration(self, duration: Union[str, int]) -> str:
+        """Parse duration into HH:MM:SS format."""
+        if isinstance(duration, int):
+            return f"00:{duration:02d}:00"
+        
+        duration_str = str(duration)
+        
+        if ':' in duration_str:
+            parts = duration_str.split(':')
+            if len(parts) == 3:
+                return duration_str
+            elif len(parts) == 2:
+                return f"00:{duration_str}"
+        
+        text_match = re.match(r'(\d+)\s*(hour|minute|second|min|sec|hr|h|m|s)s?', duration_str, re.IGNORECASE)
+        if text_match:
+            value = int(text_match.group(1))
+            unit = text_match.group(2).lower()
+            
+            if unit in ['hour', 'hr', 'h']:
+                return f"{value:02d}:00:00"
+            elif unit in ['minute', 'min', 'm']:
+                return f"00:{value:02d}:00"
+            elif unit in ['second', 'sec', 's']:
+                return f"00:00:{value:02d}"
+        
+        try:
+            minutes = int(duration_str)
+            return f"00:{minutes:02d}:00"
+        except ValueError:
+            return "00:10:00"
+    
+    def _resolve_timer_id(self, timer_id: str, config: Dict[str, Any]) -> Optional[str]:
+        """Resolve timer ID to entity ID."""
+        if timer_id.startswith('timer.'):
+            return timer_id
+        
+        response = batch_get_states(None, config, use_cache=True)
+        if not response.get('success'):
+            return None
+        
+        states = response.get('data', [])
+        timer_id_lower = timer_id.lower()
+        
+        for state in states:
+            entity_id = state.get('entity_id', '')
+            if not entity_id.startswith('timer.'):
+                continue
+            
+            friendly_name = state.get('attributes', {}).get('friendly_name', '').lower()
+            
+            if entity_id.lower() == timer_id_lower or friendly_name == timer_id_lower:
+                return entity_id
+        
+        return None
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get timer operation statistics."""
-        return dict(self._stats)
+        """Get timer manager statistics."""
+        return {
+            "feature": self.get_feature_name(),
+            **self._stats,
+            "success_rate": (self._stats['successes'] / self._stats['operations'] * 100)
+                           if self._stats['operations'] > 0 else 0.0
+        }
 
 
-# Singleton instance
 _timer_manager = HATimerManager()
 
-def start_timer(
-    timer_id: str,
-    duration: Union[str, int],
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Start timer - main entry point."""
+
+def start_timer(timer_id: str, duration: Union[str, int],
+               ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start timer via manager."""
     return _timer_manager.start_timer(timer_id, duration, ha_config)
 
-def cancel_timer(
-    timer_id: str,
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Cancel timer - main entry point."""
+
+def cancel_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Cancel timer via manager."""
     return _timer_manager.cancel_timer(timer_id, ha_config)
 
-def pause_timer(
-    timer_id: str,
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Pause timer - main entry point."""
+
+def pause_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Pause timer via manager."""
     return _timer_manager.pause_timer(timer_id, ha_config)
 
-def finish_timer(
-    timer_id: str,
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Finish timer - main entry point."""
+
+def finish_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Finish timer via manager."""
     return _timer_manager.finish_timer(timer_id, ha_config)
 
-def list_timers(
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """List timers - main entry point."""
+
+def list_timers(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """List timers via manager."""
     return _timer_manager.list_timers(ha_config)
 
+
 def get_timer_stats() -> Dict[str, Any]:
-    """Get timer statistics - main entry point."""
+    """Get timer manager statistics."""
     return _timer_manager.get_stats()
+
+
+__all__ = [
+    'HATimerManager',
+    'start_timer',
+    'cancel_timer',
+    'pause_timer',
+    'finish_timer',
+    'list_timers',
+    'get_timer_stats',
+]
+
+# EOF
