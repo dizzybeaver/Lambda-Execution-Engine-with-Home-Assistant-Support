@@ -1,6 +1,6 @@
 """
 Error Context Core - Error Context Management with Template Optimization
-Version: 2025.10.02.01
+Version: 2025.10.03.01
 Description: Error context creation and management with pre-compiled templates
 
 Copyright 2025 Joseph Hersey
@@ -22,11 +22,11 @@ import json
 import time
 import uuid
 import os
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 from enum import Enum
 import threading
 
-# ===== ERROR CONTEXT TEMPLATES (Phase 3 Optimization) =====
+# ===== ERROR CONTEXT TEMPLATES (Template Optimization) =====
 
 _ERROR_CONTEXT_TEMPLATE = '{"interface":"%s","operation":"%s","correlation_id":"%s","timestamp":%f}'
 _ERROR_CONTEXT_WITH_CODE = '{"interface":"%s","operation":"%s","correlation_id":"%s","timestamp":%f,"error_code":"%s"}'
@@ -69,33 +69,27 @@ def generate_correlation_id_fast() -> str:
     try:
         with _CORRELATION_LOCK:
             if _CORRELATION_PREFIX is None:
-                _CORRELATION_PREFIX = str(uuid.uuid4())[:6]
+                _CORRELATION_PREFIX = f"corr-{int(time.time())}"
             
             _CORRELATION_COUNTER += 1
-            
-            if _CORRELATION_COUNTER > 9999:
-                _CORRELATION_COUNTER = 1
-                _CORRELATION_PREFIX = str(uuid.uuid4())[:6]
-            
-            return f"{_CORRELATION_PREFIX}-{_CORRELATION_COUNTER:04d}"
-            
+            return f"{_CORRELATION_PREFIX}-{_CORRELATION_COUNTER}"
     except Exception:
-        return str(uuid.uuid4())[:12]
+        return f"corr-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
 def create_error_context_fast(interface: str, operation: str, 
-                             correlation_id: Optional[str] = None,
-                             error_code: Optional[str] = None,
-                             details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Fast error context creation using templates."""
+                              correlation_id: Optional[str] = None,
+                              error_code: Optional[str] = None,
+                              details: Optional[Dict] = None) -> Dict[str, Any]:
+    """Create error context using template optimization."""
     try:
         if _USE_ERROR_TEMPLATES:
             corr_id = correlation_id or generate_correlation_id_fast()
             timestamp = time.time()
             
-            if details and error_code:
+            if details:
                 details_json = json.dumps(details)
                 json_str = _ERROR_CONTEXT_WITH_DETAILS % (
-                    interface, operation, corr_id, timestamp, error_code, details_json
+                    interface, operation, corr_id, timestamp, error_code or "unknown", details_json
                 )
             elif error_code:
                 json_str = _ERROR_CONTEXT_WITH_CODE % (
@@ -108,30 +102,28 @@ def create_error_context_fast(interface: str, operation: str,
             
             return json.loads(json_str)
         else:
-            return _create_error_context_legacy(interface, operation, correlation_id, error_code, details)
+            context = {
+                'interface': interface,
+                'operation': operation,
+                'correlation_id': correlation_id or generate_correlation_id_fast(),
+                'timestamp': time.time()
+            }
+            
+            if error_code:
+                context['error_code'] = error_code
+            
+            if details:
+                context['details'] = details
+            
+            return context
             
     except Exception:
-        return _create_error_context_legacy(interface, operation, correlation_id, error_code, details)
-
-def _create_error_context_legacy(interface: str, operation: str,
-                                correlation_id: Optional[str],
-                                error_code: Optional[str],
-                                details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Legacy dict-based error context creation."""
-    context = {
-        'interface': interface,
-        'operation': operation,
-        'correlation_id': correlation_id or generate_correlation_id_fast(),
-        'timestamp': time.time()
-    }
-    
-    if error_code:
-        context['error_code'] = error_code
-    
-    if details:
-        context['details'] = details
-    
-    return context
+        return {
+            'interface': interface,
+            'operation': operation,
+            'correlation_id': correlation_id or generate_correlation_id_fast(),
+            'timestamp': time.time()
+        }
 
 def create_validation_error_context(field: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
     """Create validation error context using specialized template."""
@@ -205,7 +197,7 @@ def create_ha_error_context(operation: str, entity_id: str,
             
             return json.loads(json_str)
         else:
-            return create_error_context_fast("homeassistant", operation, correlation_id,
+            return create_error_context_fast("homeassistant", operation, correlation_id, 
                                            details={"entity_id": entity_id})
             
     except Exception:
@@ -224,14 +216,14 @@ def create_lambda_error_context(request_id: str, correlation_id: Optional[str] =
             
             return json.loads(json_str)
         else:
-            return create_error_context_fast("lambda", "handler", correlation_id,
+            return create_error_context_fast("lambda", "handler", correlation_id, 
                                            details={"request_id": request_id})
             
     except Exception:
         return create_error_context_fast("lambda", "handler", correlation_id)
 
 class ErrorContextManager:
-    """Error context manager with template optimization."""
+    """Error context manager with template optimization and caching."""
     
     def __init__(self):
         self._context_cache = {}
@@ -239,17 +231,17 @@ class ErrorContextManager:
             'contexts_created': 0,
             'template_usage': 0,
             'legacy_usage': 0,
-            'correlation_ids_generated': 0,
             'cache_hits': 0,
-            'cache_misses': 0
+            'cache_misses': 0,
+            'correlation_ids_generated': 0
         }
         self._lock = threading.RLock()
     
-    def create_context(self, interface: str, operation: str, 
-                      correlation_id: Optional[str] = None,
-                      error_code: Optional[str] = None,
-                      details: Optional[Dict[str, Any]] = None,
-                      use_cache: bool = True) -> Dict[str, Any]:
+    def create_error_context(self, interface: str, operation: str, 
+                            correlation_id: Optional[str] = None,
+                            error_code: Optional[str] = None,
+                            details: Optional[Dict] = None,
+                            use_cache: bool = True) -> Dict[str, Any]:
         """Create error context with optional caching."""
         with self._lock:
             cache_key = f"{interface}_{operation}_{error_code}"
@@ -266,11 +258,11 @@ class ErrorContextManager:
             
             self._stats['cache_misses'] += 1
             
+            context = create_error_context_fast(interface, operation, correlation_id, error_code, details)
+            
             if _USE_ERROR_TEMPLATES:
-                context = create_error_context_fast(interface, operation, correlation_id, error_code, details)
                 self._stats['template_usage'] += 1
             else:
-                context = _create_error_context_legacy(interface, operation, correlation_id, error_code, details)
                 self._stats['legacy_usage'] += 1
             
             self._stats['contexts_created'] += 1
@@ -371,9 +363,9 @@ class ErrorContextManager:
                 'contexts_created': 0,
                 'template_usage': 0,
                 'legacy_usage': 0,
-                'correlation_ids_generated': 0,
                 'cache_hits': 0,
-                'cache_misses': 0
+                'cache_misses': 0,
+                'correlation_ids_generated': 0
             }
 
 # Global error context manager instance
@@ -382,3 +374,5 @@ _error_context_manager = ErrorContextManager()
 def get_error_context_manager() -> ErrorContextManager:
     """Get global error context manager."""
     return _error_context_manager
+
+# EOF
