@@ -1,14 +1,7 @@
 """
-Cache Core - LUGS Cache Manager with Response Handler Consolidation
-Version: 2025.10.03.03
-Description: Cache management with standardized gateway response handlers
-
-RESPONSE CONSOLIDATION APPLIED:
-✅ All dict returns replaced with create_success_response()
-✅ Error cases use create_error_response()
-✅ Correlation IDs from generate_correlation_id()
-✅ 85% faster with template optimization
-✅ Consistent response format across all operations
+Cache Core - Template Optimized with Generic Operations
+Version: 2025.10.03.01
+Description: Cache management with template-based key generation and generic operations
 
 Copyright 2025 Joseph Hersey
 
@@ -28,398 +21,302 @@ Copyright 2025 Joseph Hersey
 import time
 import threading
 import os
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
-from gateway import (
-    log_info, log_debug,
-    record_metric,
-    generate_correlation_id,
-    create_success_response,
-    create_error_response,
-    execute_operation
-)
+from typing import Dict, Any, Optional, Set
+from enum import Enum
+from collections import defaultdict
 
-# Cache key templates
-_CACHE_KEY_TEMPLATES = {
-    'ha_health': 'ha_health_%s',
-    'ha_stats': 'ha_stats_%s',
-    'ha_state': 'ha_state_%s',
-    'config': 'config_%s'
-}
+# Cache key templates for ultra-fast generation
+_HA_HEALTH_KEY = "ha_health_%s"
+_HA_STATS_KEY = "ha_stats_%s"
+_HA_CONFIG_KEY = "ha_config_%s"
+_JSON_PARSE_KEY = "json_parse_%s"
+_CONFIG_KEY = "config_%s_%s"
+_METRIC_KEY = "metric_%s_%s"
+_RESPONSE_KEY = "response_%s_%s"
+_SESSION_KEY = "session_%s"
+_USER_KEY = "user_%s"
+_LAMBDA_CACHE_KEY = "lambda_%s_%s"
+_OPERATION_KEY = "operation_%s_%s"
 
 _USE_CACHE_TEMPLATES = os.environ.get('USE_CACHE_TEMPLATES', 'true').lower() == 'true'
 
 
-def get_cache_key_fast(prefix: str, suffix: str) -> str:
-    """Get cache key using template optimization."""
-    if _USE_CACHE_TEMPLATES and prefix in _CACHE_KEY_TEMPLATES:
-        return _CACHE_KEY_TEMPLATES[prefix] % suffix
-    return f"{prefix}_{suffix}"
+class CacheOperation(Enum):
+    """Generic cache operations."""
+    GET = "get"
+    SET = "set"
+    DELETE = "delete"
+    CLEAR = "clear"
+    EXISTS = "exists"
+    GET_TTL = "get_ttl"
+    SET_TTL = "set_ttl"
+    GET_STATS = "get_stats"
+    CLEANUP = "cleanup"
 
 
-def _extract_key_prefix_fast(key: str) -> str:
-    """Extract key prefix for metrics."""
-    parts = key.split('_', 1)
-    return parts[0] if parts else key
+class CacheKeyType(Enum):
+    """Cache key type templates."""
+    HA_HEALTH = "ha_health"
+    HA_STATS = "ha_stats"
+    HA_CONFIG = "ha_config"
+    JSON_PARSE = "json_parse"
+    CONFIG = "config"
+    METRIC = "metric"
+    RESPONSE = "response"
+    SESSION = "session"
+    USER = "user"
+    LAMBDA = "lambda"
+    OPERATION = "operation"
+    CUSTOM = "custom"
 
 
-@dataclass
-class CacheEntry:
-    """Cache entry with metadata."""
-    value: Any
-    created_time: float
-    ttl: Optional[int]
-    access_count: int = 0
-    last_access_time: Optional[float] = None
-    source_module: Optional[str] = None
-    
-    @property
-    def is_expired(self) -> bool:
-        """Check if entry is expired."""
-        if self.ttl is None:
-            return False
-        return (time.time() - self.created_time) > self.ttl
-    
-    @property
-    def expires_at(self) -> Optional[float]:
-        """Get expiration timestamp."""
-        if self.ttl is None:
-            return None
-        return self.created_time + self.ttl
-
-
-class LUGSCacheManager:
-    """LUGS-integrated cache manager with standardized responses."""
+class CacheCore:
+    """Core cache manager with template optimization and generic operations."""
     
     def __init__(self):
-        self._cache: Dict[str, CacheEntry] = {}
+        self._cache: Dict[str, Any] = {}
+        self._ttl: Dict[str, float] = {}
+        self._access_count: Dict[str, int] = defaultdict(int)
         self._lock = threading.RLock()
-        self._module_dependencies: Dict[str, set] = {}
-        self._cache_to_module: Dict[str, str] = {}
-        self._operation_count = 0
-        self._cleanup_interval = 100
-        
         self._stats = {
             'hits': 0,
             'misses': 0,
             'sets': 0,
             'deletes': 0,
-            'expirations': 0,
-            'evictions': 0,
-            'lugs_integrations': 0,
-            'dependency_cleanups': 0,
-            'template_key_generations': 0
+            'clears': 0,
+            'template_keys': 0
         }
     
-    def get(self, key: str, default=None) -> Any:
-        """Get cached value (returns value directly, not response dict)."""
-        correlation_id = generate_correlation_id()
+    def get_cache_key_fast(self, key_type: CacheKeyType, *args) -> str:
+        """Generate cache key using templates for ultra-fast performance."""
+        if not _USE_CACHE_TEMPLATES:
+            return self._get_cache_key_legacy(key_type, *args)
         
+        try:
+            if key_type == CacheKeyType.HA_HEALTH:
+                return _HA_HEALTH_KEY % args[0] if args else "ha_health_default"
+            elif key_type == CacheKeyType.HA_STATS:
+                return _HA_STATS_KEY % args[0] if args else "ha_stats_default"
+            elif key_type == CacheKeyType.HA_CONFIG:
+                return _HA_CONFIG_KEY % args[0] if args else "ha_config_default"
+            elif key_type == CacheKeyType.JSON_PARSE:
+                return _JSON_PARSE_KEY % hash(args[0]) if args else "json_parse_default"
+            elif key_type == CacheKeyType.CONFIG:
+                return _CONFIG_KEY % (args[0], args[1]) if len(args) >= 2 else f"config_{args[0] if args else 'default'}"
+            elif key_type == CacheKeyType.METRIC:
+                return _METRIC_KEY % (args[0], args[1]) if len(args) >= 2 else f"metric_{args[0] if args else 'default'}"
+            elif key_type == CacheKeyType.RESPONSE:
+                return _RESPONSE_KEY % (args[0], args[1]) if len(args) >= 2 else f"response_{args[0] if args else 'default'}"
+            elif key_type == CacheKeyType.SESSION:
+                return _SESSION_KEY % args[0] if args else "session_default"
+            elif key_type == CacheKeyType.USER:
+                return _USER_KEY % args[0] if args else "user_default"
+            elif key_type == CacheKeyType.LAMBDA:
+                return _LAMBDA_CACHE_KEY % (args[0], args[1]) if len(args) >= 2 else f"lambda_{args[0] if args else 'default'}"
+            elif key_type == CacheKeyType.OPERATION:
+                return _OPERATION_KEY % (args[0], args[1]) if len(args) >= 2 else f"operation_{args[0] if args else 'default'}"
+            else:
+                return "_".join(str(arg) for arg in args) if args else "custom_default"
+        except Exception:
+            return self._get_cache_key_legacy(key_type, *args)
+    
+    def _get_cache_key_legacy(self, key_type: CacheKeyType, *args) -> str:
+        """Legacy cache key generation."""
+        parts = [key_type.value]
+        parts.extend(str(arg) for arg in args)
+        return "_".join(parts)
+    
+    def execute_cache_operation(self, operation: CacheOperation, *args, **kwargs) -> Any:
+        """Generic cache operation executor."""
+        if operation == CacheOperation.GET:
+            return self.get(args[0] if args else kwargs.get('key'), kwargs.get('default'))
+        elif operation == CacheOperation.SET:
+            key = args[0] if args else kwargs.get('key')
+            value = args[1] if len(args) > 1 else kwargs.get('value')
+            ttl = args[2] if len(args) > 2 else kwargs.get('ttl')
+            return self.set(key, value, ttl)
+        elif operation == CacheOperation.DELETE:
+            return self.delete(args[0] if args else kwargs.get('key'))
+        elif operation == CacheOperation.CLEAR:
+            return self.clear()
+        elif operation == CacheOperation.EXISTS:
+            return self.exists(args[0] if args else kwargs.get('key'))
+        elif operation == CacheOperation.GET_TTL:
+            return self.get_ttl(args[0] if args else kwargs.get('key'))
+        elif operation == CacheOperation.SET_TTL:
+            key = args[0] if args else kwargs.get('key')
+            ttl = args[1] if len(args) > 1 else kwargs.get('ttl')
+            return self.set_ttl(key, ttl)
+        elif operation == CacheOperation.GET_STATS:
+            return self.get_stats()
+        elif operation == CacheOperation.CLEANUP:
+            max_age = args[0] if args else kwargs.get('max_age_seconds', 3600)
+            return self.cleanup(max_age)
+        return None
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get value from cache."""
         with self._lock:
-            self._operation_count += 1
-            
-            if self._operation_count % self._cleanup_interval == 0:
-                self._cleanup_expired_entries()
-            
             if key in self._cache:
-                entry = self._cache[key]
+                if key in self._ttl:
+                    if time.time() > self._ttl[key]:
+                        del self._cache[key]
+                        del self._ttl[key]
+                        self._stats['misses'] += 1
+                        return default
                 
-                if entry.is_expired:
-                    self._remove_entry_with_dependencies(key)
-                    self._stats['misses'] += 1
-                    self._stats['expirations'] += 1
-                    return default
-                
-                entry.access_count += 1
-                entry.last_access_time = time.time()
+                self._access_count[key] += 1
                 self._stats['hits'] += 1
-                
-                return entry.value
+                return self._cache[key]
             
             self._stats['misses'] += 1
             return default
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        """Set cached value (returns bool)."""
+        """Set value in cache."""
         try:
             with self._lock:
-                entry = CacheEntry(
-                    value=value,
-                    created_time=time.time(),
-                    ttl=ttl
-                )
-                
-                self._cache[key] = entry
+                self._cache[key] = value
+                if ttl:
+                    self._ttl[key] = time.time() + ttl
                 self._stats['sets'] += 1
-                
                 return True
         except Exception:
             return False
     
     def delete(self, key: str) -> bool:
-        """Delete cached value (returns bool)."""
+        """Delete value from cache."""
+        try:
+            with self._lock:
+                if key in self._cache:
+                    del self._cache[key]
+                    if key in self._ttl:
+                        del self._ttl[key]
+                    if key in self._access_count:
+                        del self._access_count[key]
+                    self._stats['deletes'] += 1
+                    return True
+                return False
+        except Exception:
+            return False
+    
+    def clear(self) -> int:
+        """Clear all cache entries."""
+        with self._lock:
+            count = len(self._cache)
+            self._cache.clear()
+            self._ttl.clear()
+            self._access_count.clear()
+            self._stats['clears'] += 1
+            return count
+    
+    def exists(self, key: str) -> bool:
+        """Check if key exists in cache."""
         with self._lock:
             if key in self._cache:
-                self._remove_entry_with_dependencies(key)
-                self._stats['deletes'] += 1
+                if key in self._ttl:
+                    if time.time() > self._ttl[key]:
+                        del self._cache[key]
+                        del self._ttl[key]
+                        return False
                 return True
             return False
     
-    def clear(self) -> bool:
-        """Clear all cached values (returns bool)."""
+    def get_ttl(self, key: str) -> Optional[int]:
+        """Get remaining TTL for key."""
         with self._lock:
-            try:
-                self._cache.clear()
-                self._module_dependencies.clear()
-                self._cache_to_module.clear()
-                return True
-            except Exception:
+            if key in self._ttl:
+                remaining = int(self._ttl[key] - time.time())
+                return remaining if remaining > 0 else None
+            return None
+    
+    def set_ttl(self, key: str, ttl: int) -> bool:
+        """Set TTL for existing key."""
+        try:
+            with self._lock:
+                if key in self._cache:
+                    self._ttl[key] = time.time() + ttl
+                    return True
                 return False
+        except Exception:
+            return False
+    
+    def cleanup(self, max_age_seconds: int = 3600) -> int:
+        """Clean up expired entries."""
+        with self._lock:
+            current_time = time.time()
+            expired_keys = [
+                key for key, expire_time in self._ttl.items()
+                if current_time > expire_time
+            ]
+            
+            for key in expired_keys:
+                if key in self._cache:
+                    del self._cache[key]
+                del self._ttl[key]
+                if key in self._access_count:
+                    del self._access_count[key]
+            
+            return len(expired_keys)
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get cache statistics - returns response dict."""
-        correlation_id = generate_correlation_id()
-        
+        """Get cache statistics."""
         with self._lock:
-            total_operations = self._stats['hits'] + self._stats['misses']
-            hit_rate = (self._stats['hits'] / total_operations * 100) if total_operations > 0 else 0
+            total_requests = self._stats['hits'] + self._stats['misses']
+            hit_rate = (self._stats['hits'] / total_requests * 100) if total_requests > 0 else 0
             
-            stats_data = {
-                **self._stats,
-                'total_entries': len(self._cache),
-                'module_dependencies': len(self._module_dependencies),
-                'cache_to_module_mappings': len(self._cache_to_module),
-                'hit_rate_percent': round(hit_rate, 2),
-                'total_operations': total_operations,
-                'template_optimization_enabled': _USE_CACHE_TEMPLATES
+            return {
+                'entries': len(self._cache),
+                'hits': self._stats['hits'],
+                'misses': self._stats['misses'],
+                'hit_rate_percent': hit_rate,
+                'sets': self._stats['sets'],
+                'deletes': self._stats['deletes'],
+                'clears': self._stats['clears'],
+                'template_keys': self._stats['template_keys']
             }
-            
-            return create_success_response(
-                "Cache statistics retrieved",
-                stats_data,
-                correlation_id
-            )
-    
-    def get_module_cache_info(self, module_name: str) -> Dict[str, Any]:
-        """Get cache information for specific module - returns response dict."""
-        correlation_id = generate_correlation_id()
-        
-        with self._lock:
-            if module_name not in self._module_dependencies:
-                return create_success_response(
-                    f"No cache entries for module: {module_name}",
-                    {
-                        "module_name": module_name,
-                        "cache_keys": [],
-                        "entry_count": 0
-                    },
-                    correlation_id
-                )
-            
-            cache_keys = list(self._module_dependencies[module_name])
-            entries_info = []
-            
-            for key in cache_keys:
-                if key in self._cache:
-                    entry = self._cache[key]
-                    entries_info.append({
-                        "key": key,
-                        "created_time": entry.created_time,
-                        "ttl": entry.ttl,
-                        "access_count": entry.access_count,
-                        "is_expired": entry.is_expired,
-                        "expires_at": entry.expires_at
-                    })
-            
-            return create_success_response(
-                f"Module cache info retrieved for: {module_name}",
-                {
-                    "module_name": module_name,
-                    "cache_keys": cache_keys,
-                    "entry_count": len(cache_keys),
-                    "entries": entries_info
-                },
-                correlation_id
-            )
-    
-    def cleanup_module_cache(self, module_name: str) -> Dict[str, Any]:
-        """Clean up all cache entries for a specific module - returns response dict."""
-        correlation_id = generate_correlation_id()
-        
-        with self._lock:
-            if module_name not in self._module_dependencies:
-                return create_success_response(
-                    f"No cache entries to clean for module: {module_name}",
-                    {
-                        "module_name": module_name,
-                        "cleaned_count": 0
-                    },
-                    correlation_id
-                )
-            
-            cache_keys = list(self._module_dependencies[module_name])
-            cleaned_count = 0
-            
-            for key in cache_keys:
-                if key in self._cache:
-                    self._remove_entry_with_dependencies(key)
-                    cleaned_count += 1
-            
-            return create_success_response(
-                f"Module cache cleaned for: {module_name}",
-                {
-                    "module_name": module_name,
-                    "cleaned_count": cleaned_count,
-                    "cleaned_keys": cache_keys
-                },
-                correlation_id
-            )
-    
-    def force_cleanup(self) -> Dict[str, Any]:
-        """Force cleanup of expired entries - returns response dict."""
-        correlation_id = generate_correlation_id()
-        
-        with self._lock:
-            expired_count = self._cleanup_expired_entries()
-            stats = self.get_stats()
-            
-            return create_success_response(
-                "Cache cleanup completed",
-                {
-                    "expired_entries_cleaned": expired_count,
-                    "current_stats": stats.get('data', {})
-                },
-                correlation_id
-            )
-    
-    def _set_cache_source_module(self, key: str, module_name: str) -> None:
-        """Set source module for cache entry (LUGS integration)."""
-        with self._lock:
-            if key in self._cache:
-                entry = self._cache[key]
-                entry.source_module = module_name
-                
-                self._cache_to_module[key] = module_name
-                
-                if module_name not in self._module_dependencies:
-                    self._module_dependencies[module_name] = set()
-                self._module_dependencies[module_name].add(key)
-                
-                self._stats['lugs_integrations'] += 1
-                
-                log_debug(f"Cache-module dependency set: {key} -> {module_name}")
-    
-    def _get_cache_source_module(self, key: str) -> Optional[str]:
-        """Get source module for cache entry (LUGS integration)."""
-        with self._lock:
-            return self._cache_to_module.get(key)
-    
-    def _remove_entry_with_dependencies(self, key: str) -> None:
-        """Remove cache entry and clean up LUGS dependencies."""
-        if key in self._cache:
-            entry = self._cache[key]
-            
-            if entry.source_module and entry.source_module in self._module_dependencies:
-                self._module_dependencies[entry.source_module].discard(key)
-                if not self._module_dependencies[entry.source_module]:
-                    del self._module_dependencies[entry.source_module]
-                
-                self._stats['dependency_cleanups'] += 1
-            
-            self._cache_to_module.pop(key, None)
-            del self._cache[key]
-    
-    def _cleanup_expired_entries(self) -> int:
-        """Clean up expired cache entries."""
-        expired_keys = []
-        
-        for key, entry in self._cache.items():
-            if entry.is_expired:
-                expired_keys.append(key)
-        
-        for key in expired_keys:
-            self._remove_entry_with_dependencies(key)
-            self._stats['expirations'] += 1
-        
-        if expired_keys:
-            record_metric("cache_cleanup", len(expired_keys), {
-                "cleanup_type": "expired"
-            })
-        
-        return len(expired_keys)
 
 
-_cache_manager = LUGSCacheManager()
+_MANAGER = CacheCore()
 
 
-# ===== PUBLIC API =====
-
-def get(key: str, default=None) -> Any:
-    """Get cached value."""
-    return _cache_manager.get(key, default)
+def _execute_get_implementation(key: str, default: Any = None, **kwargs) -> Any:
+    """Execute get operation."""
+    return _MANAGER.execute_cache_operation(CacheOperation.GET, key, default=default)
 
 
-def set(key: str, value: Any, ttl: Optional[int] = None) -> bool:
-    """Set cached value."""
-    return _cache_manager.set(key, value, ttl)
+def _execute_set_implementation(key: str, value: Any, ttl: Optional[int] = None, **kwargs) -> bool:
+    """Execute set operation."""
+    return _MANAGER.execute_cache_operation(CacheOperation.SET, key, value, ttl=ttl)
 
 
-def delete(key: str) -> bool:
-    """Delete cached value."""
-    return _cache_manager.delete(key)
+def _execute_delete_implementation(key: str, **kwargs) -> bool:
+    """Execute delete operation."""
+    return _MANAGER.execute_cache_operation(CacheOperation.DELETE, key)
 
 
-def clear() -> bool:
-    """Clear all cached values."""
-    return _cache_manager.clear()
+def _execute_clear_implementation(**kwargs) -> int:
+    """Execute clear operation."""
+    return _MANAGER.execute_cache_operation(CacheOperation.CLEAR)
 
 
-def get_stats() -> Dict[str, Any]:
-    """Get cache statistics - returns standardized response."""
-    return _cache_manager.get_stats()
+def get_cache_key_fast(key_type: CacheKeyType, *args) -> str:
+    """Public interface for fast cache key generation."""
+    return _MANAGER.get_cache_key_fast(key_type, *args)
 
 
-def get_cache_key(prefix: str, suffix: str) -> str:
-    """Get cache key using template optimization."""
-    _cache_manager._stats['template_key_generations'] += 1
-    return get_cache_key_fast(prefix, suffix)
-
-
-def _set_cache_source_module(key: str, module_name: str) -> None:
-    """Set source module for cache entry (internal LUGS interface)."""
-    _cache_manager._set_cache_source_module(key, module_name)
-
-
-def _get_cache_source_module(key: str) -> Optional[str]:
-    """Get source module for cache entry (internal LUGS interface)."""
-    return _cache_manager._get_cache_source_module(key)
-
-
-def get_module_cache_info(module_name: str) -> Dict[str, Any]:
-    """Get cache information for specific module - returns standardized response."""
-    return _cache_manager.get_module_cache_info(module_name)
-
-
-def cleanup_module_cache(module_name: str) -> Dict[str, Any]:
-    """Clean up all cache entries for a specific module - returns standardized response."""
-    return _cache_manager.cleanup_module_cache(module_name)
-
-
-def force_cleanup() -> Dict[str, Any]:
-    """Force cleanup of expired entries - returns standardized response."""
-    return _cache_manager.force_cleanup()
+def get_cache_stats() -> Dict[str, Any]:
+    """Public interface for cache statistics."""
+    return _MANAGER.get_stats()
 
 
 __all__ = [
-    'get',
-    'set',
-    'delete',
-    'clear',
-    'get_stats',
-    'get_cache_key',
-    'get_module_cache_info',
-    'cleanup_module_cache',
-    'force_cleanup',
+    'CacheOperation',
+    'CacheKeyType',
+    'get_cache_key_fast',
+    'get_cache_stats',
+    '_execute_get_implementation',
+    '_execute_set_implementation',
+    '_execute_delete_implementation',
+    '_execute_clear_implementation',
 ]
-
-# EOF
