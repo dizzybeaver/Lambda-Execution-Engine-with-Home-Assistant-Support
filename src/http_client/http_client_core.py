@@ -1,7 +1,7 @@
 """
-Home Assistant Response - Alexa Response Processing with Template Optimization
+HTTP Client Core - HTTP Operations with Header and Query String Template Optimization
 Version: 2025.10.02.01
-Description: Home Assistant response processing with pre-compiled Alexa templates
+Description: HTTP client with pre-compiled header templates and optimized query building
 
 Copyright 2025 Joseph Hersey
 
@@ -20,484 +20,372 @@ Copyright 2025 Joseph Hersey
 
 import json
 import time
-import logging
-import urllib3
-import uuid
 import os
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+import urllib3
+from typing import Dict, Any, Optional, List, Union
+from urllib.parse import urlencode, quote
+import threading
 
-logger = logging.getLogger(__name__)
+# ===== HTTP HEADER TEMPLATES (Phase 2 Optimization) =====
 
-from .home_assistant_core import (
-    _get_ha_manager,
-    HAOperationResult
-)
+_JSON_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "Lambda-Execution-Engine/1.0"
+}
 
-from logging import record_request, record_error
-from security import validate_request_data
+_XML_HEADERS = {
+    "Content-Type": "application/xml",
+    "Accept": "application/xml",
+    "User-Agent": "Lambda-Execution-Engine/1.0"
+}
 
-# ===== ALEXA RESPONSE TEMPLATES (Phase 2 Optimization) =====
+_FORM_HEADERS = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json",
+    "User-Agent": "Lambda-Execution-Engine/1.0"
+}
 
-_ALEXA_RESPONSE_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "Response",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": %s
-    }
-}'''
+_TEXT_HEADERS = {
+    "Content-Type": "text/plain",
+    "Accept": "text/plain",
+    "User-Agent": "Lambda-Execution-Engine/1.0"
+}
 
-_ALEXA_ERROR_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "ErrorResponse",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "payload": {
-            "type": "%s",
-            "message": "%s"
-        }
-    }
-}'''
+_HA_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "Lambda-Execution-Engine-HA/1.0"
+}
 
-_ALEXA_DISCOVERY_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa.Discovery",
-            "name": "Discover.Response",
-            "messageId": "%s",
-            "payloadVersion": "3"
-        },
-        "payload": {
-            "endpoints": %s
-        }
-    }
-}'''
+_PARSED_HEADERS_TEMPLATE = {
+    'content_type': None,
+    'content_length': 0,
+    'cache_control': '',
+    'server': '',
+    'connection': '',
+    'date': ''
+}
 
-_ALEXA_CHANGE_REPORT_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "ChangeReport",
-            "messageId": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": {
-            "change": {
-                "cause": {
-                    "type": "PHYSICAL_INTERACTION"
-                },
-                "properties": %s
-            }
-        }
-    }
-}'''
+# ===== QUERY STRING TEMPLATES (Phase 2 Optimization) =====
 
-_ALEXA_STATE_REPORT_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "StateReport",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": {},
-        "context": {
-            "properties": %s
-        }
-    }
-}'''
+_QUERY_BUFFER = []
+_QUERY_CACHE = {}
 
-_USE_ALEXA_TEMPLATES = os.environ.get('USE_ALEXA_TEMPLATES', 'true').lower() == 'true'
+_USE_HTTP_TEMPLATES = os.environ.get('USE_HTTP_TEMPLATES', 'true').lower() == 'true'
 
-@dataclass
-class HAResponseStats:
-    """Statistics for HA response processing."""
-    total_responses: int = 0
-    successful_responses: int = 0
-    error_responses: int = 0
-    avg_processing_time_ms: float = 0.0
-    last_response_time: float = 0.0
-    template_usage_count: int = 0
-
-class HAResponseProcessor:
-    """Home Assistant response processor with Alexa template optimization."""
-    
-    def __init__(self):
-        self._stats = HAResponseStats()
-        self.max_response_size_bytes = 512 * 1024
-        
-    def process_ha_response(self, directive: Dict[str, Any], 
-                          response: urllib3.HTTPResponse,
-                          response_time_ms: float = None) -> Dict[str, Any]:
-        """Process HTTP response from Home Assistant using template optimization."""
-        start_time = time.time()
-        
-        try:
-            if response.status != 200:
-                return self._create_error_response(
-                    directive, 
-                    f"HA responded with status {response.status}",
-                    "ENDPOINT_UNREACHABLE"
-                )
-            
-            response_data = json.loads(response.data.decode('utf-8'))
-            
-            directive_header = directive.get('directive', {}).get('header', {})
-            namespace = directive_header.get('namespace', 'Alexa')
-            name = directive_header.get('name', '')
-            
-            if namespace == "Alexa.Discovery" and name == "Discover":
-                result = self._create_discovery_response(response_data)
-            elif namespace == "Alexa" and name == "ReportState":
-                result = self._create_state_report_response(directive, response_data)
+def get_standard_headers(header_type: str = "json") -> Dict[str, str]:
+    """Get pre-built headers based on type."""
+    try:
+        if _USE_HTTP_TEMPLATES:
+            if header_type == "json":
+                return _JSON_HEADERS.copy()
+            elif header_type == "xml":
+                return _XML_HEADERS.copy()
+            elif header_type == "form":
+                return _FORM_HEADERS.copy()
+            elif header_type == "text":
+                return _TEXT_HEADERS.copy()
+            elif header_type == "ha":
+                return _HA_HEADERS.copy()
             else:
-                result = self._create_success_response(directive, response_data)
+                return _JSON_HEADERS.copy()
+        else:
+            return {
+                "Content-Type": f"application/{header_type}",
+                "Accept": f"application/{header_type}",
+                "User-Agent": "Lambda-Execution-Engine/1.0"
+            }
+    except Exception:
+        return {"Content-Type": "application/json", "User-Agent": "Lambda-Execution-Engine/1.0"}
+
+def parse_headers_fast(headers: Dict[str, str]) -> Dict[str, Any]:
+    """Fast header parsing using template."""
+    try:
+        if _USE_HTTP_TEMPLATES:
+            result = _PARSED_HEADERS_TEMPLATE.copy()
             
-            processing_time = (time.time() - start_time) * 1000
-            self._update_stats(True, processing_time)
-            
-            record_request("ha_alexa_response", None)
+            result['content_type'] = headers.get('content-type', '').split(';')[0].strip()
+            result['content_length'] = int(headers.get('content-length', 0) or 0)
+            result['cache_control'] = headers.get('cache-control', '')
+            result['server'] = headers.get('server', '')
+            result['connection'] = headers.get('connection', '')
+            result['date'] = headers.get('date', '')
             
             return result
-            
-        except Exception as e:
-            processing_time = (time.time() - start_time) * 1000
-            self._update_stats(False, processing_time)
-            
-            record_error(e, "HA_RESPONSE_PROCESSING")
-            
-            return self._create_error_response(
-                directive,
-                f"Response processing failed: {str(e)}",
-                "INTERNAL_ERROR"
-            )
-    
-    def _create_success_response(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create Alexa success response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                endpoint_data = self._build_endpoint(directive)
-                endpoint_json = json.dumps(endpoint_data)
-                
-                payload_data = self._build_payload(response_data)
-                payload_json = json.dumps(payload_data)
-                
-                json_response = _ALEXA_RESPONSE_TEMPLATE % (
-                    message_id, correlation_token, endpoint_json, payload_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_success_response_legacy(directive, response_data)
-                
-        except Exception as e:
-            return self._create_success_response_legacy(directive, response_data)
-    
-    def _create_error_response(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
-        """Create Alexa error response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                json_response = _ALEXA_ERROR_TEMPLATE % (
-                    message_id, correlation_token, error_type, error_message
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_error_response_legacy(directive, error_message, error_type)
-                
-        except Exception as e:
-            return self._create_error_response_legacy(directive, error_message, error_type)
-    
-    def _create_discovery_response(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
-        """Create Alexa discovery response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                endpoints_json = json.dumps(endpoints_data)
-                
-                json_response = _ALEXA_DISCOVERY_TEMPLATE % (
-                    message_id, endpoints_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_discovery_response_legacy(endpoints_data)
-                
-        except Exception as e:
-            return self._create_discovery_response_legacy(endpoints_data)
-    
-    def _create_state_report_response(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create Alexa state report response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                endpoint_data = self._build_endpoint(directive)
-                endpoint_json = json.dumps(endpoint_data)
-                
-                properties = self._extract_context_properties(state_data)
-                properties_json = json.dumps(properties)
-                
-                json_response = _ALEXA_STATE_REPORT_TEMPLATE % (
-                    message_id, correlation_token, endpoint_json, properties_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_state_report_response_legacy(directive, state_data)
-                
-        except Exception as e:
-            return self._create_state_report_response_legacy(directive, state_data)
-    
-    def _create_success_response_legacy(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy dict-based success response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "Response",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "endpoint": self._build_endpoint(directive),
-                "payload": self._build_payload(response_data)
-            }
-        }
-    
-    def _create_error_response_legacy(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
-        """Legacy dict-based error response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "ErrorResponse",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "payload": {
-                    "type": error_type,
-                    "message": error_message
-                }
-            }
-        }
-    
-    def _create_discovery_response_legacy(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
-        """Legacy dict-based discovery response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa.Discovery",
-                    "name": "Discover.Response",
-                    "messageId": str(uuid.uuid4()),
-                    "payloadVersion": "3"
-                },
-                "payload": {
-                    "endpoints": endpoints_data
-                }
-            }
-        }
-    
-    def _create_state_report_response_legacy(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy dict-based state report response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "StateReport",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "endpoint": self._build_endpoint(directive),
-                "payload": {},
-                "context": {
-                    "properties": self._extract_context_properties(state_data)
-                }
-            }
-        }
-    
-    def _build_endpoint(self, directive: Dict[str, Any]) -> Dict[str, Any]:
-        """Build endpoint data from directive."""
-        endpoint = directive.get('directive', {}).get('endpoint', {})
-        
-        return {
-            "scope": {
-                "type": "BearerToken",
-                "token": endpoint.get('scope', {}).get('token', '')
-            },
-            "endpointId": endpoint.get('endpointId', 'unknown'),
-            "cookie": endpoint.get('cookie', {})
-        }
-    
-    def _build_payload(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build payload from HA response data."""
-        return {}
-    
-    def _extract_context_properties(self, response_data: Any) -> List[Dict[str, Any]]:
-        """Extract context properties from HA response."""
-        properties = []
-        
-        try:
-            if isinstance(response_data, list):
-                for state in response_data:
-                    if isinstance(state, dict) and "entity_id" in state:
-                        properties.append({
-                            "namespace": "Alexa.EndpointHealth",
-                            "name": "connectivity",
-                            "value": {"value": "OK"},
-                            "timeOfSample": state.get("last_changed", time.time()),
-                            "uncertaintyInMilliseconds": 0
-                        })
-            elif isinstance(response_data, dict):
-                if "entity_id" in response_data:
-                    properties.append({
-                        "namespace": "Alexa.EndpointHealth", 
-                        "name": "connectivity",
-                        "value": {"value": "OK"},
-                        "timeOfSample": response_data.get("last_changed", time.time()),
-                        "uncertaintyInMilliseconds": 0
-                    })
-        except Exception as e:
-            logger.warning(f"Error extracting context properties: {e}")
-        
-        return properties
-    
-    def _update_stats(self, success: bool, processing_time_ms: float) -> None:
-        """Update response processing statistics."""
-        self._stats.total_responses += 1
-        self._stats.last_response_time = time.time()
-        
-        if success:
-            self._stats.successful_responses += 1
         else:
-            self._stats.error_responses += 1
-        
-        if self._stats.total_responses > 0:
-            current_avg = self._stats.avg_processing_time_ms
-            new_avg = ((current_avg * (self._stats.total_responses - 1)) + processing_time_ms) / self._stats.total_responses
-            self._stats.avg_processing_time_ms = new_avg
-
-_ha_response_processor: Optional[HAResponseProcessor] = None
-
-def _get_ha_response_processor() -> HAResponseProcessor:
-    """Get HA response processor singleton."""
-    global _ha_response_processor
-    if _ha_response_processor is None:
-        _ha_response_processor = HAResponseProcessor()
-    return _ha_response_processor
-
-def process_ha_alexa_response(directive: Dict[str, Any], 
-                            response: urllib3.HTTPResponse,
-                            response_time_ms: float = None) -> Dict[str, Any]:
-    """Process Alexa directive response from Home Assistant."""
-    processor = _get_ha_response_processor()
-    return processor.process_ha_response(directive, response, response_time_ms)
-
-def process_ha_service_response(service_call: Dict[str, Any],
-                              response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Home Assistant service call response."""
-    try:
-        validation_result = validate_request_data(service_call)
-        if not validation_result.get("valid", False):
             return {
-                "success": False,
-                "error": "Invalid service call structure",
-                "details": validation_result,
-                "timestamp": time.time()
+                'content_type': headers.get('content-type', '').split(';')[0].strip(),
+                'content_length': int(headers.get('content-length', 0) or 0),
+                'cache_control': headers.get('cache-control', ''),
+                'server': headers.get('server', ''),
+                'connection': headers.get('connection', ''),
+                'date': headers.get('date', '')
             }
-        
-        result = {
-            "success": True,
-            "service": service_call.get("service", "unknown"),
-            "entity_id": service_call.get("entity_id"),
-            "response_data": response_data,
-            "timestamp": time.time()
-        }
-        
-        record_request("ha_service_response", None)
-        
-        return result
-        
-    except Exception as e:
-        error_result = {
-            "success": False,
-            "error": str(e),
-            "service_call": service_call,
-            "timestamp": time.time()
-        }
-        record_error(e, "HA_SERVICE_RESPONSE")
-        return error_result
+    except Exception:
+        return _PARSED_HEADERS_TEMPLATE.copy()
 
-def process_ha_state_response(entity_ids: List[str], 
-                            states_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Home Assistant state query response."""
+def build_query_fast(params: Dict[str, Any]) -> str:
+    """Fast query string building using template optimization."""
     try:
-        if not isinstance(entity_ids, list):
-            return {
-                "success": False,
-                "error": "Invalid entity_ids format",
-                "timestamp": time.time()
-            }
+        if not params:
+            return ""
         
-        result = {
-            "success": True,
-            "entity_count": len(entity_ids),
-            "states": states_data,
-            "timestamp": time.time()
-        }
-        
-        record_request("ha_state_response", None)
-        
-        return result
-        
-    except Exception as e:
-        error_result = {
-            "success": False,
-            "error": str(e),
-            "entity_ids": entity_ids,
-            "timestamp": time.time()
-        }
-        record_error(e, "HA_STATE_RESPONSE")
-        return error_result
+        if _USE_HTTP_TEMPLATES:
+            _QUERY_BUFFER.clear()
+            
+            for key, value in params.items():
+                if value is not None:
+                    if isinstance(value, (list, tuple)):
+                        _QUERY_BUFFER.extend(f"{key}={quote(str(v))}" for v in value)
+                    else:
+                        _QUERY_BUFFER.append(f"{key}={quote(str(value))}")
+            
+            return '&'.join(_QUERY_BUFFER)
+        else:
+            return urlencode(params, doseq=True)
+            
+    except Exception:
+        try:
+            return urlencode(params, doseq=True)
+        except:
+            return ""
 
-def get_ha_response_stats() -> Dict[str, Any]:
-    """Get HA response processing statistics."""
-    processor = _get_ha_response_processor()
-    stats = processor._stats
+def merge_headers_fast(base_headers: Dict[str, str], additional_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Fast header merging using template base."""
+    try:
+        if not additional_headers:
+            return base_headers.copy()
+        
+        if _USE_HTTP_TEMPLATES:
+            result = base_headers.copy()
+            result.update(additional_headers)
+            return result
+        else:
+            result = {}
+            result.update(base_headers)
+            if additional_headers:
+                result.update(additional_headers)
+            return result
+            
+    except Exception:
+        return base_headers.copy() if base_headers else {}
+
+class HTTPClientCore:
+    """Core HTTP client implementation with template optimization."""
     
-    return {
-        "total_responses": stats.total_responses,
-        "successful_responses": stats.successful_responses,
-        "error_responses": stats.error_responses,
-        "success_rate": stats.successful_responses / max(stats.total_responses, 1),
-        "avg_processing_time_ms": stats.avg_processing_time_ms,
-        "template_usage_count": stats.template_usage_count,
-        "template_usage_rate": stats.template_usage_count / max(stats.total_responses, 1),
-        "last_response_time": stats.last_response_time
-    }
+    def __init__(self):
+        self.http_pool = urllib3.PoolManager(
+            num_pools=10,
+            maxsize=20,
+            timeout=urllib3.Timeout(connect=10, read=30),
+            retries=urllib3.Retry(total=3, backoff_factor=0.3)
+        )
+        self._stats = {
+            'requests_made': 0,
+            'successful_requests': 0,
+            'failed_requests': 0,
+            'template_header_usage': 0,
+            'legacy_header_usage': 0,
+            'template_query_usage': 0,
+            'legacy_query_usage': 0
+        }
+        self._lock = threading.RLock()
+    
+    def make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Make HTTP request with template optimization."""
+        start_time = time.time()
+        
+        with self._lock:
+            self._stats['requests_made'] += 1
+        
+        try:
+            headers = self._prepare_headers(kwargs.get('headers'), kwargs.get('content_type', 'json'))
+            query_params = kwargs.get('params')
+            
+            if query_params:
+                query_string = build_query_fast(query_params)
+                if query_string:
+                    separator = '&' if '?' in url else '?'
+                    url = f"{url}{separator}{query_string}"
+                
+                if _USE_HTTP_TEMPLATES:
+                    self._stats['template_query_usage'] += 1
+                else:
+                    self._stats['legacy_query_usage'] += 1
+            
+            body = kwargs.get('json')
+            if body and method.upper() in ['POST', 'PUT', 'PATCH']:
+                body = json.dumps(body) if not isinstance(body, str) else body
+            
+            response = self.http_pool.request(
+                method,
+                url,
+                body=body,
+                headers=headers,
+                timeout=kwargs.get('timeout', 30)
+            )
+            
+            response_time = (time.time() - start_time) * 1000
+            parsed_response = self._parse_response(response, response_time)
+            
+            with self._lock:
+                if parsed_response.get('success', False):
+                    self._stats['successful_requests'] += 1
+                else:
+                    self._stats['failed_requests'] += 1
+            
+            return parsed_response
+            
+        except Exception as e:
+            response_time = (time.time() - start_time) * 1000
+            
+            with self._lock:
+                self._stats['failed_requests'] += 1
+            
+            return {
+                'success': False,
+                'error': str(e),
+                'response_time_ms': response_time,
+                'status_code': 0
+            }
+    
+    def _prepare_headers(self, custom_headers: Optional[Dict[str, str]], content_type: str) -> Dict[str, str]:
+        """Prepare headers using template optimization."""
+        try:
+            base_headers = get_standard_headers(content_type)
+            
+            if _USE_HTTP_TEMPLATES:
+                self._stats['template_header_usage'] += 1
+                return merge_headers_fast(base_headers, custom_headers)
+            else:
+                self._stats['legacy_header_usage'] += 1
+                result = {
+                    "Content-Type": f"application/{content_type}",
+                    "User-Agent": "Lambda-Execution-Engine/1.0"
+                }
+                if custom_headers:
+                    result.update(custom_headers)
+                return result
+                
+        except Exception:
+            return {"Content-Type": "application/json", "User-Agent": "Lambda-Execution-Engine/1.0"}
+    
+    def _parse_response(self, response: urllib3.HTTPResponse, response_time: float) -> Dict[str, Any]:
+        """Parse HTTP response."""
+        try:
+            response_headers = dict(response.headers)
+            parsed_headers = parse_headers_fast(response_headers)
+            
+            response_data = {
+                'success': 200 <= response.status < 300,
+                'status_code': response.status,
+                'headers': response_headers,
+                'parsed_headers': parsed_headers,
+                'response_time_ms': response_time
+            }
+            
+            try:
+                raw_data = response.data.decode('utf-8')
+                
+                if parsed_headers['content_type'].startswith('application/json'):
+                    response_data['json'] = json.loads(raw_data)
+                    response_data['data'] = response_data['json']
+                else:
+                    response_data['data'] = raw_data
+                    
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                response_data['data'] = response.data
+            
+            return response_data
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Response parsing failed: {str(e)}',
+                'status_code': getattr(response, 'status', 0),
+                'response_time_ms': response_time
+            }
+    
+    def make_ha_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Make Home Assistant specific request with optimized headers."""
+        ha_headers = get_standard_headers("ha")
+        
+        if 'headers' in kwargs:
+            ha_headers = merge_headers_fast(ha_headers, kwargs['headers'])
+        
+        kwargs['headers'] = ha_headers
+        kwargs['content_type'] = 'json'
+        
+        return self.make_request(method, url, **kwargs)
+    
+    def make_json_request(self, method: str, url: str, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+        """Make JSON request with optimized headers."""
+        json_headers = get_standard_headers("json")
+        
+        if 'headers' in kwargs:
+            json_headers = merge_headers_fast(json_headers, kwargs['headers'])
+        
+        kwargs['headers'] = json_headers
+        kwargs['json'] = data
+        kwargs['content_type'] = 'json'
+        
+        return self.make_request(method, url, **kwargs)
+    
+    def make_form_request(self, method: str, url: str, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+        """Make form request with optimized headers."""
+        form_headers = get_standard_headers("form")
+        
+        if 'headers' in kwargs:
+            form_headers = merge_headers_fast(form_headers, kwargs['headers'])
+        
+        kwargs['headers'] = form_headers
+        
+        if data:
+            kwargs['body'] = urlencode(data)
+        
+        return self.make_request(method, url, **kwargs)
+    
+    def get_connection_pool_stats(self) -> Dict[str, Any]:
+        """Get connection pool statistics."""
+        try:
+            return {
+                'num_pools': len(self.http_pool.pools),
+                'total_connections': sum(len(pool.pool) for pool in self.http_pool.pools.values())
+            }
+        except Exception:
+            return {'error': 'Failed to get pool stats'}
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get HTTP client statistics."""
+        with self._lock:
+            total_requests = self._stats['requests_made']
+            success_rate = self._stats['successful_requests'] / max(total_requests, 1)
+            
+            template_operations = self._stats['template_header_usage'] + self._stats['template_query_usage']
+            legacy_operations = self._stats['legacy_header_usage'] + self._stats['legacy_query_usage']
+            total_operations = template_operations + legacy_operations
+            
+            template_usage_rate = template_operations / max(total_operations, 1)
+            
+            return {
+                'requests_made': total_requests,
+                'success_rate': success_rate,
+                'template_usage_rate': template_usage_rate,
+                'template_optimization_enabled': _USE_HTTP_TEMPLATES,
+                'stats': self._stats.copy(),
+                'pool_stats': self.get_connection_pool_stats()
+            }
+    
+    def reset_stats(self):
+        """Reset HTTP client statistics."""
+        with self._lock:
+            self._stats = {
+                'requests_made': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'template_header_usage': 0,
+                'legacy_header_usage': 0,
+                'template_query_usage': 0,
+                'legacy_query_usage': 0
+            }
