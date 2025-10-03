@@ -1,7 +1,7 @@
 """
-HTTP Client Core - HTTP Operations with Header and Query String Template Optimization
-Version: 2025.10.02.01
-Description: HTTP client with pre-compiled header templates and optimized query building
+HTTP Client Core - HTTP Request Handling with Template Optimization
+Version: 2025.10.03.01
+Description: HTTP client with retry, connection pooling, and template-optimized headers
 
 Copyright 2025 Joseph Hersey
 
@@ -18,115 +18,75 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
+import urllib3
 import json
 import time
 import os
-import urllib3
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, Callable
 from urllib.parse import urlencode, quote
 import threading
 
-# ===== HTTP HEADER TEMPLATES (Phase 2 Optimization) =====
+# ===== HTTP HEADER TEMPLATES (Template Optimization) =====
 
-_JSON_HEADERS = {
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "User-Agent": "Lambda-Execution-Engine/1.0"
-}
+_JSON_HEADERS = '{"Content-Type":"application/json","Accept":"application/json"}'
+_XML_HEADERS = '{"Content-Type":"application/xml","Accept":"application/xml"}'
+_FORM_HEADERS = '{"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"}'
+_TEXT_HEADERS = '{"Content-Type":"text/plain","Accept":"text/plain"}'
+_HA_HEADERS = '{"Content-Type":"application/json","Accept":"application/json"}'
 
-_XML_HEADERS = {
-    "Content-Type": "application/xml",
-    "Accept": "application/xml",
-    "User-Agent": "Lambda-Execution-Engine/1.0"
-}
-
-_FORM_HEADERS = {
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Accept": "application/json",
-    "User-Agent": "Lambda-Execution-Engine/1.0"
-}
-
-_TEXT_HEADERS = {
-    "Content-Type": "text/plain",
-    "Accept": "text/plain",
-    "User-Agent": "Lambda-Execution-Engine/1.0"
-}
-
-_HA_HEADERS = {
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "User-Agent": "Lambda-Execution-Engine-HA/1.0"
-}
-
-_PARSED_HEADERS_TEMPLATE = {
-    'content_type': None,
-    'content_length': 0,
-    'cache_control': '',
-    'server': '',
-    'connection': '',
-    'date': ''
-}
-
-# ===== QUERY STRING TEMPLATES (Phase 2 Optimization) =====
+_PARSED_HEADERS_TEMPLATE = '{"content_type":"%s","content_length":%d,"server":"%s"}'
 
 _QUERY_BUFFER = []
-_QUERY_CACHE = {}
 
 _USE_HTTP_TEMPLATES = os.environ.get('USE_HTTP_TEMPLATES', 'true').lower() == 'true'
 
-def get_standard_headers(header_type: str = "json") -> Dict[str, str]:
-    """Get pre-built headers based on type."""
+def get_standard_headers(content_type: str = 'json') -> Dict[str, str]:
+    """Get standard HTTP headers using template optimization."""
     try:
         if _USE_HTTP_TEMPLATES:
-            if header_type == "json":
-                return _JSON_HEADERS.copy()
-            elif header_type == "xml":
-                return _XML_HEADERS.copy()
-            elif header_type == "form":
-                return _FORM_HEADERS.copy()
-            elif header_type == "text":
-                return _TEXT_HEADERS.copy()
-            elif header_type == "ha":
-                return _HA_HEADERS.copy()
+            if content_type == 'json':
+                return json.loads(_JSON_HEADERS)
+            elif content_type == 'xml':
+                return json.loads(_XML_HEADERS)
+            elif content_type == 'form':
+                return json.loads(_FORM_HEADERS)
+            elif content_type == 'text':
+                return json.loads(_TEXT_HEADERS)
+            elif content_type == 'ha':
+                return json.loads(_HA_HEADERS)
             else:
-                return _JSON_HEADERS.copy()
+                return json.loads(_JSON_HEADERS)
         else:
             return {
-                "Content-Type": f"application/{header_type}",
-                "Accept": f"application/{header_type}",
-                "User-Agent": "Lambda-Execution-Engine/1.0"
+                "Content-Type": "application/json",
+                "Accept": "application/json"
             }
     except Exception:
-        return {"Content-Type": "application/json", "User-Agent": "Lambda-Execution-Engine/1.0"}
+        return {"Content-Type": "application/json"}
 
-def parse_headers_fast(headers: Dict[str, str]) -> Dict[str, Any]:
-    """Fast header parsing using template."""
+def parse_headers_fast(headers_dict: Dict[str, str]) -> Dict[str, Any]:
+    """Parse HTTP headers using template optimization."""
     try:
-        if _USE_HTTP_TEMPLATES:
-            result = _PARSED_HEADERS_TEMPLATE.copy()
+        if _USE_HTTP_TEMPLATES and headers_dict:
+            content_type = headers_dict.get('content-type', headers_dict.get('Content-Type', 'unknown'))
+            content_length = int(headers_dict.get('content-length', headers_dict.get('Content-Length', 0)))
+            server = headers_dict.get('server', headers_dict.get('Server', 'unknown'))
             
-            result['content_type'] = headers.get('content-type', '').split(';')[0].strip()
-            result['content_length'] = int(headers.get('content-length', 0) or 0)
-            result['cache_control'] = headers.get('cache-control', '')
-            result['server'] = headers.get('server', '')
-            result['connection'] = headers.get('connection', '')
-            result['date'] = headers.get('date', '')
+            json_str = _PARSED_HEADERS_TEMPLATE % (content_type, content_length, server)
+            parsed = json.loads(json_str)
             
-            return result
+            for key, value in headers_dict.items():
+                if key.lower() not in ['content-type', 'content-length', 'server']:
+                    parsed[key.lower()] = value
+            
+            return parsed
         else:
-            return {
-                'content_type': headers.get('content-type', '').split(';')[0].strip(),
-                'content_length': int(headers.get('content-length', 0) or 0),
-                'cache_control': headers.get('cache-control', ''),
-                'server': headers.get('server', ''),
-                'connection': headers.get('connection', ''),
-                'date': headers.get('date', '')
-            }
+            return {key.lower(): value for key, value in (headers_dict or {}).items()}
     except Exception:
-        return _PARSED_HEADERS_TEMPLATE.copy()
+        return {key.lower(): value for key, value in (headers_dict or {}).items()}
 
 def build_query_fast(params: Dict[str, Any]) -> str:
-    """Fast query string building using template optimization."""
+    """Build query string using template optimization."""
     try:
         if not params:
             return ""
@@ -209,172 +169,93 @@ class HTTPClientCore:
                     separator = '&' if '?' in url else '?'
                     url = f"{url}{separator}{query_string}"
                 
-                if _USE_HTTP_TEMPLATES:
-                    self._stats['template_query_usage'] += 1
-                else:
-                    self._stats['legacy_query_usage'] += 1
+                with self._lock:
+                    if _USE_HTTP_TEMPLATES:
+                        self._stats['template_query_usage'] += 1
+                    else:
+                        self._stats['legacy_query_usage'] += 1
             
-            body = kwargs.get('json')
-            if body and method.upper() in ['POST', 'PUT', 'PATCH']:
-                body = json.dumps(body) if not isinstance(body, str) else body
+            body = None
+            if kwargs.get('data'):
+                if isinstance(kwargs['data'], dict):
+                    body = json.dumps(kwargs['data']).encode('utf-8')
+                else:
+                    body = kwargs['data']
+            
+            timeout_val = kwargs.get('timeout', 30)
             
             response = self.http_pool.request(
                 method,
                 url,
                 body=body,
                 headers=headers,
-                timeout=kwargs.get('timeout', 30)
+                timeout=timeout_val
             )
             
-            response_time = (time.time() - start_time) * 1000
-            parsed_response = self._parse_response(response, response_time)
+            response_data = response.data.decode('utf-8') if response.data else None
+            
+            result = {
+                'success': True,
+                'status_code': response.status,
+                'data': json.loads(response_data) if response_data else None,
+                'headers': dict(response.headers),
+                'response_time_ms': int((time.time() - start_time) * 1000)
+            }
             
             with self._lock:
-                if parsed_response.get('success', False):
-                    self._stats['successful_requests'] += 1
-                else:
-                    self._stats['failed_requests'] += 1
+                self._stats['successful_requests'] += 1
             
-            return parsed_response
+            return result
             
         except Exception as e:
-            response_time = (time.time() - start_time) * 1000
-            
             with self._lock:
                 self._stats['failed_requests'] += 1
             
             return {
                 'success': False,
                 'error': str(e),
-                'response_time_ms': response_time,
-                'status_code': 0
+                'response_time_ms': int((time.time() - start_time) * 1000)
             }
     
-    def _prepare_headers(self, custom_headers: Optional[Dict[str, str]], content_type: str) -> Dict[str, str]:
+    def _prepare_headers(self, custom_headers: Optional[Dict], content_type: str) -> Dict[str, str]:
         """Prepare headers using template optimization."""
         try:
             base_headers = get_standard_headers(content_type)
             
-            if _USE_HTTP_TEMPLATES:
-                self._stats['template_header_usage'] += 1
-                return merge_headers_fast(base_headers, custom_headers)
-            else:
-                self._stats['legacy_header_usage'] += 1
-                result = {
-                    "Content-Type": f"application/{content_type}",
-                    "User-Agent": "Lambda-Execution-Engine/1.0"
-                }
-                if custom_headers:
-                    result.update(custom_headers)
-                return result
-                
-        except Exception:
-            return {"Content-Type": "application/json", "User-Agent": "Lambda-Execution-Engine/1.0"}
-    
-    def _parse_response(self, response: urllib3.HTTPResponse, response_time: float) -> Dict[str, Any]:
-        """Parse HTTP response."""
-        try:
-            response_headers = dict(response.headers)
-            parsed_headers = parse_headers_fast(response_headers)
-            
-            response_data = {
-                'success': 200 <= response.status < 300,
-                'status_code': response.status,
-                'headers': response_headers,
-                'parsed_headers': parsed_headers,
-                'response_time_ms': response_time
-            }
-            
-            try:
-                raw_data = response.data.decode('utf-8')
-                
-                if parsed_headers['content_type'].startswith('application/json'):
-                    response_data['json'] = json.loads(raw_data)
-                    response_data['data'] = response_data['json']
+            with self._lock:
+                if _USE_HTTP_TEMPLATES:
+                    self._stats['template_header_usage'] += 1
                 else:
-                    response_data['data'] = raw_data
-                    
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                response_data['data'] = response.data
+                    self._stats['legacy_header_usage'] += 1
             
-            return response_data
+            if custom_headers:
+                return merge_headers_fast(base_headers, custom_headers)
             
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f'Response parsing failed: {str(e)}',
-                'status_code': getattr(response, 'status', 0),
-                'response_time_ms': response_time
-            }
-    
-    def make_ha_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
-        """Make Home Assistant specific request with optimized headers."""
-        ha_headers = get_standard_headers("ha")
-        
-        if 'headers' in kwargs:
-            ha_headers = merge_headers_fast(ha_headers, kwargs['headers'])
-        
-        kwargs['headers'] = ha_headers
-        kwargs['content_type'] = 'json'
-        
-        return self.make_request(method, url, **kwargs)
-    
-    def make_json_request(self, method: str, url: str, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
-        """Make JSON request with optimized headers."""
-        json_headers = get_standard_headers("json")
-        
-        if 'headers' in kwargs:
-            json_headers = merge_headers_fast(json_headers, kwargs['headers'])
-        
-        kwargs['headers'] = json_headers
-        kwargs['json'] = data
-        kwargs['content_type'] = 'json'
-        
-        return self.make_request(method, url, **kwargs)
-    
-    def make_form_request(self, method: str, url: str, data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
-        """Make form request with optimized headers."""
-        form_headers = get_standard_headers("form")
-        
-        if 'headers' in kwargs:
-            form_headers = merge_headers_fast(form_headers, kwargs['headers'])
-        
-        kwargs['headers'] = form_headers
-        
-        if data:
-            kwargs['body'] = urlencode(data)
-        
-        return self.make_request(method, url, **kwargs)
-    
-    def get_connection_pool_stats(self) -> Dict[str, Any]:
-        """Get connection pool statistics."""
-        try:
-            return {
-                'num_pools': len(self.http_pool.pools),
-                'total_connections': sum(len(pool.pool) for pool in self.http_pool.pools.values())
-            }
+            return base_headers
+            
         except Exception:
-            return {'error': 'Failed to get pool stats'}
+            return {"Content-Type": "application/json"}
     
     def get_stats(self) -> Dict[str, Any]:
         """Get HTTP client statistics."""
         with self._lock:
-            total_requests = self._stats['requests_made']
-            success_rate = self._stats['successful_requests'] / max(total_requests, 1)
+            total_header_ops = self._stats['template_header_usage'] + self._stats['legacy_header_usage']
+            total_query_ops = self._stats['template_query_usage'] + self._stats['legacy_query_usage']
             
-            template_operations = self._stats['template_header_usage'] + self._stats['template_query_usage']
-            legacy_operations = self._stats['legacy_header_usage'] + self._stats['legacy_query_usage']
-            total_operations = template_operations + legacy_operations
+            header_template_rate = self._stats['template_header_usage'] / max(total_header_ops, 1)
+            query_template_rate = self._stats['template_query_usage'] / max(total_query_ops, 1)
             
-            template_usage_rate = template_operations / max(total_operations, 1)
+            success_rate = self._stats['successful_requests'] / max(self._stats['requests_made'], 1)
             
             return {
-                'requests_made': total_requests,
+                'requests_made': self._stats['requests_made'],
+                'successful_requests': self._stats['successful_requests'],
+                'failed_requests': self._stats['failed_requests'],
                 'success_rate': success_rate,
-                'template_usage_rate': template_usage_rate,
+                'header_template_usage_rate': header_template_rate,
+                'query_template_usage_rate': query_template_rate,
                 'template_optimization_enabled': _USE_HTTP_TEMPLATES,
-                'stats': self._stats.copy(),
-                'pool_stats': self.get_connection_pool_stats()
+                'stats': self._stats.copy()
             }
     
     def reset_stats(self):
@@ -389,3 +270,5 @@ class HTTPClientCore:
                 'template_query_usage': 0,
                 'legacy_query_usage': 0
             }
+
+# EOF
