@@ -1,6 +1,6 @@
 """
-Logging Core - Logging System with Message Template Optimization
-Version: 2025.10.02.01
+Logging Core - Enhanced Logging with Template Optimization
+Version: 2025.10.03.01
 Description: Centralized logging with pre-compiled message templates for performance
 
 Copyright 2025 Joseph Hersey
@@ -26,7 +26,7 @@ from typing import Dict, Any, Optional, Union
 from enum import Enum
 import threading
 
-# ===== LOG MESSAGE TEMPLATES (Phase 2 Optimization) =====
+# ===== LOG MESSAGE TEMPLATES (Template Optimization) =====
 
 _CACHE_HIT_LOG = "Cache hit: %s"
 _CACHE_MISS_LOG = "Cache miss: %s"
@@ -96,6 +96,18 @@ class LoggingCore:
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
     
+    def _log_message(self, level: LogLevel, message: str, extra: Optional[Dict[str, Any]] = None):
+        """Internal log message handler."""
+        with self._lock:
+            self._stats['log_count'] += 1
+            self._stats['level_counts'][level.value] += 1
+        
+        log_func = getattr(self.logger, level.value.lower())
+        if extra:
+            log_func(message, extra=extra)
+        else:
+            log_func(message)
+    
     def log_info(self, message: str, extra: Optional[Dict[str, Any]] = None):
         """Log info message."""
         self._log_message(LogLevel.INFO, message, extra)
@@ -121,7 +133,8 @@ class LoggingCore:
                 message = _CACHE_HIT_LOG % key
                 extra_json = _CACHE_EXTRA_TEMPLATE % (correlation_id, access_count, source_module)
                 extra = json.loads(extra_json)
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"Cache hit: {key}"
                 extra = {
@@ -129,7 +142,8 @@ class LoggingCore:
                     "access_count": access_count,
                     "source_module": source_module
                 }
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
             self._log_message(LogLevel.DEBUG, message, extra)
             
@@ -144,74 +158,34 @@ class LoggingCore:
         try:
             if _USE_LOG_TEMPLATES:
                 message = _CACHE_MISS_LOG % key
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"Cache miss: {key}"
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
-            extra = {"correlation_id": correlation_id}
-            self._log_message(LogLevel.DEBUG, message, extra)
+            self._log_message(LogLevel.DEBUG, message, {"correlation_id": correlation_id})
             
         except Exception:
             self._log_message(LogLevel.DEBUG, f"Cache miss: {key}", {"correlation_id": correlation_id})
-    
-    def log_ha_success(self, response_time_ms: int, correlation_id: str, operation: str):
-        """Log HA operation success using template optimization."""
-        try:
-            if _USE_LOG_TEMPLATES:
-                message = _HA_SUCCESS_LOG % response_time_ms
-                extra_json = _HA_EXTRA_TEMPLATE % (correlation_id, response_time_ms, operation)
-                extra = json.loads(extra_json)
-                self._stats['template_usage'] += 1
-            else:
-                message = f"HA operation successful - {response_time_ms}ms"
-                extra = {
-                    "correlation_id": correlation_id,
-                    "response_time_ms": response_time_ms,
-                    "operation": operation
-                }
-                self._stats['legacy_usage'] += 1
-            
-            self._log_message(LogLevel.INFO, message, extra)
-            
-        except Exception:
-            self._log_message(LogLevel.INFO, f"HA operation successful - {response_time_ms}ms", {
-                "correlation_id": correlation_id
-            })
-    
-    def log_ha_error(self, error_message: str, correlation_id: str):
-        """Log HA operation error using template optimization."""
-        try:
-            if _USE_LOG_TEMPLATES:
-                message = _HA_ERROR_LOG % error_message
-                self._stats['template_usage'] += 1
-            else:
-                message = f"HA operation failed: {error_message}"
-                self._stats['legacy_usage'] += 1
-            
-            extra = {"correlation_id": correlation_id}
-            self._log_message(LogLevel.ERROR, message, extra)
-            
-        except Exception:
-            self._log_message(LogLevel.ERROR, f"HA operation failed: {error_message}", {
-                "correlation_id": correlation_id
-            })
     
     def log_http_request(self, method: str, url: str, correlation_id: str):
         """Log HTTP request using template optimization."""
         try:
             if _USE_LOG_TEMPLATES:
                 message = _HTTP_REQUEST_LOG % (method, url)
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"HTTP {method} {url}"
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
-            extra = {"correlation_id": correlation_id, "method": method, "url": url}
-            self._log_message(LogLevel.DEBUG, message, extra)
+            self._log_message(LogLevel.INFO, message, {"correlation_id": correlation_id})
             
         except Exception:
-            self._log_message(LogLevel.DEBUG, f"HTTP {method} {url}", {"correlation_id": correlation_id})
+            self._log_message(LogLevel.INFO, f"HTTP {method} {url}", {"correlation_id": correlation_id})
     
     def log_http_success(self, method: str, url: str, response_time_ms: int, status_code: int, correlation_id: str):
         """Log HTTP success using template optimization."""
@@ -220,24 +194,25 @@ class LoggingCore:
                 message = _HTTP_SUCCESS_LOG % (method, url, response_time_ms, status_code)
                 extra_json = _HTTP_EXTRA_TEMPLATE % (correlation_id, method, url, status_code)
                 extra = json.loads(extra_json)
-                extra['response_time_ms'] = response_time_ms
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"HTTP {method} {url} - {response_time_ms}ms ({status_code})"
                 extra = {
                     "correlation_id": correlation_id,
                     "method": method,
                     "url": url,
-                    "status_code": status_code,
-                    "response_time_ms": response_time_ms
+                    "status_code": status_code
                 }
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
             self._log_message(LogLevel.INFO, message, extra)
             
         except Exception:
-            self._log_message(LogLevel.INFO, f"HTTP {method} {url} - {response_time_ms}ms ({status_code})", {
-                "correlation_id": correlation_id
+            self._log_message(LogLevel.INFO, f"HTTP {method} {url} - {response_time_ms}ms", {
+                "correlation_id": correlation_id,
+                "status_code": status_code
             })
     
     def log_operation_start(self, interface: str, operation: str, correlation_id: str):
@@ -245,13 +220,18 @@ class LoggingCore:
         try:
             if _USE_LOG_TEMPLATES:
                 message = _OPERATION_START_LOG % (interface, operation)
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"Operation started: {interface}.{operation}"
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
-            extra = {"correlation_id": correlation_id, "interface": interface, "operation": operation}
-            self._log_message(LogLevel.DEBUG, message, extra)
+            self._log_message(LogLevel.DEBUG, message, {
+                "correlation_id": correlation_id,
+                "interface": interface,
+                "operation": operation
+            })
             
         except Exception:
             self._log_message(LogLevel.DEBUG, f"Operation started: {interface}.{operation}", {
@@ -265,7 +245,8 @@ class LoggingCore:
                 message = _OPERATION_SUCCESS_LOG % (interface, operation, duration_ms)
                 extra_json = _OPERATION_EXTRA_TEMPLATE % (correlation_id, interface, operation, duration_ms)
                 extra = json.loads(extra_json)
-                self._stats['template_usage'] += 1
+                with self._lock:
+                    self._stats['template_usage'] += 1
             else:
                 message = f"Operation completed: {interface}.{operation} - {duration_ms}ms"
                 extra = {
@@ -274,93 +255,28 @@ class LoggingCore:
                     "operation": operation,
                     "duration_ms": duration_ms
                 }
-                self._stats['legacy_usage'] += 1
-            
-            self._log_message(LogLevel.INFO, message, extra)
-            
-        except Exception:
-            self._log_message(LogLevel.INFO, f"Operation completed: {interface}.{operation} - {duration_ms}ms", {
-                "correlation_id": correlation_id
-            })
-    
-    def log_lambda_start(self, request_id: str):
-        """Log Lambda start using template optimization."""
-        try:
-            if _USE_LOG_TEMPLATES:
-                message = _LAMBDA_START_LOG % request_id
-                self._stats['template_usage'] += 1
-            else:
-                message = f"Lambda invocation started: {request_id}"
-                self._stats['legacy_usage'] += 1
-            
-            extra = {"request_id": request_id}
-            self._log_message(LogLevel.INFO, message, extra)
-            
-        except Exception:
-            self._log_message(LogLevel.INFO, f"Lambda invocation started: {request_id}")
-    
-    def log_metric_recorded(self, metric_name: str, value: float, dimensions: Dict[str, str], correlation_id: str):
-        """Log metric recording using template optimization."""
-        try:
-            if _USE_LOG_TEMPLATES:
-                message = _METRIC_RECORD_LOG % (metric_name, value)
-                dimensions_json = json.dumps(dimensions) if dimensions else "{}"
-                extra_json = _METRIC_EXTRA_TEMPLATE % (correlation_id, metric_name, value, dimensions_json)
-                extra = json.loads(extra_json)
-                self._stats['template_usage'] += 1
-            else:
-                message = f"Metric recorded: {metric_name} = {value}"
-                extra = {
-                    "correlation_id": correlation_id,
-                    "metric_name": metric_name,
-                    "value": value,
-                    "dimensions": dimensions or {}
-                }
-                self._stats['legacy_usage'] += 1
+                with self._lock:
+                    self._stats['legacy_usage'] += 1
             
             self._log_message(LogLevel.DEBUG, message, extra)
             
         except Exception:
-            self._log_message(LogLevel.DEBUG, f"Metric recorded: {metric_name} = {value}", {
+            self._log_message(LogLevel.DEBUG, f"Operation completed: {interface}.{operation} - {duration_ms}ms", {
                 "correlation_id": correlation_id
             })
-    
-    def _log_message(self, level: LogLevel, message: str, extra: Optional[Dict[str, Any]] = None):
-        """Internal logging method."""
-        with self._lock:
-            try:
-                self._stats['log_count'] += 1
-                self._stats['level_counts'][level.value] += 1
-                
-                if level == LogLevel.DEBUG:
-                    self.logger.debug(message, extra=extra)
-                elif level == LogLevel.INFO:
-                    self.logger.info(message, extra=extra)
-                elif level == LogLevel.WARNING:
-                    self.logger.warning(message, extra=extra)
-                elif level == LogLevel.ERROR:
-                    self.logger.error(message, extra=extra)
-                elif level == LogLevel.CRITICAL:
-                    self.logger.critical(message, extra=extra)
-                    
-            except Exception:
-                pass
     
     def get_stats(self) -> Dict[str, Any]:
         """Get logging statistics."""
         with self._lock:
-            total_template_operations = self._stats['template_usage'] + self._stats['legacy_usage']
-            template_usage_rate = self._stats['template_usage'] / max(total_template_operations, 1)
+            total_operations = self._stats['template_usage'] + self._stats['legacy_usage']
+            template_usage_rate = self._stats['template_usage'] / max(total_operations, 1)
             
             return {
                 'log_count': self._stats['log_count'],
                 'template_usage_rate': template_usage_rate,
                 'template_optimization_enabled': _USE_LOG_TEMPLATES,
                 'level_counts': self._stats['level_counts'].copy(),
-                'stats': {
-                    'template_usage': self._stats['template_usage'],
-                    'legacy_usage': self._stats['legacy_usage']
-                }
+                'stats': self._stats.copy()
             }
     
     def reset_stats(self):
@@ -372,3 +288,5 @@ class LoggingCore:
                 'legacy_usage': 0,
                 'level_counts': {level.value: 0 for level in LogLevel}
             }
+
+# EOF
