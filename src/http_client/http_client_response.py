@@ -1,7 +1,7 @@
 """
-Home Assistant Response - Alexa Response Processing with Template Optimization
+HTTP Client Response - Response Processing with Template Optimization
 Version: 2025.10.02.01
-Description: Home Assistant response processing with pre-compiled Alexa templates
+Description: HTTP response processing and transformation with pre-compiled templates
 
 Copyright 2025 Joseph Hersey
 
@@ -19,485 +19,353 @@ Copyright 2025 Joseph Hersey
 """
 
 import json
-import time
-import logging
-import urllib3
-import uuid
+import xml.etree.ElementTree as ET
 import os
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+import logging
+
+from gateway import (
+    validate_request,
+    create_success_response, create_error_response,
+    sanitize_response_data,
+    log_info, log_error,
+    cache_get, cache_set,
+    record_metric,
+    execute_operation, GatewayInterface
+)
 
 logger = logging.getLogger(__name__)
 
-from .home_assistant_core import (
-    _get_ha_manager,
-    HAOperationResult
-)
+# ===== HTTP RESPONSE TEMPLATES (Phase 3 Optimization) =====
 
-from logging import record_request, record_error
-from security import validate_request_data
+_HTTP_SUCCESS_TEMPLATE = '{"success":true,"status_code":%d,"data":%s,"headers":%s}'
+_HTTP_ERROR_TEMPLATE = '{"success":false,"status_code":%d,"error":"%s","headers":%s}'
+_HTTP_REDIRECT_TEMPLATE = '{"success":true,"status_code":%d,"redirect_url":"%s","headers":%s}'
+_HTTP_TIMEOUT_TEMPLATE = '{"success":false,"status_code":408,"error":"Request timeout","timeout_seconds":%d}'
+_HTTP_CONNECTION_ERROR_TEMPLATE = '{"success":false,"status_code":0,"error":"Connection failed","details":"%s"}'
 
-# ===== ALEXA RESPONSE TEMPLATES (Phase 2 Optimization) =====
+_DEFAULT_HEADERS_JSON = '{"Content-Type":"application/json","Cache-Control":"no-cache"}'
+_EMPTY_DATA_JSON = '{}'
 
-_ALEXA_RESPONSE_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "Response",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": %s
-    }
-}'''
+_USE_HTTP_TEMPLATES = os.environ.get('USE_HTTP_TEMPLATES', 'true').lower() == 'true'
 
-_ALEXA_ERROR_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "ErrorResponse",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "payload": {
-            "type": "%s",
-            "message": "%s"
-        }
-    }
-}'''
-
-_ALEXA_DISCOVERY_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa.Discovery",
-            "name": "Discover.Response",
-            "messageId": "%s",
-            "payloadVersion": "3"
-        },
-        "payload": {
-            "endpoints": %s
-        }
-    }
-}'''
-
-_ALEXA_CHANGE_REPORT_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "ChangeReport",
-            "messageId": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": {
-            "change": {
-                "cause": {
-                    "type": "PHYSICAL_INTERACTION"
-                },
-                "properties": %s
-            }
-        }
-    }
-}'''
-
-_ALEXA_STATE_REPORT_TEMPLATE = '''{
-    "event": {
-        "header": {
-            "namespace": "Alexa",
-            "name": "StateReport",
-            "messageId": "%s",
-            "correlationToken": "%s",
-            "payloadVersion": "3"
-        },
-        "endpoint": %s,
-        "payload": {},
-        "context": {
-            "properties": %s
-        }
-    }
-}'''
-
-_USE_ALEXA_TEMPLATES = os.environ.get('USE_ALEXA_TEMPLATES', 'true').lower() == 'true'
-
-@dataclass
-class HAResponseStats:
-    """Statistics for HA response processing."""
-    total_responses: int = 0
-    successful_responses: int = 0
-    error_responses: int = 0
-    avg_processing_time_ms: float = 0.0
-    last_response_time: float = 0.0
-    template_usage_count: int = 0
-
-class HAResponseProcessor:
-    """Home Assistant response processor with Alexa template optimization."""
-    
-    def __init__(self):
-        self._stats = HAResponseStats()
-        self.max_response_size_bytes = 512 * 1024
-        
-    def process_ha_response(self, directive: Dict[str, Any], 
-                          response: urllib3.HTTPResponse,
-                          response_time_ms: float = None) -> Dict[str, Any]:
-        """Process HTTP response from Home Assistant using template optimization."""
-        start_time = time.time()
-        
-        try:
-            if response.status != 200:
-                return self._create_error_response(
-                    directive, 
-                    f"HA responded with status {response.status}",
-                    "ENDPOINT_UNREACHABLE"
-                )
-            
-            response_data = json.loads(response.data.decode('utf-8'))
-            
-            directive_header = directive.get('directive', {}).get('header', {})
-            namespace = directive_header.get('namespace', 'Alexa')
-            name = directive_header.get('name', '')
-            
-            if namespace == "Alexa.Discovery" and name == "Discover":
-                result = self._create_discovery_response(response_data)
-            elif namespace == "Alexa" and name == "ReportState":
-                result = self._create_state_report_response(directive, response_data)
-            else:
-                result = self._create_success_response(directive, response_data)
-            
-            processing_time = (time.time() - start_time) * 1000
-            self._update_stats(True, processing_time)
-            
-            record_request("ha_alexa_response", None)
-            
-            return result
-            
-        except Exception as e:
-            processing_time = (time.time() - start_time) * 1000
-            self._update_stats(False, processing_time)
-            
-            record_error(e, "HA_RESPONSE_PROCESSING")
-            
-            return self._create_error_response(
-                directive,
-                f"Response processing failed: {str(e)}",
-                "INTERNAL_ERROR"
-            )
-    
-    def _create_success_response(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create Alexa success response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                endpoint_data = self._build_endpoint(directive)
-                endpoint_json = json.dumps(endpoint_data)
-                
-                payload_data = self._build_payload(response_data)
-                payload_json = json.dumps(payload_data)
-                
-                json_response = _ALEXA_RESPONSE_TEMPLATE % (
-                    message_id, correlation_token, endpoint_json, payload_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_success_response_legacy(directive, response_data)
-                
-        except Exception as e:
-            return self._create_success_response_legacy(directive, response_data)
-    
-    def _create_error_response(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
-        """Create Alexa error response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                json_response = _ALEXA_ERROR_TEMPLATE % (
-                    message_id, correlation_token, error_type, error_message
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_error_response_legacy(directive, error_message, error_type)
-                
-        except Exception as e:
-            return self._create_error_response_legacy(directive, error_message, error_type)
-    
-    def _create_discovery_response(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
-        """Create Alexa discovery response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                endpoints_json = json.dumps(endpoints_data)
-                
-                json_response = _ALEXA_DISCOVERY_TEMPLATE % (
-                    message_id, endpoints_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_discovery_response_legacy(endpoints_data)
-                
-        except Exception as e:
-            return self._create_discovery_response_legacy(endpoints_data)
-    
-    def _create_state_report_response(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create Alexa state report response using template optimization."""
-        try:
-            if _USE_ALEXA_TEMPLATES:
-                message_id = str(uuid.uuid4())
-                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
-                
-                endpoint_data = self._build_endpoint(directive)
-                endpoint_json = json.dumps(endpoint_data)
-                
-                properties = self._extract_context_properties(state_data)
-                properties_json = json.dumps(properties)
-                
-                json_response = _ALEXA_STATE_REPORT_TEMPLATE % (
-                    message_id, correlation_token, endpoint_json, properties_json
-                )
-                
-                self._stats.template_usage_count += 1
-                return json.loads(json_response)
-            else:
-                return self._create_state_report_response_legacy(directive, state_data)
-                
-        except Exception as e:
-            return self._create_state_report_response_legacy(directive, state_data)
-    
-    def _create_success_response_legacy(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy dict-based success response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "Response",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "endpoint": self._build_endpoint(directive),
-                "payload": self._build_payload(response_data)
-            }
-        }
-    
-    def _create_error_response_legacy(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
-        """Legacy dict-based error response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "ErrorResponse",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "payload": {
-                    "type": error_type,
-                    "message": error_message
-                }
-            }
-        }
-    
-    def _create_discovery_response_legacy(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
-        """Legacy dict-based discovery response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa.Discovery",
-                    "name": "Discover.Response",
-                    "messageId": str(uuid.uuid4()),
-                    "payloadVersion": "3"
-                },
-                "payload": {
-                    "endpoints": endpoints_data
-                }
-            }
-        }
-    
-    def _create_state_report_response_legacy(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Legacy dict-based state report response creation."""
-        return {
-            "event": {
-                "header": {
-                    "namespace": "Alexa",
-                    "name": "StateReport",
-                    "messageId": str(uuid.uuid4()),
-                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
-                    "payloadVersion": "3"
-                },
-                "endpoint": self._build_endpoint(directive),
-                "payload": {},
-                "context": {
-                    "properties": self._extract_context_properties(state_data)
-                }
-            }
-        }
-    
-    def _build_endpoint(self, directive: Dict[str, Any]) -> Dict[str, Any]:
-        """Build endpoint data from directive."""
-        endpoint = directive.get('directive', {}).get('endpoint', {})
-        
-        return {
-            "scope": {
-                "type": "BearerToken",
-                "token": endpoint.get('scope', {}).get('token', '')
-            },
-            "endpointId": endpoint.get('endpointId', 'unknown'),
-            "cookie": endpoint.get('cookie', {})
-        }
-    
-    def _build_payload(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build payload from HA response data."""
-        return {}
-    
-    def _extract_context_properties(self, response_data: Any) -> List[Dict[str, Any]]:
-        """Extract context properties from HA response."""
-        properties = []
-        
-        try:
-            if isinstance(response_data, list):
-                for state in response_data:
-                    if isinstance(state, dict) and "entity_id" in state:
-                        properties.append({
-                            "namespace": "Alexa.EndpointHealth",
-                            "name": "connectivity",
-                            "value": {"value": "OK"},
-                            "timeOfSample": state.get("last_changed", time.time()),
-                            "uncertaintyInMilliseconds": 0
-                        })
-            elif isinstance(response_data, dict):
-                if "entity_id" in response_data:
-                    properties.append({
-                        "namespace": "Alexa.EndpointHealth", 
-                        "name": "connectivity",
-                        "value": {"value": "OK"},
-                        "timeOfSample": response_data.get("last_changed", time.time()),
-                        "uncertaintyInMilliseconds": 0
-                    })
-        except Exception as e:
-            logger.warning(f"Error extracting context properties: {e}")
-        
-        return properties
-    
-    def _update_stats(self, success: bool, processing_time_ms: float) -> None:
-        """Update response processing statistics."""
-        self._stats.total_responses += 1
-        self._stats.last_response_time = time.time()
-        
-        if success:
-            self._stats.successful_responses += 1
+def process_response(response_data: Dict[str, Any], expected_format: str = 'json',
+                    validation_rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Process and validate HTTP response using template optimization."""
+    try:
+        if _USE_HTTP_TEMPLATES:
+            return _process_response_template(response_data, expected_format, validation_rules)
         else:
-            self._stats.error_responses += 1
-        
-        if self._stats.total_responses > 0:
-            current_avg = self._stats.avg_processing_time_ms
-            new_avg = ((current_avg * (self._stats.total_responses - 1)) + processing_time_ms) / self._stats.total_responses
-            self._stats.avg_processing_time_ms = new_avg
-
-_ha_response_processor: Optional[HAResponseProcessor] = None
-
-def _get_ha_response_processor() -> HAResponseProcessor:
-    """Get HA response processor singleton."""
-    global _ha_response_processor
-    if _ha_response_processor is None:
-        _ha_response_processor = HAResponseProcessor()
-    return _ha_response_processor
-
-def process_ha_alexa_response(directive: Dict[str, Any], 
-                            response: urllib3.HTTPResponse,
-                            response_time_ms: float = None) -> Dict[str, Any]:
-    """Process Alexa directive response from Home Assistant."""
-    processor = _get_ha_response_processor()
-    return processor.process_ha_response(directive, response, response_time_ms)
-
-def process_ha_service_response(service_call: Dict[str, Any],
-                              response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Home Assistant service call response."""
-    try:
-        validation_result = validate_request_data(service_call)
-        if not validation_result.get("valid", False):
-            return {
-                "success": False,
-                "error": "Invalid service call structure",
-                "details": validation_result,
-                "timestamp": time.time()
-            }
-        
-        result = {
-            "success": True,
-            "service": service_call.get("service", "unknown"),
-            "entity_id": service_call.get("entity_id"),
-            "response_data": response_data,
-            "timestamp": time.time()
-        }
-        
-        record_request("ha_service_response", None)
-        
-        return result
-        
+            return _process_response_legacy(response_data, expected_format, validation_rules)
     except Exception as e:
-        error_result = {
-            "success": False,
-            "error": str(e),
-            "service_call": service_call,
-            "timestamp": time.time()
-        }
-        record_error(e, "HA_SERVICE_RESPONSE")
-        return error_result
+        log_error(f"Response processing failed: {e}")
+        return create_error_response(f"Failed to process response: {str(e)}")
 
-def process_ha_state_response(entity_ids: List[str], 
-                            states_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Home Assistant state query response."""
+def _process_response_template(response_data: Dict[str, Any], expected_format: str,
+                             validation_rules: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Process response using template optimization."""
     try:
-        if not isinstance(entity_ids, list):
-            return {
-                "success": False,
-                "error": "Invalid entity_ids format",
-                "timestamp": time.time()
-            }
+        parsed_data = _parse_response_format(response_data, expected_format)
         
-        result = {
-            "success": True,
-            "entity_count": len(entity_ids),
-            "states": states_data,
-            "timestamp": time.time()
-        }
+        if validation_rules:
+            validation_result = validate_request(
+                parsed_data,
+                required_fields=validation_rules.get('required_fields', []),
+                field_types=validation_rules.get('field_types', {})
+            )
+            
+            if not validation_result.get('success'):
+                record_metric('response.validation_failed', 1.0)
+                return validation_result
         
-        record_request("ha_state_response", None)
+        sanitized_data = sanitize_response_data(parsed_data)
+        status_code = response_data.get('status_code', 200)
+        headers = response_data.get('headers', {})
         
-        return result
+        if 200 <= status_code < 300:
+            data_json = json.dumps(sanitized_data)
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_SUCCESS_TEMPLATE % (
+                status_code, data_json, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'success'})
+            record_metric('response.processed', 1.0, {'format': expected_format})
+            
+            return json.loads(json_response)
         
+        elif 300 <= status_code < 400:
+            redirect_url = response_data.get('location', '')
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_REDIRECT_TEMPLATE % (
+                status_code, redirect_url, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'redirect'})
+            
+            return json.loads(json_response)
+        
+        else:
+            error_message = response_data.get('error', f'HTTP {status_code}')
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_ERROR_TEMPLATE % (
+                status_code, error_message, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'error'})
+            
+            return json.loads(json_response)
+            
     except Exception as e:
-        error_result = {
-            "success": False,
-            "error": str(e),
-            "entity_ids": entity_ids,
-            "timestamp": time.time()
-        }
-        record_error(e, "HA_STATE_RESPONSE")
-        return error_result
+        log_error(f"Template response processing failed: {e}")
+        return _process_response_legacy(response_data, expected_format, validation_rules)
 
-def get_ha_response_stats() -> Dict[str, Any]:
-    """Get HA response processing statistics."""
-    processor = _get_ha_response_processor()
-    stats = processor._stats
+def _process_response_legacy(response_data: Dict[str, Any], expected_format: str,
+                           validation_rules: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Legacy dict-based response processing."""
+    parsed_data = _parse_response_format(response_data, expected_format)
     
-    return {
-        "total_responses": stats.total_responses,
-        "successful_responses": stats.successful_responses,
-        "error_responses": stats.error_responses,
-        "success_rate": stats.successful_responses / max(stats.total_responses, 1),
-        "avg_processing_time_ms": stats.avg_processing_time_ms,
-        "template_usage_count": stats.template_usage_count,
-        "template_usage_rate": stats.template_usage_count / max(stats.total_responses, 1),
-        "last_response_time": stats.last_response_time
-    }
+    if validation_rules:
+        validation_result = validate_request(
+            parsed_data,
+            required_fields=validation_rules.get('required_fields', []),
+            field_types=validation_rules.get('field_types', {})
+        )
+        
+        if not validation_result.get('success'):
+            record_metric('response.validation_failed', 1.0)
+            return validation_result
+    
+    sanitized_data = sanitize_response_data(parsed_data)
+    
+    record_metric('response.processed', 1.0, {'format': expected_format})
+    
+    return create_success_response("Response processed successfully", {
+        'parsed_data': sanitized_data,
+        'format': expected_format,
+        'original_status': response_data.get('status_code')
+    })
+
+def create_timeout_response(timeout_seconds: int) -> Dict[str, Any]:
+    """Create timeout response using template optimization."""
+    try:
+        if _USE_HTTP_TEMPLATES:
+            json_response = _HTTP_TIMEOUT_TEMPLATE % timeout_seconds
+            record_metric('response.template_used', 1.0, {'type': 'timeout'})
+            return json.loads(json_response)
+        else:
+            return {
+                "success": False,
+                "status_code": 408,
+                "error": "Request timeout",
+                "timeout_seconds": timeout_seconds
+            }
+    except Exception as e:
+        log_error(f"Timeout response creation failed: {e}")
+        return create_error_response("Request timeout")
+
+def create_connection_error_response(error_details: str) -> Dict[str, Any]:
+    """Create connection error response using template optimization."""
+    try:
+        if _USE_HTTP_TEMPLATES:
+            json_response = _HTTP_CONNECTION_ERROR_TEMPLATE % error_details
+            record_metric('response.template_used', 1.0, {'type': 'connection_error'})
+            return json.loads(json_response)
+        else:
+            return {
+                "success": False,
+                "status_code": 0,
+                "error": "Connection failed",
+                "details": error_details
+            }
+    except Exception as e:
+        log_error(f"Connection error response creation failed: {e}")
+        return create_error_response("Connection failed")
+
+def validate_response(response: Dict[str, Any], 
+                     validation_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate response against schema."""
+    try:
+        validation_result = validate_request(
+            response,
+            required_fields=validation_schema.get('required_fields', []),
+            field_types=validation_schema.get('field_types', {})
+        )
+        
+        record_metric('response.validation_attempted', 1.0)
+        
+        if validation_result.get('success'):
+            record_metric('response.validation_success', 1.0)
+        else:
+            record_metric('response.validation_failed', 1.0)
+        
+        return validation_result
+        
+    except Exception as e:
+        log_error(f"Response validation failed: {e}")
+        return create_error_response(f"Validation error: {str(e)}")
+
+def extract_response_data(response: Dict[str, Any], extraction_path: str) -> Any:
+    """Extract specific data from response using dot notation path."""
+    try:
+        current_data = response
+        path_parts = extraction_path.split('.')
+        
+        for part in path_parts:
+            if isinstance(current_data, dict) and part in current_data:
+                current_data = current_data[part]
+            elif isinstance(current_data, list) and part.isdigit():
+                index = int(part)
+                if 0 <= index < len(current_data):
+                    current_data = current_data[index]
+                else:
+                    return None
+            else:
+                return None
+        
+        record_metric('response.data_extracted', 1.0)
+        return current_data
+        
+    except Exception as e:
+        log_error(f"Data extraction failed: {e}")
+        return None
+
+def transform_response(response: Dict[str, Any], 
+                      transformations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Apply transformations to response data."""
+    try:
+        transformed_data = response.copy()
+        
+        for transformation in transformations:
+            transform_type = transformation.get('type')
+            
+            if transform_type == 'rename_field':
+                old_name = transformation.get('from')
+                new_name = transformation.get('to')
+                if old_name in transformed_data:
+                    transformed_data[new_name] = transformed_data.pop(old_name)
+            
+            elif transform_type == 'convert_type':
+                field_name = transformation.get('field')
+                target_type = transformation.get('target_type')
+                if field_name in transformed_data:
+                    try:
+                        if target_type == 'int':
+                            transformed_data[field_name] = int(transformed_data[field_name])
+                        elif target_type == 'float':
+                            transformed_data[field_name] = float(transformed_data[field_name])
+                        elif target_type == 'str':
+                            transformed_data[field_name] = str(transformed_data[field_name])
+                    except (ValueError, TypeError):
+                        log_error(f"Type conversion failed for field {field_name}")
+            
+            elif transform_type == 'add_field':
+                field_name = transformation.get('field')
+                field_value = transformation.get('value')
+                transformed_data[field_name] = field_value
+        
+        record_metric('response.transformed', 1.0, {'transform_count': len(transformations)})
+        return create_success_response("Response transformed", transformed_data)
+        
+    except Exception as e:
+        log_error(f"Response transformation failed: {e}")
+        return create_error_response(f"Transformation error: {str(e)}")
+
+def _parse_response_format(response_data: Dict[str, Any], expected_format: str) -> Any:
+    """Parse response data based on expected format."""
+    try:
+        raw_data = response_data.get('data', response_data.get('body', ''))
+        
+        if expected_format.lower() == 'json':
+            if isinstance(raw_data, str):
+                return json.loads(raw_data)
+            elif isinstance(raw_data, dict):
+                return raw_data
+            else:
+                return {'raw_data': raw_data}
+        
+        elif expected_format.lower() == 'xml':
+            if isinstance(raw_data, str):
+                root = ET.fromstring(raw_data)
+                return _xml_to_dict(root)
+            else:
+                return {'raw_data': raw_data}
+        
+        elif expected_format.lower() == 'text':
+            return {'text': str(raw_data)}
+        
+        else:
+            return {'raw_data': raw_data}
+    
+    except json.JSONDecodeError as e:
+        log_error(f"JSON parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+    
+    except ET.ParseError as e:
+        log_error(f"XML parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+    
+    except Exception as e:
+        log_error(f"Format parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+
+def _xml_to_dict(element) -> Dict[str, Any]:
+    """Convert XML element to dictionary."""
+    result = {}
+    
+    if element.text and element.text.strip():
+        result['text'] = element.text.strip()
+    
+    for attr_name, attr_value in element.attrib.items():
+        result[f'@{attr_name}'] = attr_value
+    
+    for child in element:
+        child_data = _xml_to_dict(child)
+        if child.tag in result:
+            if not isinstance(result[child.tag], list):
+                result[child.tag] = [result[child.tag]]
+            result[child.tag].append(child_data)
+        else:
+            result[child.tag] = child_data
+    
+    return result
+
+def cache_response(cache_key: str, response: Dict[str, Any], ttl: int = 300) -> bool:
+    """Cache response data."""
+    try:
+        cache_set(cache_key, response, ttl)
+        record_metric('response.cached', 1.0)
+        return True
+    except Exception as e:
+        log_error(f"Response caching failed: {e}")
+        return False
+
+def get_cached_response(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Get cached response data."""
+    try:
+        cached_data = cache_get(cache_key)
+        if cached_data:
+            record_metric('response.cache_hit', 1.0)
+            return cached_data
+        else:
+            record_metric('response.cache_miss', 1.0)
+            return None
+    except Exception as e:
+        log_error(f"Cache retrieval failed: {e}")
+        record_metric('response.cache_error', 1.0)
+        return None
+
+def get_response_stats() -> Dict[str, Any]:
+    """Get response processing statistics."""
+    try:
+        return execute_operation(
+            GatewayInterface.METRICS,
+            "get_metrics_summary",
+            metric_prefix="response"
+        )
+    except Exception as e:
+        log_error(f"Failed to get response stats: {e}")
+        return {}
