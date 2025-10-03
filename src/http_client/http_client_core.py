@@ -1,7 +1,7 @@
 """
-HTTP Client Core - HTTP Request Handling with Template Optimization
+HTTP Client Core - Template Optimized with Generic HTTP Methods
 Version: 2025.10.03.01
-Description: HTTP client with retry, connection pooling, and template-optimized headers
+Description: HTTP client with template-based headers and generic method dispatch
 
 Copyright 2025 Joseph Hersey
 
@@ -22,253 +22,224 @@ import urllib3
 import json
 import time
 import os
-from typing import Dict, Any, Optional, Callable
-from urllib.parse import urlencode, quote
-import threading
+from typing import Dict, Any, Optional
+from enum import Enum
+from urllib.parse import urlencode
 
-# ===== HTTP HEADER TEMPLATES (Template Optimization) =====
+# HTTP header templates for ultra-fast generation
+_JSON_HEADERS = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'AWS-Lambda-Python/3.12'
+}
 
-_JSON_HEADERS = '{"Content-Type":"application/json","Accept":"application/json"}'
-_XML_HEADERS = '{"Content-Type":"application/xml","Accept":"application/xml"}'
-_FORM_HEADERS = '{"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"}'
-_TEXT_HEADERS = '{"Content-Type":"text/plain","Accept":"text/plain"}'
-_HA_HEADERS = '{"Content-Type":"application/json","Accept":"application/json"}'
+_XML_HEADERS = {
+    'Content-Type': 'application/xml',
+    'Accept': 'application/xml',
+    'User-Agent': 'AWS-Lambda-Python/3.12'
+}
 
-_PARSED_HEADERS_TEMPLATE = '{"content_type":"%s","content_length":%d,"server":"%s"}'
+_FORM_HEADERS = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Accept': 'application/json',
+    'User-Agent': 'AWS-Lambda-Python/3.12'
+}
 
-_QUERY_BUFFER = []
+_TEXT_HEADERS = {
+    'Content-Type': 'text/plain',
+    'Accept': 'text/plain',
+    'User-Agent': 'AWS-Lambda-Python/3.12'
+}
+
+_HA_HEADERS = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'AWS-Lambda-HA-Client/1.0'
+}
 
 _USE_HTTP_TEMPLATES = os.environ.get('USE_HTTP_TEMPLATES', 'true').lower() == 'true'
 
-def get_standard_headers(content_type: str = 'json') -> Dict[str, str]:
-    """Get standard HTTP headers using template optimization."""
-    try:
-        if _USE_HTTP_TEMPLATES:
-            if content_type == 'json':
-                return json.loads(_JSON_HEADERS)
-            elif content_type == 'xml':
-                return json.loads(_XML_HEADERS)
-            elif content_type == 'form':
-                return json.loads(_FORM_HEADERS)
-            elif content_type == 'text':
-                return json.loads(_TEXT_HEADERS)
-            elif content_type == 'ha':
-                return json.loads(_HA_HEADERS)
-            else:
-                return json.loads(_JSON_HEADERS)
-        else:
-            return {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-    except Exception:
-        return {"Content-Type": "application/json"}
 
-def parse_headers_fast(headers_dict: Dict[str, str]) -> Dict[str, Any]:
-    """Parse HTTP headers using template optimization."""
-    try:
-        if _USE_HTTP_TEMPLATES and headers_dict:
-            content_type = headers_dict.get('content-type', headers_dict.get('Content-Type', 'unknown'))
-            content_length = int(headers_dict.get('content-length', headers_dict.get('Content-Length', 0)))
-            server = headers_dict.get('server', headers_dict.get('Server', 'unknown'))
-            
-            json_str = _PARSED_HEADERS_TEMPLATE % (content_type, content_length, server)
-            parsed = json.loads(json_str)
-            
-            for key, value in headers_dict.items():
-                if key.lower() not in ['content-type', 'content-length', 'server']:
-                    parsed[key.lower()] = value
-            
-            return parsed
-        else:
-            return {key.lower(): value for key, value in (headers_dict or {}).items()}
-    except Exception:
-        return {key.lower(): value for key, value in (headers_dict or {}).items()}
+class HTTPMethod(Enum):
+    """HTTP method types."""
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    PATCH = "PATCH"
+    HEAD = "HEAD"
+    OPTIONS = "OPTIONS"
 
-def build_query_fast(params: Dict[str, Any]) -> str:
-    """Build query string using template optimization."""
-    try:
-        if not params:
-            return ""
-        
-        if _USE_HTTP_TEMPLATES:
-            _QUERY_BUFFER.clear()
-            
-            for key, value in params.items():
-                if value is not None:
-                    if isinstance(value, (list, tuple)):
-                        _QUERY_BUFFER.extend(f"{key}={quote(str(v))}" for v in value)
-                    else:
-                        _QUERY_BUFFER.append(f"{key}={quote(str(value))}")
-            
-            return '&'.join(_QUERY_BUFFER)
-        else:
-            return urlencode(params, doseq=True)
-            
-    except Exception:
-        try:
-            return urlencode(params, doseq=True)
-        except:
-            return ""
 
-def merge_headers_fast(base_headers: Dict[str, str], additional_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    """Fast header merging using template base."""
-    try:
-        if not additional_headers:
-            return base_headers.copy()
-        
-        if _USE_HTTP_TEMPLATES:
-            result = base_headers.copy()
-            result.update(additional_headers)
-            return result
-        else:
-            result = {}
-            result.update(base_headers)
-            if additional_headers:
-                result.update(additional_headers)
-            return result
-            
-    except Exception:
-        return base_headers.copy() if base_headers else {}
+class HeaderType(Enum):
+    """HTTP header template types."""
+    JSON = "json"
+    XML = "xml"
+    FORM = "form"
+    TEXT = "text"
+    HA = "ha"
+    CUSTOM = "custom"
+
 
 class HTTPClientCore:
-    """Core HTTP client implementation with template optimization."""
+    """Core HTTP client with template optimization and generic methods."""
     
     def __init__(self):
-        self.http_pool = urllib3.PoolManager(
-            num_pools=10,
-            maxsize=20,
-            timeout=urllib3.Timeout(connect=10, read=30),
+        self.http = urllib3.PoolManager(
+            maxsize=10,
+            timeout=urllib3.Timeout(connect=10.0, read=30.0),
             retries=urllib3.Retry(total=3, backoff_factor=0.3)
         )
         self._stats = {
-            'requests_made': 0,
-            'successful_requests': 0,
-            'failed_requests': 0,
-            'template_header_usage': 0,
-            'legacy_header_usage': 0,
-            'template_query_usage': 0,
-            'legacy_query_usage': 0
+            'requests': 0,
+            'successful': 0,
+            'failed': 0,
+            'template_headers_used': 0
         }
-        self._lock = threading.RLock()
     
-    def make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
-        """Make HTTP request with template optimization."""
-        start_time = time.time()
+    def get_standard_headers(self, header_type: HeaderType = HeaderType.JSON) -> Dict[str, str]:
+        """Get standard headers using templates for ultra-fast performance."""
+        if not _USE_HTTP_TEMPLATES:
+            return self._get_headers_legacy(header_type)
         
-        with self._lock:
-            self._stats['requests_made'] += 1
+        self._stats['template_headers_used'] += 1
+        
+        if header_type == HeaderType.JSON:
+            return _JSON_HEADERS.copy()
+        elif header_type == HeaderType.XML:
+            return _XML_HEADERS.copy()
+        elif header_type == HeaderType.FORM:
+            return _FORM_HEADERS.copy()
+        elif header_type == HeaderType.TEXT:
+            return _TEXT_HEADERS.copy()
+        elif header_type == HeaderType.HA:
+            return _HA_HEADERS.copy()
+        else:
+            return _JSON_HEADERS.copy()
+    
+    def _get_headers_legacy(self, header_type: HeaderType) -> Dict[str, str]:
+        """Legacy header generation."""
+        return {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'AWS-Lambda-Python/3.12'
+        }
+    
+    def parse_headers_fast(self, headers: Dict[str, str]) -> Dict[str, str]:
+        """Fast header parsing with template awareness."""
+        if not headers:
+            return self.get_standard_headers()
+        
+        parsed = {}
+        for key, value in headers.items():
+            parsed[key.strip().title()] = value.strip()
+        
+        return parsed
+    
+    def build_query_fast(self, params: Dict[str, Any]) -> str:
+        """Fast query string building."""
+        if not params:
+            return ""
+        
+        return urlencode(params)
+    
+    def execute_http_method(self, method: HTTPMethod, url: str, **kwargs) -> urllib3.HTTPResponse:
+        """Generic HTTP method executor."""
+        self._stats['requests'] += 1
         
         try:
-            headers = self._prepare_headers(kwargs.get('headers'), kwargs.get('content_type', 'json'))
-            query_params = kwargs.get('params')
+            headers = kwargs.get('headers', self.get_standard_headers())
+            body = kwargs.get('body')
+            fields = kwargs.get('fields')
+            timeout = kwargs.get('timeout')
             
-            if query_params:
-                query_string = build_query_fast(query_params)
-                if query_string:
-                    separator = '&' if '?' in url else '?'
-                    url = f"{url}{separator}{query_string}"
-                
-                with self._lock:
-                    if _USE_HTTP_TEMPLATES:
-                        self._stats['template_query_usage'] += 1
-                    else:
-                        self._stats['legacy_query_usage'] += 1
-            
-            body = None
-            if kwargs.get('data'):
-                if isinstance(kwargs['data'], dict):
-                    body = json.dumps(kwargs['data']).encode('utf-8')
+            if method == HTTPMethod.GET:
+                response = self.http.request('GET', url, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.POST:
+                if body:
+                    body_data = json.dumps(body) if isinstance(body, dict) else body
+                    response = self.http.request('POST', url, body=body_data, headers=headers, timeout=timeout)
                 else:
-                    body = kwargs['data']
+                    response = self.http.request('POST', url, fields=fields, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.PUT:
+                body_data = json.dumps(body) if isinstance(body, dict) else body
+                response = self.http.request('PUT', url, body=body_data, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.DELETE:
+                response = self.http.request('DELETE', url, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.PATCH:
+                body_data = json.dumps(body) if isinstance(body, dict) else body
+                response = self.http.request('PATCH', url, body=body_data, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.HEAD:
+                response = self.http.request('HEAD', url, headers=headers, timeout=timeout)
+            elif method == HTTPMethod.OPTIONS:
+                response = self.http.request('OPTIONS', url, headers=headers, timeout=timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
             
-            timeout_val = kwargs.get('timeout', 30)
-            
-            response = self.http_pool.request(
-                method,
-                url,
-                body=body,
-                headers=headers,
-                timeout=timeout_val
-            )
-            
-            response_data = response.data.decode('utf-8') if response.data else None
-            
-            result = {
-                'success': True,
-                'status_code': response.status,
-                'data': json.loads(response_data) if response_data else None,
-                'headers': dict(response.headers),
-                'response_time_ms': int((time.time() - start_time) * 1000)
-            }
-            
-            with self._lock:
-                self._stats['successful_requests'] += 1
-            
-            return result
+            self._stats['successful'] += 1
+            return response
             
         except Exception as e:
-            with self._lock:
-                self._stats['failed_requests'] += 1
-            
-            return {
-                'success': False,
-                'error': str(e),
-                'response_time_ms': int((time.time() - start_time) * 1000)
-            }
+            self._stats['failed'] += 1
+            raise e
     
-    def _prepare_headers(self, custom_headers: Optional[Dict], content_type: str) -> Dict[str, str]:
-        """Prepare headers using template optimization."""
+    def make_request(self, method: str, url: str, **kwargs) -> urllib3.HTTPResponse:
+        """Make HTTP request with generic method dispatch."""
         try:
-            base_headers = get_standard_headers(content_type)
-            
-            with self._lock:
-                if _USE_HTTP_TEMPLATES:
-                    self._stats['template_header_usage'] += 1
-                else:
-                    self._stats['legacy_header_usage'] += 1
-            
-            if custom_headers:
-                return merge_headers_fast(base_headers, custom_headers)
-            
-            return base_headers
-            
-        except Exception:
-            return {"Content-Type": "application/json"}
+            http_method = HTTPMethod[method.upper()]
+            return self.execute_http_method(http_method, url, **kwargs)
+        except KeyError:
+            raise ValueError(f"Invalid HTTP method: {method}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get HTTP client statistics."""
-        with self._lock:
-            total_header_ops = self._stats['template_header_usage'] + self._stats['legacy_header_usage']
-            total_query_ops = self._stats['template_query_usage'] + self._stats['legacy_query_usage']
-            
-            header_template_rate = self._stats['template_header_usage'] / max(total_header_ops, 1)
-            query_template_rate = self._stats['template_query_usage'] / max(total_query_ops, 1)
-            
-            success_rate = self._stats['successful_requests'] / max(self._stats['requests_made'], 1)
-            
-            return {
-                'requests_made': self._stats['requests_made'],
-                'successful_requests': self._stats['successful_requests'],
-                'failed_requests': self._stats['failed_requests'],
-                'success_rate': success_rate,
-                'header_template_usage_rate': header_template_rate,
-                'query_template_usage_rate': query_template_rate,
-                'template_optimization_enabled': _USE_HTTP_TEMPLATES,
-                'stats': self._stats.copy()
-            }
-    
-    def reset_stats(self):
-        """Reset HTTP client statistics."""
-        with self._lock:
-            self._stats = {
-                'requests_made': 0,
-                'successful_requests': 0,
-                'failed_requests': 0,
-                'template_header_usage': 0,
-                'legacy_header_usage': 0,
-                'template_query_usage': 0,
-                'legacy_query_usage': 0
-            }
+        return {
+            'total_requests': self._stats['requests'],
+            'successful_requests': self._stats['successful'],
+            'failed_requests': self._stats['failed'],
+            'success_rate': (self._stats['successful'] / self._stats['requests'] * 100) if self._stats['requests'] > 0 else 0,
+            'template_headers_used': self._stats['template_headers_used']
+        }
 
-# EOF
+
+_MANAGER = HTTPClientCore()
+
+
+def _execute_make_request_implementation(method: str, url: str, **kwargs) -> urllib3.HTTPResponse:
+    """Execute make request operation."""
+    return _MANAGER.make_request(method, url, **kwargs)
+
+
+def get_standard_headers(header_type: str = 'json') -> Dict[str, str]:
+    """Public interface for getting standard headers."""
+    try:
+        header_enum = HeaderType[header_type.upper()]
+        return _MANAGER.get_standard_headers(header_enum)
+    except KeyError:
+        return _MANAGER.get_standard_headers(HeaderType.JSON)
+
+
+def parse_headers_fast(headers: Dict[str, str]) -> Dict[str, str]:
+    """Public interface for fast header parsing."""
+    return _MANAGER.parse_headers_fast(headers)
+
+
+def build_query_fast(params: Dict[str, Any]) -> str:
+    """Public interface for fast query building."""
+    return _MANAGER.build_query_fast(params)
+
+
+def get_http_stats() -> Dict[str, Any]:
+    """Public interface for HTTP statistics."""
+    return _MANAGER.get_stats()
+
+
+__all__ = [
+    'HTTPMethod',
+    'HeaderType',
+    'get_standard_headers',
+    'parse_headers_fast',
+    'build_query_fast',
+    'get_http_stats',
+    '_execute_make_request_implementation',
+]
