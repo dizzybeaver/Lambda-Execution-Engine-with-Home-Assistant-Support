@@ -1,46 +1,126 @@
 """
-home_assistant_response.py - Home Assistant Response Processing Module
-Version: 2025.09.20.01
-Description: Specialized response processing for Home Assistant using core generic functions
+Home Assistant Response - Alexa Response Processing with Template Optimization
+Version: 2025.10.02.01
+Description: Home Assistant response processing with pre-compiled Alexa templates
 
-IMPLEMENTS:
-- HA response formatting (thin wrappers around generic response functions)
-- Error handling for HA operations (using logging gateway)
-- Response validation for HA data (using security gateway)
-- Cache-aware response processing (memory optimized)
+Copyright 2025 Joseph Hersey
 
-ARCHITECTURE:
-- Uses home_assistant_core generic functions for actual operations
-- Integrates with logging gateway for response tracking
-- Uses security gateway for response validation
-- Lambda-optimized for 128MB memory limit
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-PRIMARY FILE: home_assistant.py (interface)
-SECONDARY FILE: home_assistant_response.py (specialized module)
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import json
 import time
 import logging
 import urllib3
+import uuid
+import os
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Import from core for generic functions
 from .home_assistant_core import (
     _get_ha_manager,
     HAOperationResult
 )
 
-# Use logging gateway for response tracking
 from logging import record_request, record_error
-
-# Use security gateway for validation
 from security import validate_request_data
 
-# ===== SECTION 1: RESPONSE DATA STRUCTURES =====
+# ===== ALEXA RESPONSE TEMPLATES (Phase 2 Optimization) =====
+
+_ALEXA_RESPONSE_TEMPLATE = '''{
+    "event": {
+        "header": {
+            "namespace": "Alexa",
+            "name": "Response",
+            "messageId": "%s",
+            "correlationToken": "%s",
+            "payloadVersion": "3"
+        },
+        "endpoint": %s,
+        "payload": %s
+    }
+}'''
+
+_ALEXA_ERROR_TEMPLATE = '''{
+    "event": {
+        "header": {
+            "namespace": "Alexa",
+            "name": "ErrorResponse",
+            "messageId": "%s",
+            "correlationToken": "%s",
+            "payloadVersion": "3"
+        },
+        "payload": {
+            "type": "%s",
+            "message": "%s"
+        }
+    }
+}'''
+
+_ALEXA_DISCOVERY_TEMPLATE = '''{
+    "event": {
+        "header": {
+            "namespace": "Alexa.Discovery",
+            "name": "Discover.Response",
+            "messageId": "%s",
+            "payloadVersion": "3"
+        },
+        "payload": {
+            "endpoints": %s
+        }
+    }
+}'''
+
+_ALEXA_CHANGE_REPORT_TEMPLATE = '''{
+    "event": {
+        "header": {
+            "namespace": "Alexa",
+            "name": "ChangeReport",
+            "messageId": "%s",
+            "payloadVersion": "3"
+        },
+        "endpoint": %s,
+        "payload": {
+            "change": {
+                "cause": {
+                    "type": "PHYSICAL_INTERACTION"
+                },
+                "properties": %s
+            }
+        }
+    }
+}'''
+
+_ALEXA_STATE_REPORT_TEMPLATE = '''{
+    "event": {
+        "header": {
+            "namespace": "Alexa",
+            "name": "StateReport",
+            "messageId": "%s",
+            "correlationToken": "%s",
+            "payloadVersion": "3"
+        },
+        "endpoint": %s,
+        "payload": {},
+        "context": {
+            "properties": %s
+        }
+    }
+}'''
+
+_USE_ALEXA_TEMPLATES = os.environ.get('USE_ALEXA_TEMPLATES', 'true').lower() == 'true'
 
 @dataclass
 class HAResponseStats:
@@ -50,132 +130,241 @@ class HAResponseStats:
     error_responses: int = 0
     avg_processing_time_ms: float = 0.0
     last_response_time: float = 0.0
-
-# ===== SECTION 2: HA RESPONSE PROCESSOR =====
+    template_usage_count: int = 0
 
 class HAResponseProcessor:
-    """
-    Home Assistant response processor using designated gateways.
-    Memory optimized for Lambda environment.
-    """
+    """Home Assistant response processor with Alexa template optimization."""
     
     def __init__(self):
         self._stats = HAResponseStats()
-        self.max_response_size_bytes = 512 * 1024  # 512KB for HA responses
+        self.max_response_size_bytes = 512 * 1024
         
     def process_ha_response(self, directive: Dict[str, Any], 
                           response: urllib3.HTTPResponse,
                           response_time_ms: float = None) -> Dict[str, Any]:
-        """
-        Process HTTP response from Home Assistant.
-        Uses logging gateway for tracking and security gateway for validation.
-        """
+        """Process HTTP response from Home Assistant using template optimization."""
         start_time = time.time()
         
         try:
-            # Validate directive through security gateway
-            validation_result = validate_request_data(directive)
-            if not validation_result.get("valid", False):
+            if response.status != 200:
                 return self._create_error_response(
-                    "Invalid directive structure",
-                    validation_result
+                    directive, 
+                    f"HA responded with status {response.status}",
+                    "ENDPOINT_UNREACHABLE"
                 )
             
-            # Parse HTTP response
-            if response.status == 200:
-                try:
-                    response_data = json.loads(response.data.decode('utf-8'))
-                    result = self._create_success_response(directive, response_data)
-                except json.JSONDecodeError as e:
-                    result = self._create_error_response(
-                        "Invalid JSON response from Home Assistant",
-                        {"json_error": str(e)}
-                    )
+            response_data = json.loads(response.data.decode('utf-8'))
+            
+            directive_header = directive.get('directive', {}).get('header', {})
+            namespace = directive_header.get('namespace', 'Alexa')
+            name = directive_header.get('name', '')
+            
+            if namespace == "Alexa.Discovery" and name == "Discover":
+                result = self._create_discovery_response(response_data)
+            elif namespace == "Alexa" and name == "ReportState":
+                result = self._create_state_report_response(directive, response_data)
             else:
-                result = self._create_error_response(
-                    f"Home Assistant returned status {response.status}",
-                    {"status_code": response.status, "response": response.data.decode('utf-8')}
-                )
+                result = self._create_success_response(directive, response_data)
             
-            # Update statistics
             processing_time = (time.time() - start_time) * 1000
-            self._update_stats(result.get("success", False), processing_time)
+            self._update_stats(True, processing_time)
             
-            # Record through logging gateway
-            if result.get("success"):
-                record_request("ha_response_success", processing_time)
-            else:
-                record_error(Exception(result.get("error", "Unknown error")), "HA_RESPONSE")
+            record_request("ha_alexa_response", None)
             
             return result
             
         except Exception as e:
-            error_result = self._create_error_response(str(e), {"exception": type(e).__name__})
+            processing_time = (time.time() - start_time) * 1000
+            self._update_stats(False, processing_time)
+            
             record_error(e, "HA_RESPONSE_PROCESSING")
-            return error_result
+            
+            return self._create_error_response(
+                directive,
+                f"Response processing failed: {str(e)}",
+                "INTERNAL_ERROR"
+            )
     
-    def _create_success_response(self, directive: Dict[str, Any], 
-                               response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create successful HA response using generic patterns."""
+    def _create_success_response(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create Alexa success response using template optimization."""
         try:
-            # Extract directive info
-            header = directive.get("directive", {}).get("header", {})
-            endpoint = directive.get("directive", {}).get("endpoint", {})
-            
-            return {
-                "success": True,
-                "event": {
-                    "header": {
-                        "namespace": header.get("namespace", "Alexa"),
-                        "name": "Response",
-                        "payloadVersion": "3",
-                        "messageId": header.get("messageId", "unknown"),
-                        "correlationToken": header.get("correlationToken")
-                    },
-                    "endpoint": endpoint,
-                    "payload": {}
-                },
-                "context": {
-                    "properties": self._extract_context_properties(response_data)
-                },
-                "ha_response": response_data,
-                "timestamp": time.time()
-            }
-            
+            if _USE_ALEXA_TEMPLATES:
+                message_id = str(uuid.uuid4())
+                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
+                
+                endpoint_data = self._build_endpoint(directive)
+                endpoint_json = json.dumps(endpoint_data)
+                
+                payload_data = self._build_payload(response_data)
+                payload_json = json.dumps(payload_data)
+                
+                json_response = _ALEXA_RESPONSE_TEMPLATE % (
+                    message_id, correlation_token, endpoint_json, payload_json
+                )
+                
+                self._stats.template_usage_count += 1
+                return json.loads(json_response)
+            else:
+                return self._create_success_response_legacy(directive, response_data)
+                
         except Exception as e:
-            logger.error(f"Error creating success response: {e}")
-            return self._create_error_response(str(e), {"creation_error": True})
+            return self._create_success_response_legacy(directive, response_data)
     
-    def _create_error_response(self, error_message: str, 
-                             details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Create error response for HA operations."""
+    def _create_error_response(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
+        """Create Alexa error response using template optimization."""
+        try:
+            if _USE_ALEXA_TEMPLATES:
+                message_id = str(uuid.uuid4())
+                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
+                
+                json_response = _ALEXA_ERROR_TEMPLATE % (
+                    message_id, correlation_token, error_type, error_message
+                )
+                
+                self._stats.template_usage_count += 1
+                return json.loads(json_response)
+            else:
+                return self._create_error_response_legacy(directive, error_message, error_type)
+                
+        except Exception as e:
+            return self._create_error_response_legacy(directive, error_message, error_type)
+    
+    def _create_discovery_response(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
+        """Create Alexa discovery response using template optimization."""
+        try:
+            if _USE_ALEXA_TEMPLATES:
+                message_id = str(uuid.uuid4())
+                endpoints_json = json.dumps(endpoints_data)
+                
+                json_response = _ALEXA_DISCOVERY_TEMPLATE % (
+                    message_id, endpoints_json
+                )
+                
+                self._stats.template_usage_count += 1
+                return json.loads(json_response)
+            else:
+                return self._create_discovery_response_legacy(endpoints_data)
+                
+        except Exception as e:
+            return self._create_discovery_response_legacy(endpoints_data)
+    
+    def _create_state_report_response(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create Alexa state report response using template optimization."""
+        try:
+            if _USE_ALEXA_TEMPLATES:
+                message_id = str(uuid.uuid4())
+                correlation_token = directive.get('directive', {}).get('header', {}).get('correlationToken', '')
+                
+                endpoint_data = self._build_endpoint(directive)
+                endpoint_json = json.dumps(endpoint_data)
+                
+                properties = self._extract_context_properties(state_data)
+                properties_json = json.dumps(properties)
+                
+                json_response = _ALEXA_STATE_REPORT_TEMPLATE % (
+                    message_id, correlation_token, endpoint_json, properties_json
+                )
+                
+                self._stats.template_usage_count += 1
+                return json.loads(json_response)
+            else:
+                return self._create_state_report_response_legacy(directive, state_data)
+                
+        except Exception as e:
+            return self._create_state_report_response_legacy(directive, state_data)
+    
+    def _create_success_response_legacy(self, directive: Dict[str, Any], response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Legacy dict-based success response creation."""
         return {
-            "success": False,
+            "event": {
+                "header": {
+                    "namespace": "Alexa",
+                    "name": "Response",
+                    "messageId": str(uuid.uuid4()),
+                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
+                    "payloadVersion": "3"
+                },
+                "endpoint": self._build_endpoint(directive),
+                "payload": self._build_payload(response_data)
+            }
+        }
+    
+    def _create_error_response_legacy(self, directive: Dict[str, Any], error_message: str, error_type: str) -> Dict[str, Any]:
+        """Legacy dict-based error response creation."""
+        return {
             "event": {
                 "header": {
                     "namespace": "Alexa",
                     "name": "ErrorResponse",
-                    "payloadVersion": "3",
-                    "messageId": f"error-{int(time.time())}"
+                    "messageId": str(uuid.uuid4()),
+                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
+                    "payloadVersion": "3"
                 },
                 "payload": {
-                    "type": "INTERNAL_ERROR",
+                    "type": error_type,
                     "message": error_message
                 }
-            },
-            "error": error_message,
-            "details": details or {},
-            "timestamp": time.time()
+            }
         }
     
-    def _extract_context_properties(self, response_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _create_discovery_response_legacy(self, endpoints_data: List[Dict]) -> Dict[str, Any]:
+        """Legacy dict-based discovery response creation."""
+        return {
+            "event": {
+                "header": {
+                    "namespace": "Alexa.Discovery",
+                    "name": "Discover.Response",
+                    "messageId": str(uuid.uuid4()),
+                    "payloadVersion": "3"
+                },
+                "payload": {
+                    "endpoints": endpoints_data
+                }
+            }
+        }
+    
+    def _create_state_report_response_legacy(self, directive: Dict[str, Any], state_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Legacy dict-based state report response creation."""
+        return {
+            "event": {
+                "header": {
+                    "namespace": "Alexa",
+                    "name": "StateReport",
+                    "messageId": str(uuid.uuid4()),
+                    "correlationToken": directive.get('directive', {}).get('header', {}).get('correlationToken', ''),
+                    "payloadVersion": "3"
+                },
+                "endpoint": self._build_endpoint(directive),
+                "payload": {},
+                "context": {
+                    "properties": self._extract_context_properties(state_data)
+                }
+            }
+        }
+    
+    def _build_endpoint(self, directive: Dict[str, Any]) -> Dict[str, Any]:
+        """Build endpoint data from directive."""
+        endpoint = directive.get('directive', {}).get('endpoint', {})
+        
+        return {
+            "scope": {
+                "type": "BearerToken",
+                "token": endpoint.get('scope', {}).get('token', '')
+            },
+            "endpointId": endpoint.get('endpointId', 'unknown'),
+            "cookie": endpoint.get('cookie', {})
+        }
+    
+    def _build_payload(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build payload from HA response data."""
+        return {}
+    
+    def _extract_context_properties(self, response_data: Any) -> List[Dict[str, Any]]:
         """Extract context properties from HA response."""
         properties = []
         
         try:
-            # Handle different HA response formats generically
             if isinstance(response_data, list):
-                # State list response
                 for state in response_data:
                     if isinstance(state, dict) and "entity_id" in state:
                         properties.append({
@@ -186,7 +375,6 @@ class HAResponseProcessor:
                             "uncertaintyInMilliseconds": 0
                         })
             elif isinstance(response_data, dict):
-                # Single entity response
                 if "entity_id" in response_data:
                     properties.append({
                         "namespace": "Alexa.EndpointHealth", 
@@ -210,13 +398,10 @@ class HAResponseProcessor:
         else:
             self._stats.error_responses += 1
         
-        # Update average processing time
         if self._stats.total_responses > 0:
             current_avg = self._stats.avg_processing_time_ms
             new_avg = ((current_avg * (self._stats.total_responses - 1)) + processing_time_ms) / self._stats.total_responses
             self._stats.avg_processing_time_ms = new_avg
-
-# ===== SECTION 3: SINGLETON ACCESS =====
 
 _ha_response_processor: Optional[HAResponseProcessor] = None
 
@@ -227,26 +412,17 @@ def _get_ha_response_processor() -> HAResponseProcessor:
         _ha_response_processor = HAResponseProcessor()
     return _ha_response_processor
 
-# ===== SECTION 4: PUBLIC INTERFACE FUNCTIONS =====
-
 def process_ha_alexa_response(directive: Dict[str, Any], 
                             response: urllib3.HTTPResponse,
                             response_time_ms: float = None) -> Dict[str, Any]:
-    """
-    Process Alexa directive response from Home Assistant.
-    Main interface function for HA response processing.
-    """
+    """Process Alexa directive response from Home Assistant."""
     processor = _get_ha_response_processor()
     return processor.process_ha_response(directive, response, response_time_ms)
 
 def process_ha_service_response(service_call: Dict[str, Any],
                               response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Process Home Assistant service call response.
-    Generic function for any HA service response.
-    """
+    """Process Home Assistant service call response."""
     try:
-        # Validate service call through security gateway
         validation_result = validate_request_data(service_call)
         if not validation_result.get("valid", False):
             return {
@@ -256,7 +432,6 @@ def process_ha_service_response(service_call: Dict[str, Any],
                 "timestamp": time.time()
             }
         
-        # Process response generically
         result = {
             "success": True,
             "service": service_call.get("service", "unknown"),
@@ -265,7 +440,6 @@ def process_ha_service_response(service_call: Dict[str, Any],
             "timestamp": time.time()
         }
         
-        # Record through logging gateway
         record_request("ha_service_response", None)
         
         return result
@@ -282,32 +456,22 @@ def process_ha_service_response(service_call: Dict[str, Any],
 
 def process_ha_state_response(entity_ids: List[str], 
                             states_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Process Home Assistant state query response.
-    Handles both single and bulk state responses.
-    """
+    """Process Home Assistant state query response."""
     try:
-        processed_states = {}
-        
-        for entity_id in entity_ids:
-            if entity_id in states_data:
-                state_data = states_data[entity_id]
-                processed_states[entity_id] = {
-                    "state": state_data.get("state"),
-                    "attributes": state_data.get("attributes", {}),
-                    "last_changed": state_data.get("last_changed"),
-                    "friendly_name": state_data.get("attributes", {}).get("friendly_name", entity_id)
-                }
+        if not isinstance(entity_ids, list):
+            return {
+                "success": False,
+                "error": "Invalid entity_ids format",
+                "timestamp": time.time()
+            }
         
         result = {
             "success": True,
-            "entity_ids": entity_ids,
-            "states": processed_states,
-            "found_count": len(processed_states),
+            "entity_count": len(entity_ids),
+            "states": states_data,
             "timestamp": time.time()
         }
         
-        # Record through logging gateway
         record_request("ha_state_response", None)
         
         return result
@@ -323,7 +487,7 @@ def process_ha_state_response(entity_ids: List[str],
         return error_result
 
 def get_ha_response_stats() -> Dict[str, Any]:
-    """Get Home Assistant response processing statistics."""
+    """Get HA response processing statistics."""
     processor = _get_ha_response_processor()
     stats = processor._stats
     
@@ -331,37 +495,9 @@ def get_ha_response_stats() -> Dict[str, Any]:
         "total_responses": stats.total_responses,
         "successful_responses": stats.successful_responses,
         "error_responses": stats.error_responses,
-        "success_rate": (stats.successful_responses / max(stats.total_responses, 1)) * 100,
+        "success_rate": stats.successful_responses / max(stats.total_responses, 1),
         "avg_processing_time_ms": stats.avg_processing_time_ms,
-        "last_response_time": stats.last_response_time,
-        "timestamp": time.time()
+        "template_usage_count": stats.template_usage_count,
+        "template_usage_rate": stats.template_usage_count / max(stats.total_responses, 1),
+        "last_response_time": stats.last_response_time
     }
-
-def reset_ha_response_processor() -> bool:
-    """Reset HA response processor (for cleanup)."""
-    global _ha_response_processor
-    try:
-        _ha_response_processor = None
-        return True
-    except Exception as e:
-        logger.error(f"Error resetting HA response processor: {e}")
-        return False
-
-# ===== SECTION 5: MODULE EXPORTS =====
-
-__all__ = [
-    # Main processing functions
-    'process_ha_alexa_response',
-    'process_ha_service_response', 
-    'process_ha_state_response',
-    
-    # Statistics and management
-    'get_ha_response_stats',
-    'reset_ha_response_processor',
-    
-    # Data structures
-    'HAResponseStats',
-    'HAResponseProcessor'
-]
-
-# EOF
