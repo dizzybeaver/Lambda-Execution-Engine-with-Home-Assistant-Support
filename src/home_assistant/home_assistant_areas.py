@@ -1,371 +1,478 @@
 """
-home_assistant_areas.py - Area Control
-Version: 2025.10.01.02
-Description: Area-based device control with batch operations
+Home Assistant Timers - Gateway-Optimized Timer Management
+Version: 2025.10.03.02
+Description: Revolutionary gateway-integrated timer management with zero custom error handling
 
-ARCHITECTURE: HA EXTENSION FEATURE MODULE
-- Uses ha_common for all HA API interactions
-- Circuit breaker protection via ha_common
-- Batch operations for multi-device control
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 2 Complete
-- ADDED: Batch state retrieval for area devices
-- ADDED: Batch service calls for area-wide control
-- ADDED: Optimized area entity pre-fetching
-- Performance improvement: 40-50% for multi-entity operations
-- API call reduction: 60-70% fewer HA API calls
-- Smart domain filtering at retrieval time
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright 2024 Anthropic PBC
-Licensed under the Apache License, Version 2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
-from typing import Dict, Any, List, Optional
+import re
+from typing import Dict, Any, Optional, Union
 
 from gateway import (
-    log_info, log_error, log_warning,
-    create_success_response, create_error_response,
-    generate_correlation_id,
+    log_info,
+    create_success_response,
     increment_counter
 )
 
 from ha_common import (
     get_ha_config,
+    call_ha_service,
+    get_entity_state,
     batch_get_states,
-    batch_call_service,
-    call_ha_api,
-    get_cache_section,
-    set_cache_section,
-    minimize_entity_list,
-    HA_CACHE_TTL_ENTITIES,
-    HA_CACHE_TTL_MAPPINGS,
-    is_ha_available
+    is_ha_available,
+    HA_CACHE_TTL_STATE
 )
 
 
-class HAAreaManager:
-    """Manages Home Assistant area-based device control with batch operations."""
+class HATimerManager:
+    """Manages Home Assistant timers with circuit breaker protection."""
     
     def __init__(self):
         self._stats = {
             'operations': 0,
             'successes': 0,
             'failures': 0,
-            'devices_controlled': 0
+            'by_action': {
+                'start': {'operations': 0, 'successes': 0},
+                'cancel': {'operations': 0, 'successes': 0},
+                'pause': {'operations': 0, 'successes': 0},
+                'finish': {'operations': 0, 'successes': 0}
+            }
         }
     
     def get_feature_name(self) -> str:
-        return "area"
+        return "timer"
     
-    def control_area(
+    def start_timer(
         self,
-        area_name: str,
-        action: str,
-        ha_config: Optional[Dict[str, Any]] = None,
-        domain: Optional[str] = None
+        timer_id: str,
+        duration: Union[str, int],
+        ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """
-        Control all devices in area using batch operations.
+        """Start timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        OPTIMIZATION: Phase 2 Complete
-        - Pre-fetches all area entities in single call
-        - Uses batch_call_service for parallel execution
-        - 60-70% fewer API calls vs sequential control
-        """
-        start_time = time.time()
-        correlation_id = generate_correlation_id()
+        context = create_operation_context('ha_timer', 'start',
+                                          timer_id=timer_id, duration=str(duration))
         
         try:
-            log_info(f"Controlling area: {area_name} -> {action} [{correlation_id}]", {
-                'domain_filter': domain,
-                'correlation_id': correlation_id
-            })
-            
             if not is_ha_available():
-                return create_error_response(
-                    "Home Assistant unavailable (circuit breaker open)",
-                    {'correlation_id': correlation_id}
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'start',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
                 )
             
-            increment_counter("ha_area_control_request")
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'start',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            duration_str = self._parse_duration(duration)
+            
+            service_data = {
+                "entity_id": entity_id,
+                "duration": duration_str
+            }
+            
+            result = call_ha_service("timer", "start", config, entity_id, service_data)
+            
             self._stats['operations'] += 1
-            
-            if not ha_config:
-                ha_config = get_ha_config()
-            
-            area_id = self._find_area_id(area_name, ha_config)
-            if not area_id:
-                self._stats['failures'] += 1
-                return create_error_response("Area not found", {
-                    "area_name": area_name,
-                    "correlation_id": correlation_id
-                })
-            
-            devices = self._get_area_devices_batch(area_id, ha_config, domain)
-            if not devices:
-                self._stats['failures'] += 1
-                return create_error_response("No controllable devices in area", {
-                    "area_name": area_name,
-                    "domain": domain,
-                    "correlation_id": correlation_id
-                })
-            
-            results = self._control_devices_batch(devices, action, ha_config)
-            
-            duration_ms = (time.time() - start_time) * 1000
-            success_count = sum(1 for r in results if r.get("success", False))
-            
-            self._stats['devices_controlled'] += success_count
-            
-            if success_count > 0:
+            if result.get('success'):
                 self._stats['successes'] += 1
-                log_info(f"Area control: {success_count}/{len(devices)} successful [{correlation_id}]")
-                return create_success_response(
-                    f"Controlled {success_count} devices in {area_name}",
-                    {
-                        "area_name": area_name,
-                        "action": action,
-                        "devices_controlled": success_count,
-                        "total_devices": len(devices),
-                        "processing_time_ms": duration_ms,
-                        "correlation_id": correlation_id,
-                        "batch_optimized": True
-                    }
-                )
+                self._stats['by_action']['start']['operations'] += 1
+                self._stats['by_action']['start']['successes'] += 1
             else:
                 self._stats['failures'] += 1
-                return create_error_response("Failed to control area devices", {
-                    "area_name": area_name,
-                    "correlation_id": correlation_id
-                })
-                
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_timer_start')
+            
+            return create_success_response(
+                f"Timer {entity_id} started for {duration_str}",
+                {
+                    'entity_id': entity_id,
+                    'duration': duration_str,
+                    'result': result
+                }
+            )
+            
         except Exception as e:
             self._stats['failures'] += 1
-            log_error(f"Control area exception: {str(e)}", {
-                'correlation_id': correlation_id
-            })
-            return create_error_response("Control area exception", {
-                "error": str(e),
-                "correlation_id": correlation_id
-            })
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'start', e, context['correlation_id'])
     
-    def list_areas(self, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """List all areas with optimized caching."""
-        correlation_id = generate_correlation_id()
+    def cancel_timer(
+        self,
+        timer_id: str,
+        ha_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Cancel timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
+        
+        context = create_operation_context('ha_timer', 'cancel', timer_id=timer_id)
         
         try:
-            log_info(f"Listing areas [{correlation_id}]")
-            
             if not is_ha_available():
-                return create_error_response(
-                    "Home Assistant unavailable (circuit breaker open)",
-                    {'correlation_id': correlation_id}
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'cancel',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
                 )
             
-            cached_areas = get_cache_section("areas", HA_CACHE_TTL_ENTITIES)
-            if cached_areas:
-                log_info(f"Areas list retrieved from cache [{correlation_id}]")
-                return create_success_response("Areas retrieved from cache", {
-                    "areas": cached_areas,
-                    "count": len(cached_areas),
-                    "cached": True,
-                    "correlation_id": correlation_id
-                })
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
             
-            if not ha_config:
-                ha_config = get_ha_config()
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'cancel',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
             
-            response = call_ha_api("/api/config/area_registry/list", ha_config)
+            result = call_ha_service("timer", "cancel", config, entity_id)
             
-            if not response.get("success"):
-                return create_error_response("Failed to list areas", {
-                    "correlation_id": correlation_id
-                })
+            self._stats['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['cancel']['operations'] += 1
+                self._stats['by_action']['cancel']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
             
-            areas = response.get("data", [])
+            close_operation_context(context, success=result.get('success', False), result=result)
             
-            minimized_areas = [
+            increment_counter('ha_timer_cancel')
+            
+            return create_success_response(
+                f"Timer {entity_id} cancelled",
                 {
-                    "area_id": a.get("area_id"),
-                    "name": a.get("name"),
-                    "aliases": a.get("aliases", [])
+                    'entity_id': entity_id,
+                    'result': result
                 }
-                for a in areas
-            ]
-            
-            set_cache_section("areas", minimized_areas, HA_CACHE_TTL_ENTITIES)
-            
-            log_info(f"Areas list retrieved: {len(minimized_areas)} areas [{correlation_id}]")
-            return create_success_response("Areas retrieved", {
-                "areas": minimized_areas,
-                "count": len(minimized_areas),
-                "cached": False,
-                "correlation_id": correlation_id
-            })
+            )
             
         except Exception as e:
-            log_error(f"List areas exception: {str(e)}", {
-                'correlation_id': correlation_id
-            })
-            return create_error_response("List areas exception", {
-                "error": str(e),
-                "correlation_id": correlation_id
-            })
+            self._stats['failures'] += 1
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'cancel', e, context['correlation_id'])
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Get area control statistics."""
-        return {
-            "feature": self.get_feature_name(),
-            **self._stats
-        }
-    
-    def _find_area_id(self, area_name: str, ha_config: Dict[str, Any]) -> Optional[str]:
-        """Find area ID by name using cached area list."""
-        areas_response = self.list_areas(ha_config)
+    def pause_timer(
+        self,
+        timer_id: str,
+        ha_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Pause timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
         
-        if not areas_response.get("success"):
+        context = create_operation_context('ha_timer', 'pause', timer_id=timer_id)
+        
+        try:
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'pause',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'pause',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            result = call_ha_service("timer", "pause", config, entity_id)
+            
+            self._stats['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['pause']['operations'] += 1
+                self._stats['by_action']['pause']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_timer_pause')
+            
+            return create_success_response(
+                f"Timer {entity_id} paused",
+                {
+                    'entity_id': entity_id,
+                    'result': result
+                }
+            )
+            
+        except Exception as e:
+            self._stats['failures'] += 1
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'pause', e, context['correlation_id'])
+    
+    def finish_timer(
+        self,
+        timer_id: str,
+        ha_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Finish timer with circuit breaker and operation context."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context, handle_operation_error
+        )
+        
+        context = create_operation_context('ha_timer', 'finish', timer_id=timer_id)
+        
+        try:
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'finish',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            entity_id = self._resolve_timer_id(timer_id, config)
+            
+            if not entity_id:
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'finish',
+                    ValueError(f"Timer not found: {timer_id}"),
+                    context['correlation_id']
+                )
+            
+            result = call_ha_service("timer", "finish", config, entity_id)
+            
+            self._stats['operations'] += 1
+            if result.get('success'):
+                self._stats['successes'] += 1
+                self._stats['by_action']['finish']['operations'] += 1
+                self._stats['by_action']['finish']['successes'] += 1
+            else:
+                self._stats['failures'] += 1
+            
+            close_operation_context(context, success=result.get('success', False), result=result)
+            
+            increment_counter('ha_timer_finish')
+            
+            return create_success_response(
+                f"Timer {entity_id} finished",
+                {
+                    'entity_id': entity_id,
+                    'result': result
+                }
+            )
+            
+        except Exception as e:
+            self._stats['failures'] += 1
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'finish', e, context['correlation_id'])
+    
+    def list_timers(
+        self,
+        ha_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """List timers with circuit breaker and caching."""
+        from .shared_utilities import (
+            create_operation_context, close_operation_context,
+            handle_operation_error, cache_operation_result
+        )
+        
+        context = create_operation_context('ha_timer', 'list')
+        
+        try:
+            if not is_ha_available():
+                close_operation_context(context, success=False)
+                return handle_operation_error(
+                    'ha_timer', 'list',
+                    Exception("Home Assistant circuit breaker open"),
+                    context['correlation_id']
+                )
+            
+            config = ha_config or get_ha_config()
+            
+            def _get_timers():
+                response = batch_get_states(None, config, use_cache=True)
+                if not response.get('success'):
+                    return []
+                
+                states = response.get('data', [])
+                return [
+                    {
+                        'entity_id': state.get('entity_id'),
+                        'name': state.get('attributes', {}).get('friendly_name', state.get('entity_id')),
+                        'state': state.get('state'),
+                        'duration': state.get('attributes', {}).get('duration'),
+                        'remaining': state.get('attributes', {}).get('remaining')
+                    }
+                    for state in states
+                    if state.get('entity_id', '').startswith('timer.')
+                ]
+            
+            timers = cache_operation_result(
+                operation_name="list_timers",
+                func=_get_timers,
+                ttl=HA_CACHE_TTL_STATE,
+                cache_key_prefix="ha_timers"
+            )
+            
+            close_operation_context(context, success=True)
+            
+            return create_success_response(
+                f"Retrieved {len(timers)} timers",
+                {
+                    'timers': timers,
+                    'count': len(timers)
+                }
+            )
+            
+        except Exception as e:
+            close_operation_context(context, success=False)
+            return handle_operation_error('ha_timer', 'list', e, context['correlation_id'])
+    
+    def _parse_duration(self, duration: Union[str, int]) -> str:
+        """Parse duration into HH:MM:SS format."""
+        if isinstance(duration, int):
+            return f"00:{duration:02d}:00"
+        
+        duration_str = str(duration)
+        
+        if ':' in duration_str:
+            parts = duration_str.split(':')
+            if len(parts) == 3:
+                return duration_str
+            elif len(parts) == 2:
+                return f"00:{duration_str}"
+        
+        text_match = re.match(r'(\d+)\s*(hour|minute|second|min|sec|hr|h|m|s)s?', duration_str, re.IGNORECASE)
+        if text_match:
+            value = int(text_match.group(1))
+            unit = text_match.group(2).lower()
+            
+            if unit in ['hour', 'hr', 'h']:
+                return f"{value:02d}:00:00"
+            elif unit in ['minute', 'min', 'm']:
+                return f"00:{value:02d}:00"
+            elif unit in ['second', 'sec', 's']:
+                return f"00:00:{value:02d}"
+        
+        try:
+            minutes = int(duration_str)
+            return f"00:{minutes:02d}:00"
+        except ValueError:
+            return "00:10:00"
+    
+    def _resolve_timer_id(self, timer_id: str, config: Dict[str, Any]) -> Optional[str]:
+        """Resolve timer ID to entity ID."""
+        if timer_id.startswith('timer.'):
+            return timer_id
+        
+        response = batch_get_states(None, config, use_cache=True)
+        if not response.get('success'):
             return None
         
-        areas = areas_response.get("data", {}).get("areas", [])
+        states = response.get('data', [])
+        timer_id_lower = timer_id.lower()
         
-        area_name_lower = area_name.lower()
-        for area in areas:
-            if area.get("name", "").lower() == area_name_lower:
-                return area.get("area_id")
+        for state in states:
+            entity_id = state.get('entity_id', '')
+            if not entity_id.startswith('timer.'):
+                continue
             
-            aliases = area.get("aliases", [])
-            if any(alias.lower() == area_name_lower for alias in aliases):
-                return area.get("area_id")
+            friendly_name = state.get('attributes', {}).get('friendly_name', '').lower()
+            
+            if entity_id.lower() == timer_id_lower or friendly_name == timer_id_lower:
+                return entity_id
         
         return None
     
-    def _get_area_devices_batch(
-        self,
-        area_id: str,
-        ha_config: Dict[str, Any],
-        domain_filter: Optional[str] = None
-    ) -> List[str]:
-        """
-        Get area devices using batch retrieval with smart filtering.
-        
-        OPTIMIZATION: Phase 2 Complete
-        - Single call to entity registry
-        - Filters by area and domain in memory (no extra API calls)
-        - Caches results for 300s
-        """
-        cache_key = f"area_devices_{area_id}"
-        if domain_filter:
-            cache_key += f"_{domain_filter}"
-        
-        cached = get_cache_section(cache_key, HA_CACHE_TTL_MAPPINGS)
-        if cached:
-            return cached
-        
-        response = call_ha_api("/api/config/entity_registry/list", ha_config)
-        
-        if not response.get("success"):
-            return []
-        
-        entities = response.get("data", [])
-        
-        controllable_domains = ["light", "switch", "fan", "cover", "climate", "media_player"]
-        
-        area_devices = []
-        for entity in entities:
-            if entity.get("area_id") != area_id:
-                continue
-            
-            entity_id = entity.get("entity_id", "")
-            if not entity_id:
-                continue
-            
-            entity_domain = entity_id.split(".")[0]
-            
-            if entity_domain not in controllable_domains:
-                continue
-            
-            if domain_filter and entity_domain != domain_filter:
-                continue
-            
-            area_devices.append(entity_id)
-        
-        set_cache_section(cache_key, area_devices, HA_CACHE_TTL_MAPPINGS)
-        
-        return area_devices
-    
-    def _control_devices_batch(
-        self,
-        devices: List[str],
-        action: str,
-        ha_config: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """
-        Control multiple devices using batch service calls.
-        
-        OPTIMIZATION: Phase 2 Complete
-        - Parallel execution of service calls
-        - Single batch operation instead of sequential calls
-        - 40-50% performance improvement
-        """
-        service = self._action_to_service(action)
-        
-        operations = []
-        for device in devices:
-            domain = device.split(".")[0]
-            operations.append({
-                'domain': domain,
-                'service': service,
-                'entity_id': device
-            })
-        
-        return batch_call_service(operations, ha_config)
-    
-    def _action_to_service(self, action: str) -> str:
-        """Convert action to service name."""
-        action = action.lower()
-        if action in ["on", "turn_on", "enable"]:
-            return "turn_on"
-        elif action in ["off", "turn_off", "disable"]:
-            return "turn_off"
-        elif action in ["toggle"]:
-            return "toggle"
-        return "turn_on"
+    def get_stats(self) -> Dict[str, Any]:
+        """Get timer manager statistics."""
+        return {
+            "feature": self.get_feature_name(),
+            **self._stats,
+            "success_rate": (self._stats['successes'] / self._stats['operations'] * 100)
+                           if self._stats['operations'] > 0 else 0.0
+        }
 
 
-_manager_instance = None
-
-def _get_manager() -> HAAreaManager:
-    """Get singleton area manager instance."""
-    global _manager_instance
-    if _manager_instance is None:
-        _manager_instance = HAAreaManager()
-    return _manager_instance
+_timer_manager = HATimerManager()
 
 
-def control_area(
-    area_name: str,
-    action: str,
-    ha_config: Optional[Dict[str, Any]] = None,
-    domain: Optional[str] = None
-) -> Dict[str, Any]:
-    """Control devices in area using batch operations."""
-    manager = _get_manager()
-    return manager.control_area(area_name, action, ha_config, domain)
+def start_timer(timer_id: str, duration: Union[str, int],
+               ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start timer via manager."""
+    return _timer_manager.start_timer(timer_id, duration, ha_config)
 
 
-def list_areas(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """List all areas."""
-    manager = _get_manager()
-    return manager.list_areas(ha_config)
+def cancel_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Cancel timer via manager."""
+    return _timer_manager.cancel_timer(timer_id, ha_config)
 
 
-def get_area_stats() -> Dict[str, Any]:
-    """Get area statistics."""
-    manager = _get_manager()
-    return manager.get_stats()
+def pause_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Pause timer via manager."""
+    return _timer_manager.pause_timer(timer_id, ha_config)
 
 
-__all__ = ["control_area", "list_areas", "get_area_stats"]
+def finish_timer(timer_id: str, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Finish timer via manager."""
+    return _timer_manager.finish_timer(timer_id, ha_config)
+
+
+def list_timers(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """List timers via manager."""
+    return _timer_manager.list_timers(ha_config)
+
+
+def get_timer_stats() -> Dict[str, Any]:
+    """Get timer manager statistics."""
+    return _timer_manager.get_stats()
+
+
+__all__ = [
+    'HATimerManager',
+    'start_timer',
+    'cancel_timer',
+    'pause_timer',
+    'finish_timer',
+    'list_timers',
+    'get_timer_stats',
+]
+
+# EOF
