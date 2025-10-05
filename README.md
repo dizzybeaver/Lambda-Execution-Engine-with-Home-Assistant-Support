@@ -10,7 +10,7 @@
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900.svg)](https://aws.amazon.com/lambda/)
 [![Home Assistant](https://img.shields.io/badge/Home-Assistant-41BDF5.svg)](https://www.home-assistant.io/)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![Production Ready](https://img.shields.io/badge/Status-Production%20Ready-yellow.svg)](https://github.com)
+[![Production Ready](https://img.shields.io/badge/Status-Production%20Testing-yellow.svg)](https://github.com)
 
 **Enterprise-grade AWS Generalized Lambda execution engine with Alexa and Home Assistant Support**
 
