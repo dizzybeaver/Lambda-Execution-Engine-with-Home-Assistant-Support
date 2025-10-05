@@ -1,6 +1,6 @@
 # ⚡ Lambda Execution Unit with Home Assistant Support Extensions
 
-**This project is in development flux.**
+***This project is in development flux.***
 **It should be fully working, but fully test it before fully deploying it.**
 **I will be doing my first deployment of this on Sunday-Monday.**
 **After successful deployment I will leave this as main branch**
