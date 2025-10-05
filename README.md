@@ -338,8 +338,6 @@ Even at 10,000 invocations/month: ~$0.002/month
 
 ## Installation
 
-The complete installation guide is provided in `Install_Guide.MD`. The process takes approximately 45-75 minutes for first-time setup.
-
 ### Overview Steps
 
 Complete installation documentation is provided in `Install_Guide.MD`. The process typically requires 45-75 minutes for first-time setup.
@@ -379,7 +377,6 @@ Configuration tier controls feature set and resource allocation. Change via Para
 ### Common Issues
 
 **Devices Not Discovered**
-- Verify Home Assistant Alexa integration enabled
 - Check devices are exposed to Alexa in HA
 - Confirm Parameter Store URL is correct
 - Review Lambda CloudWatch logs for errors
