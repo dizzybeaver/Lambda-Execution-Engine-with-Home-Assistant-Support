@@ -1,11 +1,10 @@
-# ⚡ Lambda Execution Unit
-## This project is in development flux.
-# It should be fully working, but fully test it before fully deploying it.
-## I will be doing my first deployment of this on Sunday.
-# After successful deployment I will leave this as main branch
-# and move developement to developement branch.
+# ⚡ Lambda Execution Unit with Home Assistant Support Extensions
 
-# ⚡ Lambda Execution Engine with Home Assistant Support Extensions
+# This project is in development flux.
+## It should be fully working, but fully test it before fully deploying it.
+# I will be doing my first deployment of this on Sunday.
+## After successful deployment I will leave this as main branch
+## and move developement to developement branch.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900.svg)](https://aws.amazon.com/lambda/)
