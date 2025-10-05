@@ -1,10 +1,12 @@
 """
 logging_error_response.py - Error Response Tracking Implementation
-Version: 2025.9.18.2
+Version: 2025.10.04.04
 Description: Internal implementation for error response logging and tracking
 
-INTERNAL MODULE - Only accessed through logging.py gateway
-Do not import directly from external files
+DEPLOYMENT FIX: Removed relative imports for Lambda compatibility
+
+Copyright 2025 Joseph Hersey
+Licensed under the Apache License, Version 2.0
 """
 
 import logging
@@ -17,8 +19,7 @@ from collections import deque
 from enum import Enum
 import threading
 
-# Import from other gateways only
-from .metrics import record_error_response_metric
+from metrics import record_error_response_metric
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,6 @@ class ErrorLogEntry:
         self.lambda_context_info = self._extract_lambda_context(lambda_context)
         self.additional_context = additional_context or {}
         
-        # Analyze error response
         self.error_type = self._determine_error_type(error_response)
         self.severity = self._determine_severity(error_response)
         self.status_code = error_response.get('statusCode', 500)
@@ -69,6 +69,16 @@ class ErrorLogEntry:
         
     def _determine_error_type(self, error_response: Dict[str, Any]) -> str:
         """Determine error type from response."""
+        body = error_response.get('body', {})
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except:
+                pass
+        
+        if isinstance(body, dict):
+            return body.get('error_type', 'UNKNOWN')
+        
         status_code = error_response.get('statusCode', 500)
         
         if status_code == 400:
@@ -115,8 +125,6 @@ class ErrorLogEntry:
             'additional_context': self.additional_context
         }
 
-# EOS
-
 # ===== SECTION 2: ERROR RESPONSE LOGGER =====
 
 class ErrorResponseLogger:
@@ -137,14 +145,12 @@ class ErrorResponseLogger:
                           additional_context: Optional[Dict[str, Any]] = None) -> str:
         """Log an error response and return entry ID."""
         try:
-            # Generate correlation ID if not provided
             if not correlation_id:
                 if lambda_context:
                     correlation_id = getattr(lambda_context, 'aws_request_id', str(uuid.uuid4()))
                 else:
                     correlation_id = str(uuid.uuid4())
                     
-            # Create error log entry
             entry = ErrorLogEntry(
                 error_response=error_response,
                 correlation_id=correlation_id,
@@ -153,23 +159,24 @@ class ErrorResponseLogger:
                 additional_context=additional_context
             )
             
-            # Add to storage
             with self.lock:
                 self.entries.append(entry)
                 self.total_logged += 1
                 
-            # Record metrics
-            record_error_response_metric(
-                error_type=entry.error_type,
-                severity=entry.severity.value,
-                category='error_response',
-                response_time_ms=0,  # Not applicable for logging
-                context={
-                    'status_code': entry.status_code,
-                    'source_module': entry.source_module,
-                    'has_lambda_context': bool(lambda_context)
-                }
-            )
+            try:
+                record_error_response_metric(
+                    error_type=entry.error_type,
+                    severity=entry.severity.value,
+                    category='error_response',
+                    response_time_ms=0,
+                    context={
+                        'status_code': entry.status_code,
+                        'source_module': entry.source_module,
+                        'has_lambda_context': bool(lambda_context)
+                    }
+                )
+            except:
+                pass
             
             logger.debug(f"Logged error response: {entry.id} ({entry.error_type})")
             return entry.id
@@ -186,13 +193,11 @@ class ErrorResponseLogger:
             cutoff_time = time.time() - (time_range_minutes * 60)
             
             with self.lock:
-                # Filter entries by time range
                 relevant_entries = [
                     entry for entry in self.entries 
                     if entry.timestamp >= cutoff_time
                 ]
                 
-            # Calculate analytics
             analytics = {
                 'time_range_minutes': time_range_minutes,
                 'total_errors': len(relevant_entries),
@@ -203,26 +208,20 @@ class ErrorResponseLogger:
                 'timestamp': time.time()
             }
             
-            # Analyze entries
             for entry in relevant_entries:
-                # Error types
                 analytics['error_types'][entry.error_type] = analytics['error_types'].get(entry.error_type, 0) + 1
                 
-                # Severity levels
                 severity = entry.severity.value
                 analytics['severity_breakdown'][severity] = analytics['severity_breakdown'].get(severity, 0) + 1
                 
-                # Status codes
                 status_code = str(entry.status_code)
                 analytics['status_code_breakdown'][status_code] = analytics['status_code_breakdown'].get(status_code, 0) + 1
                 
-                # Source modules
                 module = entry.source_module
                 analytics['source_modules'][module] = analytics['source_modules'].get(module, 0) + 1
                 
-            # Include detailed entries if requested
             if include_details:
-                analytics['entries'] = [entry.to_dict() for entry in relevant_entries[-10:]]  # Last 10 entries
+                analytics['entries'] = [entry.to_dict() for entry in relevant_entries[-10:]]
                 
             return analytics
             
@@ -237,16 +236,13 @@ class ErrorResponseLogger:
                 initial_count = len(self.entries)
                 
                 if older_than_minutes is None:
-                    # Clear all entries
                     self.entries.clear()
                     cleared_count = initial_count
                 else:
-                    # Clear entries older than specified time
                     cutoff_time = time.time() - (older_than_minutes * 60)
                     original_entries = list(self.entries)
                     self.entries.clear()
                     
-                    # Keep entries newer than cutoff
                     for entry in original_entries:
                         if entry.timestamp >= cutoff_time:
                             self.entries.append(entry)
@@ -291,8 +287,6 @@ class ErrorResponseLogger:
                 'timestamp': time.time()
             }
 
-# EOS
-
 # ===== SECTION 3: SINGLETON MANAGER =====
 
 _error_response_logger: Optional[ErrorResponseLogger] = None
@@ -326,8 +320,6 @@ def _reset_error_response_logger_internal() -> bool:
         logger.error(f"Failed to reset error response logger: {e}")
         return False
 
-# EOS
-
 # ===== SECTION 4: INTERNAL INTERFACE FUNCTIONS =====
 
 def _log_error_response_internal(error_response: Dict[str, Any], 
@@ -335,17 +327,12 @@ def _log_error_response_internal(error_response: Dict[str, Any],
                                 source_module: Optional[str] = None,
                                 lambda_context = None,
                                 additional_context: Optional[Dict[str, Any]] = None) -> str:
-    """
-    Internal implementation for logging error responses.
-    INTERNAL ONLY - Use logging.log_error_response() from external files.
-    """
+    """Internal implementation for logging error responses."""
     try:
-        # Get or create logger instance
         error_logger = _get_internal_error_response_logger()
         if error_logger is None:
             error_logger = _create_error_response_logger()
             
-        # Log the error response
         entry_id = error_logger.log_error_response(
             error_response=error_response,
             correlation_id=correlation_id,
@@ -362,10 +349,7 @@ def _log_error_response_internal(error_response: Dict[str, Any],
 
 def _get_error_response_analytics_internal(time_range_minutes: int = 60,
                                           include_details: bool = False) -> Dict[str, Any]:
-    """
-    Internal implementation for getting error response analytics.
-    INTERNAL ONLY - Use logging.get_error_response_analytics() from external files.
-    """
+    """Internal implementation for getting error response analytics."""
     try:
         error_logger = _get_internal_error_response_logger()
         if error_logger is None:
@@ -382,10 +366,7 @@ def _get_error_response_analytics_internal(time_range_minutes: int = 60,
         return {'error': str(e), 'timestamp': time.time()}
 
 def _clear_error_response_logs_internal(older_than_minutes: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Internal implementation for clearing error response logs.
-    INTERNAL ONLY - Use logging.clear_error_response_logs() from external files.
-    """
+    """Internal implementation for clearing error response logs."""
     try:
         error_logger = _get_internal_error_response_logger()
         if error_logger is None:
@@ -400,5 +381,17 @@ def _clear_error_response_logs_internal(older_than_minutes: Optional[int] = None
     except Exception as e:
         logger.error(f"Failed to clear error response logs: {e}")
         return {'status': 'error', 'error': str(e), 'timestamp': time.time()}
+
+__all__ = [
+    'ErrorLogLevel',
+    'ErrorLogEntry',
+    'ErrorResponseLogger',
+    '_log_error_response_internal',
+    '_get_error_response_analytics_internal',
+    '_clear_error_response_logs_internal',
+    '_get_internal_error_response_logger',
+    '_create_error_response_logger',
+    '_reset_error_response_logger_internal'
+]
 
 # EOF
