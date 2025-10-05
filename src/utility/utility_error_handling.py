@@ -1,23 +1,12 @@
 """
 Utility Error Handling - Generic Error Handling with Template Optimization
-Version: 2025.10.04.03
+Version: 2025.10.04.04
 Description: Generic error handling with template-based error context generation
 
 DEPLOYMENT FIX: Removed relative imports for Lambda compatibility
 
 Copyright 2025 Joseph Hersey
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 import traceback
@@ -133,22 +122,115 @@ def format_error_response(error: Exception, context: Dict[str, Any]) -> Dict[str
     """Format error into standardized response structure."""
     sanitized = sanitize_error(error)
     
-    return {
+    response = {
         'success': False,
         'error': sanitized['error_message'],
         'error_type': sanitized['error_type'],
         'timestamp': sanitized['timestamp'],
-        'sanitized': sanitized['sanitized'],
-        'context': context
+        'correlation_id': context.get('correlation_id', 'unknown'),
+        'interface': context.get('interface', 'unknown'),
+        'operation': context.get('operation', 'unknown')
     }
+    
+    if context.get('include_traceback', False):
+        response['traceback'] = traceback.format_exc()
+    
+    return response
+
+
+def log_error_with_context(error: Exception, operation: str, 
+                          interface: str = 'unknown',
+                          correlation_id: Optional[str] = None,
+                          **additional_context) -> None:
+    """Log error with full context information."""
+    try:
+        import gateway
+        
+        sanitized = sanitize_error(error)
+        
+        log_data = {
+            'error_type': sanitized['error_type'],
+            'error_message': sanitized['error_message'],
+            'interface': interface,
+            'operation': operation,
+            'correlation_id': correlation_id or 'unknown',
+            'sanitized': sanitized.get('sanitized', False),
+            **additional_context
+        }
+        
+        gateway.log_error(
+            f"Error in {interface}.{operation}",
+            error=error,
+            **log_data
+        )
+    except Exception:
+        pass
+
+
+def record_error_metrics(error: Exception, interface: str, 
+                        operation: str = 'unknown',
+                        **dimensions) -> None:
+    """Record error metrics for monitoring."""
+    try:
+        import gateway
+        
+        sanitized = sanitize_error(error)
+        
+        metric_dimensions = {
+            'interface': interface,
+            'operation': operation,
+            'error_type': sanitized['error_type'],
+            **dimensions
+        }
+        
+        gateway.record_metric(
+            f"{interface}_error_count",
+            1.0,
+            dimensions=metric_dimensions
+        )
+    except Exception:
+        pass
+
+
+def handle_and_format_error(error: Exception, interface: str, 
+                           operation: str, 
+                           correlation_id: Optional[str] = None,
+                           log_error: bool = True,
+                           record_metrics: bool = True,
+                           **additional_context) -> Dict[str, Any]:
+    """Comprehensive error handling with fast-path templates."""
+    
+    if correlation_id and not additional_context and log_error and record_metrics:
+        response = format_error_response_fast(error, interface, operation, correlation_id)
+        
+        if log_error:
+            log_error_with_context(error, operation, interface, correlation_id)
+        
+        if record_metrics:
+            record_error_metrics(error, interface, operation)
+        
+        return response
+    else:
+        context = create_error_context(interface, operation, correlation_id, **additional_context)
+        
+        if log_error:
+            log_error_with_context(error, operation, interface, context['correlation_id'], **additional_context)
+        
+        if record_metrics:
+            record_error_metrics(error, interface, operation)
+        
+        return format_error_response(error, context)
 
 
 __all__ = [
     'sanitize_error',
-    'create_error_context_fast',
-    'create_error_context',
+    'format_error_response',
     'format_error_response_fast',
-    'format_error_response'
+    'log_error_with_context',
+    'record_error_metrics',
+    'create_error_context',
+    'create_error_context_fast',
+    'handle_and_format_error',
 ]
 
 # EOF
