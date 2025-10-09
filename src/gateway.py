@@ -464,6 +464,11 @@ def register_singleton(singleton_name: str, instance):
 
 # ===== INITIALIZATION INTERFACE FUNCTIONS =====
 
+def initialize_lambda():
+    """Initialize Lambda environment."""
+    from initialization_core import InitializationOperation
+    return execute_operation(GatewayInterface.INITIALIZATION, 'execute', operation=InitializationOperation.INITIALIZE)
+
 def execute_initialization_operation(init_type: str):
     """Execute initialization operation."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'execute', init_type=init_type)
