@@ -231,29 +231,29 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
     
     elif interface == GatewayInterface.UTILITY:
         from utility_core import (
-            _create_success_response_implementation,
-            _create_error_response_implementation,
-            _parse_json_implementation,
-            _generate_correlation_id_implementation,
-            _sanitize_data_implementation
+            _execute_create_success_response_implementation,
+            _execute_create_error_response_implementation,
+            _execute_parse_json_implementation,
+            _execute_generate_correlation_id_implementation,
+            _execute_sanitize_data_implementation
         )
         
         if operation == 'success_response':
-            return _create_success_response_implementation(
+            return _execute_create_success_response_implementation(
                 kwargs.get('message'),
                 kwargs.get('data')
             )
         elif operation == 'error_response':
-            return _create_error_response_implementation(
+            return _execute_create_error_response_implementation(
                 kwargs.get('message'),
                 kwargs.get('error_code')
             )
         elif operation == 'parse_json':
-            return _parse_json_implementation(kwargs.get('json_string'))
+            return _execute_parse_json_implementation(kwargs.get('json_string'))
         elif operation == 'correlation_id':
-            return _generate_correlation_id_implementation()
+            return _execute_generate_correlation_id_implementation()
         elif operation == 'sanitize':
-            return _sanitize_data_implementation(kwargs.get('data'))
+            return _execute_sanitize_data_implementation(kwargs.get('data'))
         else:
             raise ValueError(f"Unknown UTILITY operation: {operation}")
     
