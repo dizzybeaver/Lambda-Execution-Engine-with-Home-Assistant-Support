@@ -1,7 +1,7 @@
 """
 gateway.py - Revolutionary Gateway Architecture (SUGA + LIGS + ZAFP + LUGS)
-Version: 2025.10.05.01
-Daily Revision: Deployment Fix - format_response Added
+Version: 2025.10.09.01
+Daily Revision: Deployment Fix - Removed Broken Lazy Import Function
 
 Revolutionary Gateway Optimization - Universal Operation Router
 Single Universal Gateway Architecture with:
@@ -10,7 +10,7 @@ Single Universal Gateway Architecture with:
 - ZAFP: Zero-abstraction fast path for hot operations
 - LUGS: Lazy unload for memory optimization
 
-DEPLOYMENT FIX: Added format_response function for lambda_function.py compatibility
+DEPLOYMENT FIX: Removed _lazy_import function with illegal 'import *' inside function
 
 Copyright 2025 Joseph Hersey
 
@@ -28,8 +28,9 @@ limitations under the License.
 """
 
 from enum import Enum
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional
 import time
+import json
 
 # ===== GATEWAY INTERFACE ENUM =====
 
@@ -55,7 +56,6 @@ _FAST_PATH_STATS = {
     'fast_path_misses': 0
 }
 
-# Fast path operations - hot operations that bypass standard routing
 _FAST_PATH_OPERATIONS = {
     ('CACHE', 'get'),
     ('CACHE', 'set'),
@@ -65,57 +65,7 @@ _FAST_PATH_OPERATIONS = {
     ('UTILITY', 'success_response'),
     ('UTILITY', 'error_response'),
     ('CONFIG', 'get_parameter'),
-    ('CONFIG', 'get_category_config'),
 }
-
-# ===== LAZY LOADING (LIGS) =====
-
-_LOADABLE_MODULES = {
-    'cache_core': None,
-    'logging_core': None,
-    'security_core': None,
-    'metrics_core': None,
-    'config_core': None,
-    'http_client_core': None,
-    'singleton_core': None,
-    'circuit_breaker_core': None,
-    'initialization_core': None,
-    'utility_core': None
-}
-
-def _lazy_import(module_name: str):
-    """Lazy import module on first use."""
-    if _LOADABLE_MODULES[module_name] is None:
-        if module_name == 'cache_core':
-            from cache_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'logging_core':
-            from logging_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'security_core':
-            from security_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'metrics_core':
-            from metrics_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'config_core':
-            from config_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'http_client_core':
-            from http_client_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'singleton_core':
-            from singleton_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'circuit_breaker_core':
-            from circuit_breaker_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'initialization_core':
-            from initialization_core import *
-            _LOADABLE_MODULES[module_name] = True
-        elif module_name == 'utility_core':
-            from utility_core import *
-            _LOADABLE_MODULES[module_name] = True
 
 # ===== UNIVERSAL OPERATION ROUTER (SUGA) =====
 
@@ -248,14 +198,14 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs):
             _get_parameter_implementation,
             _set_parameter_implementation,
             _get_category_config_implementation,
-            _reload_config_implementation,
-            _switch_preset_implementation,
-            _get_state_implementation,
-            _load_from_environment_implementation,
-            _load_from_file_implementation,
-            _load_ha_config_implementation,
-            _validate_ha_config_implementation,
-            _apply_user_overrides_implementation,
+            _update_category_config_implementation,
+            _get_all_parameters_implementation,
+            _validate_config_implementation,
+            _get_memory_limit_implementation,
+            _is_feature_enabled_implementation,
+            _get_tier_implementation,
+            _set_tier_implementation,
+            _validate_section_implementation,
             _validate_all_sections_implementation
         )
         
@@ -272,36 +222,26 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs):
                 kwargs.get('value')
             )
         elif operation == 'get_category_config':
-            return _get_category_config_implementation(
-                kwargs.get('category')
+            return _get_category_config_implementation(kwargs.get('category'))
+        elif operation == 'update_category_config':
+            return _update_category_config_implementation(
+                kwargs.get('category'),
+                kwargs.get('updates')
             )
-        elif operation == 'reload_config':
-            return _reload_config_implementation(
-                kwargs.get('validate', True)
-            )
-        elif operation == 'switch_preset':
-            return _switch_preset_implementation(
-                kwargs.get('preset_name')
-            )
-        elif operation == 'get_state':
-            return _get_state_implementation()
-        elif operation == 'load_from_environment':
-            return _load_from_environment_implementation()
-        elif operation == 'load_from_file':
-            return _load_from_file_implementation(
-                kwargs.get('filepath'),
-                kwargs.get('format', 'json')
-            )
-        elif operation == 'load_ha_config':
-            return _load_ha_config_implementation()
-        elif operation == 'validate_ha_config':
-            return _validate_ha_config_implementation(
-                kwargs.get('config')
-            )
-        elif operation == 'apply_user_overrides':
-            return _apply_user_overrides_implementation(
-                kwargs.get('config')
-            )
+        elif operation == 'get_all_parameters':
+            return _get_all_parameters_implementation()
+        elif operation == 'validate_config':
+            return _validate_config_implementation(kwargs.get('config'))
+        elif operation == 'get_memory_limit':
+            return _get_memory_limit_implementation()
+        elif operation == 'is_feature_enabled':
+            return _is_feature_enabled_implementation(kwargs.get('feature_name'))
+        elif operation == 'get_tier':
+            return _get_tier_implementation()
+        elif operation == 'set_tier':
+            return _set_tier_implementation(kwargs.get('tier'))
+        elif operation == 'validate_section':
+            return _validate_section_implementation(kwargs.get('section'))
         elif operation == 'validate_all_sections':
             return _validate_all_sections_implementation()
         else:
@@ -422,21 +362,17 @@ def cache_get(key: str, default: Any = None):
     """Get value from cache."""
     return execute_operation(GatewayInterface.CACHE, 'get', key=key, default=default)
 
-
 def cache_set(key: str, value: Any, ttl: Optional[int] = None):
     """Set value in cache."""
     return execute_operation(GatewayInterface.CACHE, 'set', key=key, value=value, ttl=ttl)
-
 
 def cache_delete(key: str):
     """Delete key from cache."""
     return execute_operation(GatewayInterface.CACHE, 'delete', key=key)
 
-
 def cache_clear():
     """Clear all cache."""
     return execute_operation(GatewayInterface.CACHE, 'clear')
-
 
 # ===== LOGGING INTERFACE FUNCTIONS =====
 
@@ -444,21 +380,17 @@ def log_info(message: str, **extra):
     """Log info message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_info', message=message, extra=extra)
 
-
 def log_error(message: str, **extra):
     """Log error message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_error', message=message, extra=extra)
-
 
 def log_warning(message: str, **extra):
     """Log warning message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_warning', message=message, extra=extra)
 
-
 def log_debug(message: str, **extra):
     """Log debug message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, extra=extra)
-
 
 # ===== SECURITY INTERFACE FUNCTIONS =====
 
@@ -466,21 +398,17 @@ def validate_request(request_data: Dict[str, Any]):
     """Validate request data."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_request', request_data=request_data)
 
-
 def validate_token(token: str):
     """Validate token."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_token', token=token)
-
 
 def encrypt_data(data: Any):
     """Encrypt data."""
     return execute_operation(GatewayInterface.SECURITY, 'encrypt', data=data)
 
-
 def decrypt_data(encrypted_data: Any):
     """Decrypt data."""
     return execute_operation(GatewayInterface.SECURITY, 'decrypt', encrypted_data=encrypted_data)
-
 
 # ===== METRICS INTERFACE FUNCTIONS =====
 
@@ -488,11 +416,27 @@ def record_metric(metric_name: str, value: float, dimensions: Dict[str, str] = N
     """Record metric."""
     return execute_operation(GatewayInterface.METRICS, 'record', metric_name=metric_name, value=value, dimensions=dimensions or {})
 
-
 def increment_counter(counter_name: str, value: int = 1):
     """Increment counter."""
     return execute_operation(GatewayInterface.METRICS, 'increment', counter_name=counter_name, value=value)
 
+# ===== CONFIG INTERFACE FUNCTIONS =====
+
+def get_parameter(key: str, default: Any = None):
+    """Get configuration parameter."""
+    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
+
+def set_parameter(key: str, value: Any):
+    """Set configuration parameter."""
+    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
+
+def get_category_config(category: str):
+    """Get configuration category."""
+    return execute_operation(GatewayInterface.CONFIG, 'get_category_config', category=category)
+
+def update_category_config(category: str, updates: Dict[str, Any]):
+    """Update configuration category."""
+    return execute_operation(GatewayInterface.CONFIG, 'update_category_config', category=category, updates=updates)
 
 # ===== HTTP CLIENT INTERFACE FUNCTIONS =====
 
@@ -500,16 +444,13 @@ def make_request(method: str, url: str, **kwargs):
     """Make HTTP request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'request', method=method, url=url, **kwargs)
 
-
 def make_get_request(url: str, **kwargs):
     """Make HTTP GET request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'get', url=url, **kwargs)
 
-
 def make_post_request(url: str, data: Dict[str, Any], **kwargs):
     """Make HTTP POST request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, data=data, **kwargs)
-
 
 # ===== SINGLETON INTERFACE FUNCTIONS =====
 
@@ -517,11 +458,9 @@ def get_singleton(singleton_name: str):
     """Get singleton instance."""
     return execute_operation(GatewayInterface.SINGLETON, 'get', singleton_name=singleton_name)
 
-
 def register_singleton(singleton_name: str, instance):
     """Register singleton instance."""
     return execute_operation(GatewayInterface.SINGLETON, 'register', singleton_name=singleton_name, instance=instance)
-
 
 # ===== INITIALIZATION INTERFACE FUNCTIONS =====
 
@@ -529,11 +468,9 @@ def execute_initialization_operation(init_type: str):
     """Execute initialization operation."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'execute', init_type=init_type)
 
-
 def record_initialization_stage(stage: str, status: str):
     """Record initialization stage."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'record_stage', stage=stage, status=status)
-
 
 # ===== UTILITY INTERFACE FUNCTIONS =====
 
@@ -541,28 +478,23 @@ def create_success_response(message: str, data: Any = None) -> Dict[str, Any]:
     """Create success response."""
     return execute_operation(GatewayInterface.UTILITY, 'success_response', message=message, data=data)
 
-
 def create_error_response(message: str, error_code: str = "GENERIC_ERROR") -> Dict[str, Any]:
     """Create error response."""
     return execute_operation(GatewayInterface.UTILITY, 'error_response', message=message, error_code=error_code)
-
 
 def parse_json_safely(json_string: str) -> Optional[Dict]:
     """Parse JSON safely."""
     return execute_operation(GatewayInterface.UTILITY, 'parse_json', json_string=json_string)
 
-
 def generate_correlation_id() -> str:
     """Generate correlation ID."""
     return execute_operation(GatewayInterface.UTILITY, 'correlation_id')
-
 
 def sanitize_response_data(data: Any) -> Any:
     """Sanitize response data."""
     return execute_operation(GatewayInterface.UTILITY, 'sanitize', data=data)
 
-
-# ===== DEPLOYMENT FIX: Lambda Response Formatter =====
+# ===== LAMBDA RESPONSE FORMATTER =====
 
 def format_response(status_code: int, body: Any) -> Dict[str, Any]:
     """
@@ -573,72 +505,50 @@ def format_response(status_code: int, body: Any) -> Dict[str, Any]:
     
     Args:
         status_code: HTTP status code (200, 400, 500, etc.)
-        body: Response body (any type - will be stringified)
+        body: Response body (will be JSON-encoded)
     
     Returns:
-        Dict with statusCode, body, headers in Lambda format
-    
-    Example:
-        >>> format_response(200, {"status": "ok"})
-        {
-            'statusCode': 200,
-            'body': "{'status': 'ok'}",
-            'headers': {'Content-Type': 'application/json'}
-        }
-    
-    ARCHITECTURE NOTES:
-    - Standalone helper function (not routed through execute_operation)
-    - Directly imported by lambda_function.py handler
-    - No SUGA routing needed (simple formatter, no core module interaction)
-    - Lambda deployment blocker if missing
+        Dict with statusCode, body, and headers for API Gateway
     """
     return {
         'statusCode': status_code,
-        'body': body if isinstance(body, str) else str(body),
+        'body': json.dumps(body) if not isinstance(body, str) else body,
         'headers': {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
         }
     }
 
+# ===== GATEWAY STATS =====
 
-# ===== FAST PATH MANAGEMENT =====
+def get_gateway_stats() -> Dict[str, Any]:
+    """Get gateway performance statistics."""
+    return {
+        'fast_path_enabled': _FAST_PATH_ENABLED,
+        'total_calls': _FAST_PATH_STATS['total_calls'],
+        'fast_path_hits': _FAST_PATH_STATS['fast_path_hits'],
+        'fast_path_misses': _FAST_PATH_STATS['fast_path_misses'],
+        'hit_rate': _FAST_PATH_STATS['fast_path_hits'] / max(_FAST_PATH_STATS['total_calls'], 1)
+    }
+
+def get_fast_path_stats() -> Dict[str, int]:
+    """Get fast path statistics."""
+    return _FAST_PATH_STATS.copy()
 
 def enable_fast_path():
     """Enable fast path optimization."""
     global _FAST_PATH_ENABLED
     _FAST_PATH_ENABLED = True
-    log_info("Fast path enabled")
-
 
 def disable_fast_path():
     """Disable fast path optimization."""
     global _FAST_PATH_ENABLED
     _FAST_PATH_ENABLED = False
-    log_info("Fast path disabled")
-
-
-def get_fast_path_stats() -> Dict[str, Any]:
-    """Get fast path statistics."""
-    return _FAST_PATH_STATS.copy()
-
 
 def reset_fast_path_stats():
     """Reset fast path statistics."""
     _FAST_PATH_STATS['total_calls'] = 0
     _FAST_PATH_STATS['fast_path_hits'] = 0
     _FAST_PATH_STATS['fast_path_misses'] = 0
-
-
-# ===== GATEWAY STATISTICS =====
-
-def get_gateway_stats() -> Dict[str, Any]:
-    """Get gateway statistics."""
-    return {
-        'fast_path_enabled': _FAST_PATH_ENABLED,
-        'fast_path_stats': _FAST_PATH_STATS.copy(),
-        'loadable_modules': list(_LOADABLE_MODULES.keys()),
-        'interfaces': [i.value for i in GatewayInterface]
-    }
-
 
 # EOF
