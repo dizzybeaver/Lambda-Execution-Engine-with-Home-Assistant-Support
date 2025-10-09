@@ -20,7 +20,7 @@ Copyright 2025 Joseph Hersey
 
 import time
 import threading
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Set
 from dataclasses import dataclass
 
 
