@@ -108,20 +108,20 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
     
     elif interface == GatewayInterface.SECURITY:
         from security_core import (
-            _validate_request_implementation,
-            _validate_token_implementation,
-            _encrypt_data_implementation,
-            _decrypt_data_implementation
+            _execute_validate_request_implementation,
+            _execute_validate_token_implementation,
+            _execute_encrypt_data_implementation,
+            _execute_decrypt_data_implementation
         )
         
         if operation == 'validate_request':
-            return _validate_request_implementation(kwargs.get('request_data'))
+            return _execute_validate_request_implementation(kwargs.get('request_data'))
         elif operation == 'validate_token':
-            return _validate_token_implementation(kwargs.get('token'))
+            return _execute_validate_token_implementation(kwargs.get('token'))
         elif operation == 'encrypt':
-            return _encrypt_data_implementation(kwargs.get('data'))
+            return _execute_encrypt_data_implementation(kwargs.get('data'))
         elif operation == 'decrypt':
-            return _decrypt_data_implementation(kwargs.get('encrypted_data'))
+            return _execute_decrypt_data_implementation(kwargs.get('encrypted_data'))
         else:
             raise ValueError(f"Unknown SECURITY operation: {operation}")
     
