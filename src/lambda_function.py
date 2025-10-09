@@ -1,12 +1,8 @@
 """
 Lambda Function Handler - Main Entry Point
-Version: 2025.10.02.01
-Daily Revision: Project B Assistant Name & Diagnostics Implementation
-
-Revolutionary Gateway Architecture with Enhanced HA Features
-UPDATED: Added diagnostic endpoint and assistant name integration
-
-Licensed under the Apache License, Version 2.0
+Version: 2025.10.07.04
+Copyright 2025 Joseph Hersey
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import json
@@ -29,13 +25,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Handles:
     - Alexa Smart Home skill requests (directives)
-    - Alexa Custom Skill requests (intents) - ENHANCED
+    - Alexa Custom Skill requests (intents)
     - Health checks and analytics
-    - Diagnostic endpoint - NEW
+    - Diagnostic endpoint
     """
     
     try:
-        log_info("Lambda invocation started", context={"request_id": context.request_id})
+        log_info("Lambda invocation started", context={"request_id": context.aws_request_id})
         increment_counter("lambda_invocations")
         
         request_type = _determine_request_type(event)
@@ -149,7 +145,7 @@ def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str,
         else:
             log_warning(f"Unknown Alexa request type: {request_type}")
             return _create_alexa_response("I don't understand that request type.")
-            
+    
     except Exception as e:
         log_error(f"Alexa Custom Skill processing failed: {str(e)}")
         return _create_alexa_response("Sorry, there was an error processing your request.")
@@ -430,7 +426,7 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         health_status = {
             "status": "healthy",
-            "timestamp": context.request_id,
+            "timestamp": context.aws_request_id,
             "version": "2025.10.02.01",
             "gateway_loaded": True
         }
@@ -463,7 +459,7 @@ def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         analytics = {
             "usage": usage_summary,
             "gateway": gateway_stats,
-            "timestamp": context.request_id
+            "timestamp": context.aws_request_id
         }
         
         return format_response(200, analytics)
@@ -479,7 +475,7 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
         test_type = event.get('test_type', 'full')
         
         diagnostics = {
-            "timestamp": context.request_id,
+            "timestamp": context.aws_request_id,
             "test_type": test_type,
             "lambda_info": {
                 "function_name": context.function_name,
@@ -551,3 +547,5 @@ def _create_alexa_response(speech_text: str, should_end_session: bool = True) ->
             "shouldEndSession": should_end_session
         }
     }
+
+# EOF
