@@ -230,30 +230,33 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             raise ValueError(f"Unknown INITIALIZATION operation: {operation}")
     
     elif interface == GatewayInterface.UTILITY:
+        from utility import (
+            create_success_response as _create_success_impl,
+            create_error_response as _create_error_impl,
+            sanitize_response_data as _sanitize_impl
+        )
         from utility_core import (
-            _execute_create_success_response_implementation,
-            _execute_create_error_response_implementation,
             _execute_parse_json_implementation,
-            _execute_generate_correlation_id_implementation,
-            _execute_sanitize_data_implementation
+            _UTILITY
         )
         
         if operation == 'success_response':
-            return _execute_create_success_response_implementation(
+            return _create_success_impl(
                 kwargs.get('message'),
                 kwargs.get('data')
             )
         elif operation == 'error_response':
-            return _execute_create_error_response_implementation(
+            return _create_error_impl(
                 kwargs.get('message'),
-                kwargs.get('error_code')
+                kwargs.get('error_code', 'GENERIC_ERROR')
             )
         elif operation == 'parse_json':
             return _execute_parse_json_implementation(kwargs.get('json_string'))
         elif operation == 'correlation_id':
-            return _execute_generate_correlation_id_implementation()
+            import uuid
+            return str(uuid.uuid4())
         elif operation == 'sanitize':
-            return _execute_sanitize_data_implementation(kwargs.get('data'))
+            return _sanitize_impl(kwargs.get('data'))
         else:
             raise ValueError(f"Unknown UTILITY operation: {operation}")
     
