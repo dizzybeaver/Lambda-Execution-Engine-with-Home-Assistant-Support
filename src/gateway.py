@@ -230,33 +230,36 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             raise ValueError(f"Unknown INITIALIZATION operation: {operation}")
     
     elif interface == GatewayInterface.UTILITY:
-        from utility import (
-            create_success_response as _create_success_impl,
-            create_error_response as _create_error_impl,
-            sanitize_response_data as _sanitize_impl
-        )
-        from utility_core import (
-            _execute_parse_json_implementation,
-            _UTILITY
-        )
+        from utility_core import _UTILITY
+        import uuid
         
         if operation == 'success_response':
-            return _create_success_impl(
-                kwargs.get('message'),
-                kwargs.get('data')
-            )
+            message = kwargs.get('message', '')
+            data = kwargs.get('data')
+            return {
+                'success': True,
+                'message': message,
+                'data': data,
+                'timestamp': str(uuid.uuid4())
+            }
         elif operation == 'error_response':
-            return _create_error_impl(
-                kwargs.get('message'),
-                kwargs.get('error_code', 'GENERIC_ERROR')
-            )
+            message = kwargs.get('message', '')
+            error_code = kwargs.get('error_code', 'GENERIC_ERROR')
+            return {
+                'success': False,
+                'error': message,
+                'error_code': error_code,
+                'timestamp': str(uuid.uuid4())
+            }
         elif operation == 'parse_json':
-            return _execute_parse_json_implementation(kwargs.get('json_string'))
+            return _UTILITY.parse_json(kwargs.get('json_string', ''))
         elif operation == 'correlation_id':
-            import uuid
             return str(uuid.uuid4())
         elif operation == 'sanitize':
-            return _sanitize_impl(kwargs.get('data'))
+            data = kwargs.get('data')
+            if isinstance(data, str):
+                return data.replace('<', '&lt;').replace('>', '&gt;')
+            return data
         else:
             raise ValueError(f"Unknown UTILITY operation: {operation}")
     
