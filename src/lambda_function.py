@@ -441,6 +441,8 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 health_status["ha_connection"] = ha_status.get('success', False)
             
         except Exception as e:
+            import traceback
+            log_error(f"HA extension error: {traceback.format_exc()}")
             health_status["ha_extension_error"] = str(e)
         
         return format_response(200, health_status)
