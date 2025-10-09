@@ -17,7 +17,7 @@ Self-contained extension using gateway interfaces for all operations.
 import time
 import os
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Set
 from enum import Enum
 
 from gateway import (
