@@ -304,21 +304,37 @@ def cache_clear():
 
 # ===== LOGGING INTERFACE FUNCTIONS =====
 
-def log_info(message: str, **extra):
+def log_info(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log info message."""
+    if extra is None:
+        extra = kwargs
+    else:
+        extra.update(kwargs)
     return execute_operation(GatewayInterface.LOGGING, 'log_info', message=message, extra=extra)
 
-def log_error(message: str, **extra):
+def log_error(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log error message."""
-    return execute_operation(GatewayInterface.LOGGING, 'log_error', message=message, extra=extra)
+    if extra is None:
+        extra = kwargs
+    else:
+        extra.update(kwargs)
+    return execute_operation(GatewayInterface.LOGGING, 'log_error', message=message, error=error, extra=extra)
 
-def log_warning(message: str, **extra):
+def log_warning(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log warning message."""
-    return execute_operation(GatewayInterface.LOGGING, 'log_warning', message=message, extra=extra)
+    if extra is None:
+        extra = kwargs
+    else:
+        extra.update(kwargs)
+    return execute_operation(GatewayInterface.LOGGING, 'log_warning', message=message, error=error, extra=extra)
 
-def log_debug(message: str, **extra):
+def log_debug(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log debug message."""
-    return execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, extra=extra)
+    if extra is None:
+        extra = kwargs
+    else:
+        extra.update(kwargs)
+    return execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, error=error, extra=extra)
 
 # ===== SECURITY INTERFACE FUNCTIONS =====
 
