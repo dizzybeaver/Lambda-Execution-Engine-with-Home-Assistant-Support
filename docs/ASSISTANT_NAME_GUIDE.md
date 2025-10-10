@@ -1,0 +1,238 @@
+# Custom Assistant Name Configuration Guide
+
+**Version:** 2025.10.10  
+**Purpose:** Complete guide to configuring custom invocation names for Alexa
+
+---
+
+## Table of Contents
+
+1. [Understanding Custom Names](#understanding-custom-names)
+2. [When to Use Custom Names](#when-to-use-custom-names)
+3. [Validation Rules](#validation-rules)
+4. [Configuration Methods](#configuration-methods)
+5. [Alexa Skill Setup](#alexa-skill-setup)
+6. [Testing Your Configuration](#testing-your-configuration)
+7. [Troubleshooting](#troubleshooting)
+
+---
+
+## Understanding Custom Names
+
+By default, when you use the Lambda Execution Engine with Alexa, you invoke commands using phrases like Alexa, ask Home Assistant to turn on the lights. The custom assistant name feature allows you to change Home Assistant to any name you prefer, enabling phrases like Alexa, ask Jarvis to turn on the lights or Alexa, tell Computer to lock the doors.
+
+This feature works by configuring both your Lambda function and your Alexa skill to recognize your chosen name. The Lambda function needs to know the name so it can reference it in responses to Alexa. The Alexa skill needs to know the name so it understands what you say when you invoke the skill.
+
+Custom names only work with Custom Skills, not Smart Home Skills. Smart Home Skills provide direct device control without requiring an invocation name, which means you say Alexa, turn on the lights directly. Custom Skills require you to use an invocation phrase that includes your assistant name, but they allow you to use any name you choose within the validation rules.
+
+---
+
+## When to Use Custom Names
+
+Custom assistant names provide personalization and can make your smart home feel more unique. If you want to use a name from science fiction like Jarvis from Iron Man or Computer from Star Trek, custom names enable this. If you want a descriptive name like Smart Home or House Assistant that clearly indicates what the skill controls, custom names work well.
+
+Custom names work best when everyone in your household agrees on the name and finds it natural to use. If different family members prefer different names, the default Home Assistant name might create less friction. Custom names also require everyone to remember to include the invocation phrase before commands, which some users find more cumbersome than the direct control provided by Smart Home Skills.
+
+Consider using custom names if you find the Home Assistant name confusing or too generic, if you want your smart home to feel more personalized, if you enjoy references to science fiction or other media, or if you want a name that clearly indicates the purpose of the skill to guests or family members who might use it.
+
+Consider keeping the default name if multiple people in your household cannot agree on a custom name, if you find invocation phrases like ask Name to be awkward, if you prefer the directness of Smart Home Skills, or if you frequently add new devices and want them to work immediately without skill updates.
+
+---
+
+## Validation Rules
+
+Amazon enforces specific rules for skill invocation names to prevent confusion and ensure the Alexa voice recognition system can understand them reliably. Your chosen name must comply with all these rules or Alexa will reject it during skill configuration.
+
+### Length Requirements
+
+Your assistant name must contain at least two characters and no more than twenty-five characters. Single-letter names like A or H do not meet the minimum length requirement. Names longer than twenty-five characters exceed the maximum length and will be rejected.
+
+### Character Requirements
+
+Your name can contain only letters from the English alphabet, numbers, and spaces. Letters can be uppercase or lowercase, though Amazon normalizes all invocation names to lowercase internally. You can use numbers within the name, but numbers by themselves without any letters are not allowed.
+
+Special characters including punctuation marks, symbols, and accented letters are not permitted. This means you cannot use names like Hal-9000 with hyphens, @Home with symbols, or Jarv!s with exclamation points.
+
+### Reserved Words
+
+Amazon prohibits several reserved words that could create confusion with Alexa's core functionality or Amazon's product names. You cannot use Alexa as your assistant name. You cannot use Amazon or any variation of the Amazon company name. You cannot use Echo or any Amazon device names like Echo Dot, Echo Show, or Echo Plus.
+
+You also cannot use wake words that activate Alexa devices. These include the default wake word Alexa and alternate wake words like Computer, Amazon, and Echo. Note that while Computer is a prohibited wake word, you can use it as an invocation name in some regions where it is not enabled as a wake word option.
+
+### Phrase Structure
+
+Your name should be something natural to say as part of a voice command. Names that sound like questions or commands themselves can confuse the voice recognition system. Avoid names that start with words like who, what, when, where, why, how, could, should, or would.
+
+Names should not include verb phrases that might be confused with commands. For example, Turn On is not a good name because Alexa might interpret it as the start of a command rather than an invocation name.
+
+### Testing Your Name
+
+Before committing to a name, test it by saying it out loud in the context of commands you will use. Say Alexa, ask [your name] to turn on the lights. Does it feel natural? Is it easy to pronounce clearly? Will other people in your household find it comfortable to use? These practical considerations matter as much as the technical validation rules.
+
+---
+
+## Configuration Methods
+
+You can configure your custom assistant name using either environment variables in Lambda, Parameter Store in AWS Systems Manager, or both. Environment variables take precedence over Parameter Store when both are set, which allows you to override Parameter Store settings temporarily without changing the stored value.
+
+### Using Environment Variables
+
+To configure your assistant name with environment variables, navigate to your Lambda function in the AWS Console. Click on the Configuration tab, then select Environment Variables from the left menu. Click Edit to modify variables.
+
+Add a new environment variable if one does not exist already, or edit the existing variable if you previously configured an assistant name. Set the key to HA_ASSISTANT_NAME. Set the value to your chosen assistant name, such as Jarvis or Computer. The value should match the validation rules described earlier. Click Save to apply your changes.
+
+Environment variable configuration takes effect immediately on the next function invocation. You do not need to redeploy your code or restart your function. This method works well for testing different names quickly or making temporary changes.
+
+### Using Parameter Store
+
+To configure your assistant name with Parameter Store, navigate to AWS Systems Manager in the AWS Console. Click on Parameter Store in the left sidebar. Click Create Parameter to add a new parameter.
+
+Set the parameter name to /lambda-execution-engine/homeassistant/assistant_name. If you used a different parameter prefix in your PARAMETER_PREFIX environment variable, adjust the path accordingly. Set the tier to Standard, which is free and provides enough storage for a name. Set the type to String since assistant names are not sensitive information that needs encryption.
+
+Set the value to your chosen assistant name following the validation rules. Add a description such as Custom invocation name for Alexa skill to help you remember the parameter's purpose. Click Create Parameter to save.
+
+Parameter Store configuration requires your Lambda function to read the parameter, which happens during function initialization. If you change a Parameter Store value while your function is warm from recent invocations, the change may not take effect until the function cold starts again or the cache expires based on your HA_CACHE_TTL setting.
+
+### Using Both Methods
+
+You can configure both environment variables and Parameter Store with assistant names. This approach allows you to set a stable default name in Parameter Store while using environment variables for temporary overrides during testing or troubleshooting.
+
+The environment variable always takes precedence when both are set. If you set HA_ASSISTANT_NAME to Jarvis in environment variables and set the Parameter Store value to Computer, the function will use Jarvis. If you later remove the environment variable, the function will fall back to using Computer from Parameter Store.
+
+---
+
+## Alexa Skill Setup
+
+Custom assistant names require creating a Custom Skill rather than a Smart Home Skill. Custom Skills support invocation names while Smart Home Skills do not. This section walks through creating and configuring the Custom Skill.
+
+### Creating the Skill
+
+Navigate to the Amazon Developer Console at https://developer.amazon.com/alexa/console/ask. Sign in with your Amazon Developer account. Click Create Skill to begin the skill creation process.
+
+On the Create Skill page, enter a skill name that includes your custom assistant name. For example, if your assistant name is Jarvis, you might name the skill Jarvis Home Assistant Control. This name appears in the Alexa app and helps users identify the skill, but it does not need to match your invocation name exactly.
+
+Under Choose a Model, select Custom. This enables you to define a custom invocation name rather than using direct device control like Smart Home Skills provide. Under Choose a Method to Host Your Skill's Backend Resources, select Provision Your Own. This indicates you will use your own Lambda function rather than Alexa-hosted resources. Click Create Skill to proceed.
+
+Alexa displays a template selection page. Choose Start From Scratch to create a minimal skill that you will configure manually. Click Continue to finish the initial creation.
+
+### Configuring the Invocation Name
+
+After skill creation completes, Alexa displays the skill builder interface. In the left sidebar, click on Invocation under the Skill Builder Checklist section. This opens the invocation configuration page.
+
+In the Skill Invocation Name field, enter your chosen assistant name in lowercase. For example, if you configured HA_ASSISTANT_NAME as Jarvis, enter jarvis here. If you configured it as Computer, enter computer. The invocation name must exactly match your Lambda configuration in lowercase form.
+
+Alexa automatically converts multi-word names to lowercase with spaces preserved. For example, Smart Home becomes smart home as the invocation name. Users will say Alexa, ask smart home to turn on lights.
+
+Click Save Model at the top of the page to save your invocation configuration. This saves the change but does not build the skill yet.
+
+### Defining Intents
+
+Intents define what types of requests your skill can handle. You need to create intents that process commands and route them to your Lambda function. Click on JSON Editor in the left sidebar to access the raw interaction model.
+
+Replace the existing JSON with an interaction model that includes intents for conversation, help, and stop. The conversation intent should include sample utterances that users might say to control their smart home. The help intent responds when users ask for help. The stop intent allows users to exit the skill.
+
+Your JSON should define the invocation name to match your assistant name, list the intents your skill supports, and provide sample utterances for each intent. After pasting your interaction model, click Save Model at the top.
+
+Click Build Model to compile your interaction model. This process takes thirty to sixty seconds. Alexa validates your interaction model and reports any errors. If errors occur, review the error messages and correct the issues before building again.
+
+### Configuring the Endpoint
+
+After building your interaction model successfully, click on Endpoint in the left sidebar. Select AWS Lambda ARN as your endpoint type since you are using an existing Lambda function.
+
+You need to enter your Lambda function ARN in the Default Region field. To find your ARN, open your Lambda function in the AWS Console. The ARN appears near the top of the page in the format arn:aws:lambda:region:account:function:name. Copy this complete ARN.
+
+Paste your Lambda ARN into the Default Region field in the Alexa Developer Console. You do not need to configure multiple regions unless you want your skill to work in multiple geographic areas. Click Save Endpoints to save your configuration.
+
+### Adding Lambda Trigger
+
+Your Lambda function needs permission to accept invocations from your Alexa skill. Navigate to your Lambda function in the AWS Console. Click Add Trigger to create a new trigger configuration.
+
+In the trigger configuration page, select Alexa Skills Kit from the trigger type list. In the Skill ID Verification field, select Enable. This ensures only your specific skill can invoke your function.
+
+You need to enter your Skill ID to enable verification. Return to the Alexa Developer Console and find your Skill ID at the top of the skill page. It starts with amzn1.ask.skill followed by a long random string. Copy this Skill ID.
+
+Paste your Skill ID into the Skill ID field in the Lambda trigger configuration. Click Add to create the trigger. Your Lambda function now accepts invocations from your specific Alexa skill.
+
+---
+
+## Testing Your Configuration
+
+After completing the configuration, you should test that everything works correctly before relying on it for daily use.
+
+### Testing in Developer Console
+
+The Alexa Developer Console provides a test interface for trying commands without using a physical Alexa device. In your skill page, click on the Test tab at the top. Enable testing by selecting Development in the skill testing dropdown.
+
+In the Alexa Simulator section, type or speak a command that includes your invocation name. For example, if your name is Jarvis, type ask jarvis to turn on the living room lights. Alexa processes your command and displays both the request sent to your Lambda function and the response received.
+
+Review the JSON request to confirm Alexa recognized your invocation name correctly. Review the response to verify your Lambda function processed the command. If errors occur, the simulator displays error messages that help diagnose problems.
+
+### Testing with Alexa Devices
+
+After successful testing in the developer console, test with your actual Alexa devices. The skill is automatically available on all Alexa devices linked to your Amazon account when testing is enabled.
+
+Say your test command out loud to an Alexa device. For example, say Alexa, ask Jarvis to turn on the lights. Alexa should respond and execute the command if everything is configured correctly.
+
+If Alexa responds that she does not know that, wait five to ten minutes and try again. Skills sometimes take a few minutes to propagate to devices. If Alexa still does not recognize your skill after ten minutes, verify that testing is enabled in the developer console and that you said the invocation name exactly as configured.
+
+### Verifying Lambda Logs
+
+CloudWatch logs provide detailed information about what happens when Alexa invokes your Lambda function. Navigate to CloudWatch in the AWS Console. Click on Logs, then Log Groups. Find the log group for your Lambda function, typically named /aws/lambda/lambda-execution-engine.
+
+Click on the most recent log stream to view logs from your test. Look for log entries that show Alexa sending a request with your custom assistant name. Verify the function processes the request correctly and returns an appropriate response.
+
+If errors appear in the logs, they indicate configuration problems or bugs in your interaction model. Common errors include missing intents, incorrect slot values, or Lambda function timeout issues.
+
+---
+
+## Troubleshooting
+
+This section covers common problems with custom assistant names and their solutions.
+
+### Alexa Does Not Recognize Your Name
+
+If Alexa responds that she does not know that when you use your custom name, first verify that you enabled testing in the developer console. Without testing enabled, your skill is not available on your devices.
+
+Check that your invocation name in the Alexa skill exactly matches your HA_ASSISTANT_NAME configuration in lowercase. Even small differences prevent recognition. Verify that you built your interaction model after setting the invocation name. If you changed the invocation name, you must rebuild the model for changes to take effect.
+
+Wait five to ten minutes after enabling testing or making changes. Skills sometimes take time to propagate to devices. Try disabling and re-enabling the skill in the Alexa app. Sometimes this forces a refresh of skill information.
+
+### Lambda Function Errors
+
+If Alexa responds with an error message when you use your custom name, check CloudWatch logs for detailed error information. The logs show exactly what went wrong during function execution.
+
+Verify your HA_ASSISTANT_NAME environment variable is set correctly in Lambda. Typos in the variable name or value prevent proper configuration. Confirm your Lambda function has the correct IAM permissions to read Parameter Store if you use Parameter Store for configuration.
+
+Test your Lambda function directly using the test feature in the Lambda console. Create a test event that simulates an Alexa request with your custom name. This isolates whether the problem is with Alexa skill configuration or Lambda function execution.
+
+### Name Validation Failures
+
+If Amazon rejects your chosen name during skill configuration, review the validation rules to identify which rule your name violates. Common violations include using reserved words like Alexa or Amazon, using special characters or punctuation, making the name too short or too long, or using only numbers without letters.
+
+Choose a different name that complies with all validation rules. Test the new name using the same process. Keep in mind that Amazon may update validation rules occasionally, so a name that worked previously might not work for new skills.
+
+### Invocation Phrase Awkwardness
+
+If your custom name works technically but feels awkward to say in practice, consider whether the name flows naturally in spoken commands. Some names sound good in writing but are difficult to pronounce clearly or feel unnatural in conversation.
+
+Test your name with other household members to gather feedback. Different people may have different comfort levels with certain names. Consider choosing a shorter name if longer names feel cumbersome. Single-word names like Jarvis or Computer often work better than multi-word names like Smart Home System.
+
+### Family Members Forget Custom Name
+
+If household members frequently forget to use your custom name and try to use direct commands instead, consider whether the custom name adds enough value to justify the learning curve. Smart Home Skills with direct commands may be more practical for households where not everyone wants to use custom invocations.
+
+Create reminder cards or notes near Alexa devices listing example commands with your custom name. Practice using the commands together as a family to build the habit. Consider whether a more memorable or meaningful name might be easier for everyone to remember.
+
+---
+
+## Example Commands
+
+This section provides example commands showing how to use custom assistant names in practice.
+
+If your assistant name is Jarvis, you might say Alexa, ask Jarvis to turn on the living room lights. You might say Alexa, tell Jarvis to set the thermostat to seventy-two degrees. You might say Alexa, ask Jarvis what is the temperature in the bedroom.
+
+If your assistant name is Computer, you might say Alexa, ask Computer to lock all doors. You might say Alexa, tell Computer to start the movie mode scene. You might say Alexa, ask Computer to turn off everything in the kitchen.
+
+If your assistant name is Smart Home, you might say Alexa, ask Smart Home to turn on the porch light. You might say Alexa, tell Smart Home to run the morning routine. You might say Alexa, ask Smart Home to check if the garage door is closed.
+
+The key pattern is always Alexa followed by ask or tell, then your custom name, then to, and finally your command. Both ask and tell work equivalently in most cases, so choose whichever sounds more natural to you for each command.
