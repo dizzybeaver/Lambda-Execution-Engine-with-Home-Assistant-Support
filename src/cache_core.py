@@ -1,6 +1,6 @@
 """
-Cache Core - LUGS-Integrated Caching System
-Version: 2025.10.03.03
+cache_core.py - LUGS-Integrated Caching System
+Version: 2025.10.09.01
 Description: Dynamic caching with LUGS module dependency tracking
 
 Copyright 2025 Joseph Hersey
@@ -97,13 +97,6 @@ class LUGSIntegratedCache:
                 del self._cache[key]
                 self._stats['cache_misses'] += 1
                 self._stats['entries_expired'] += 1
-                
-                try:
-                    from gateway import remove_cache_module_dependency
-                    remove_cache_module_dependency(key)
-                except ImportError:
-                    pass
-                
                 return None
             
             entry.access_count += 1
@@ -113,17 +106,10 @@ class LUGSIntegratedCache:
             return entry.value
     
     def delete(self, key: str) -> bool:
-        """Delete cache entry and remove LUGS dependency."""
+        """Delete cache entry."""
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
-                
-                try:
-                    from gateway import remove_cache_module_dependency
-                    remove_cache_module_dependency(key)
-                except ImportError:
-                    pass
-                
                 return True
             return False
     
@@ -132,38 +118,24 @@ class LUGSIntegratedCache:
         with self._lock:
             count = len(self._cache)
             self._cache.clear()
-            
-            try:
-                from gateway import get_lugs_manager
-                manager = get_lugs_manager()
-                for key in list(self._cache.keys()):
-                    manager.remove_cache_dependency(key)
-            except ImportError:
-                pass
-            
             return count
     
     def cleanup_expired(self) -> int:
         """Clean up expired entries."""
         current_time = time.time()
-        expired = []
+        expired_keys = []
         
         with self._lock:
-            for key, entry in list(self._cache.items()):
+            for key, entry in self._cache.items():
                 if current_time - entry.timestamp > entry.ttl:
-                    expired.append(key)
+                    expired_keys.append(key)
             
-            for key in expired:
+            for key in expired_keys:
                 del self._cache[key]
-                self._stats['entries_expired'] += 1
-                
-                try:
-                    from gateway import remove_cache_module_dependency
-                    remove_cache_module_dependency(key)
-                except ImportError:
-                    pass
+            
+            self._stats['entries_expired'] += len(expired_keys)
         
-        return len(expired)
+        return len(expired_keys)
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
@@ -194,6 +166,8 @@ class LUGSIntegratedCache:
 
 _cache_instance = LUGSIntegratedCache()
 
+
+# ===== CONVENIENCE FUNCTIONS =====
 
 def cache_set(key: str, value: Any, ttl: float = 300, source_module: Optional[str] = None) -> None:
     """Set cache value with LUGS tracking."""
@@ -253,6 +227,29 @@ def cache_operation_result(
     return result
 
 
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+
+def _get_implementation(key: str, default: Any = None) -> Optional[Any]:
+    """Execute cache get operation."""
+    result = _cache_instance.get(key)
+    return result if result is not None else default
+
+
+def _set_implementation(key: str, value: Any, ttl: Optional[float] = None) -> None:
+    """Execute cache set operation."""
+    _cache_instance.set(key, value, ttl or 300)
+
+
+def _delete_implementation(key: str) -> bool:
+    """Execute cache delete operation."""
+    return _cache_instance.delete(key)
+
+
+def _clear_implementation() -> int:
+    """Execute cache clear operation."""
+    return _cache_instance.clear()
+
+
 __all__ = [
     'LUGSIntegratedCache',
     'cache_set',
@@ -261,5 +258,11 @@ __all__ = [
     'cache_clear',
     'cache_cleanup',
     'cache_get_stats',
-    'cache_operation_result'
+    'cache_operation_result',
+    '_get_implementation',
+    '_set_implementation',
+    '_delete_implementation',
+    '_clear_implementation'
 ]
+
+# EOF
