@@ -1,6 +1,6 @@
 """
 homeassistant_extension.py - Simplified Forwarding Pattern
-Version: 2025.10.10.01
+Version: 2025.10.10.02
 Description: Forwards Alexa Smart Home events directly to HA's endpoint
 
 Copyright 2025 Joseph Hersey
@@ -17,7 +17,8 @@ from gateway import (
     log_info, log_error, log_debug,
     make_post_request,
     create_success_response, create_error_response,
-    GatewayInterface, execute_operation
+    GatewayInterface, execute_operation,
+    get_parameter
 )
 
 HA_ASSISTANT_NAME_CACHE_KEY = "ha_assistant_name"
@@ -31,8 +32,8 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         log_debug(f"Processing Alexa directive: {event.get('directive', {}).get('header', {})}")
         
-        # Get base URL
-        base_url = os.environ.get('HOME_ASSISTANT_URL')
+        # Get base URL from Parameter Store or environment
+        base_url = get_parameter('home_assistant_url', '')
         if not base_url:
             return _create_error_response('BASE_URL not configured')
         
@@ -46,8 +47,8 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
         # Extract token from directive (multiple possible locations)
         token = _extract_token_from_directive(directive)
         if not token:
-            # Fallback to env token for testing
-            token = os.environ.get('HOME_ASSISTANT_TOKEN')
+            # Fallback to Parameter Store/env token for testing
+            token = get_parameter('home_assistant_token', '')
         
         if not token:
             return _create_error_response('Missing authorization token', 'INVALID_AUTHORIZATION_CREDENTIAL')
@@ -143,8 +144,8 @@ def get_ha_assistant_name() -> str:
 def get_ha_status() -> Dict[str, Any]:
     """Get HA connection status."""
     try:
-        base_url = os.environ.get('HOME_ASSISTANT_URL')
-        token = os.environ.get('HOME_ASSISTANT_TOKEN')
+        base_url = get_parameter('home_assistant_url', '')
+        token = get_parameter('home_assistant_token', '')
         
         if not base_url or not token:
             return create_error_response("HA not configured")
@@ -177,8 +178,8 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
         'assistant_name': get_ha_assistant_name(),
         'assistant_name_source': 'environment_variable',
         'configuration': {
-            'base_url_configured': bool(os.environ.get('HOME_ASSISTANT_URL')),
-            'token_configured': bool(os.environ.get('HOME_ASSISTANT_TOKEN')),
+            'base_url_configured': bool(get_parameter('home_assistant_url', '')),
+            'token_configured': bool(get_parameter('home_assistant_token', '')),
             'timeout': 30,
             'ssl_verify': True
         },
@@ -196,6 +197,19 @@ def _test_ha_connection() -> Dict[str, Any]:
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
+
+
+def get_assistant_name_status() -> Dict[str, Any]:
+    """Get assistant name status for diagnostics."""
+    try:
+        name = get_ha_assistant_name()
+        return create_success_response("Assistant name retrieved", {
+            'current_name': name,
+            'source': 'environment_variable',
+            'cached': bool(cache_get(HA_ASSISTANT_NAME_CACHE_KEY))
+        })
+    except Exception as e:
+        return create_error_response(f"Failed to get assistant name: {str(e)}")
 
 
 # EOF
