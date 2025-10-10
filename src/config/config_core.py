@@ -454,23 +454,57 @@ class ConfigurationCore:
     # ===== PARAMETER OPERATIONS =====
     
     def get_parameter(self, key: str, default: Any = None) -> Any:
-        """Get configuration parameter."""
-        from gateway import cache_get, cache_set
-        
-        # Try cache first
-        cache_key = f"{self._cache_prefix}param_{key}"
-        cached = cache_get(cache_key)
-        if cached is not None:
-            return cached
-        
-        # Get from config
-        value = self._get_nested_value(self._config, key, default)
-        
-        # Cache result
-        if value is not None:
-            cache_set(cache_key, value, ttl=300)
-        
+    """Get configuration parameter from environment or Parameter Store."""
+    from gateway import cache_get, cache_set
+    
+    # Try cache first
+    cache_key = f"{self._cache_prefix}param_{key}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+    
+    # Map common parameter names to env vars
+    env_map = {
+        'home_assistant_url': 'HOME_ASSISTANT_URL',
+        'home_assistant_token': 'HOME_ASSISTANT_TOKEN'
+    }
+    
+    # Check environment variable
+    env_var = env_map.get(key, key.upper())
+    value = os.getenv(env_var)
+    
+    if value:
+        cache_set(cache_key, value, ttl=300)
         return value
+    
+    # Try Parameter Store
+    param_map = {
+        'home_assistant_url': '/lambda-execution-engine/homeassistant/url',
+        'home_assistant_token': '/lambda-execution-engine/homeassistant/token'
+    }
+    
+    if key in param_map:
+        try:
+            import boto3
+            ssm = boto3.client('ssm')
+            param_path = param_map[key]
+            with_decrypt = 'token' in key
+            
+            response = ssm.get_parameter(Name=param_path, WithDecryption=with_decrypt)
+            value = response['Parameter']['Value']
+            
+            cache_set(cache_key, value, ttl=300)
+            return value
+        except Exception:
+            pass
+    
+    # Fallback to nested config lookup
+    value = self._get_nested_value(self._config, key, default)
+    
+    if value is not None:
+        cache_set(cache_key, value, ttl=300)
+    
+    return value
     
     def set_parameter(self, key: str, value: Any) -> bool:
         """Set configuration parameter."""
