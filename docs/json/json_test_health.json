@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "session": {"new": true, "sessionId": "test"},
+  "requestType": "health_check"
+}
