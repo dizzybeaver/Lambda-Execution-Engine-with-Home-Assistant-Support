@@ -229,23 +229,23 @@ def cache_operation_result(
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
 
-def _get_implementation(key: str, default: Any = None) -> Optional[Any]:
+def _execute_get_implementation(key: str, default: Any = None) -> Optional[Any]:
     """Execute cache get operation."""
     result = _cache_instance.get(key)
     return result if result is not None else default
 
 
-def _set_implementation(key: str, value: Any, ttl: Optional[float] = None) -> None:
+def _execute_set_implementation(key: str, value: Any, ttl: Optional[float] = None) -> None:
     """Execute cache set operation."""
     _cache_instance.set(key, value, ttl or 300)
 
 
-def _delete_implementation(key: str) -> bool:
+def _execute_delete_implementation(key: str) -> bool:
     """Execute cache delete operation."""
     return _cache_instance.delete(key)
 
 
-def _clear_implementation() -> int:
+def _execute_clear_implementation() -> int:
     """Execute cache clear operation."""
     return _cache_instance.clear()
 
@@ -259,10 +259,10 @@ __all__ = [
     'cache_cleanup',
     'cache_get_stats',
     'cache_operation_result',
-    '_get_implementation',
-    '_set_implementation',
-    '_delete_implementation',
-    '_clear_implementation'
+    '_execute_get_implementation',
+    '_execute_set_implementation',
+    '_execute_delete_implementation',
+    '_execute_clear_implementation'
 ]
 
 # EOF
