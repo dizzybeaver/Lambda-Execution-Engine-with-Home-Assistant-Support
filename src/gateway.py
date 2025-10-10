@@ -86,22 +86,22 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
         if operation == 'log_info':
             return _execute_log_info_implementation(
                 kwargs.get('message'),
-                **kwargs.get('extra', {})
+                extra=kwargs.get('extra')
             )
         elif operation == 'log_error':
             return _execute_log_error_implementation(
                 kwargs.get('message'),
-                **kwargs.get('extra', {})
+                extra=kwargs.get('extra')
             )
         elif operation == 'log_warning':
             return _execute_log_warning_implementation(
                 kwargs.get('message'),
-                **kwargs.get('extra', {})
+                extra=kwargs.get('extra')
             )
         elif operation == 'log_debug':
             return _execute_log_debug_implementation(
                 kwargs.get('message'),
-                **kwargs.get('extra', {})
+                extra=kwargs.get('extra')
             )
         else:
             raise ValueError(f"Unknown LOGGING operation: {operation}")
