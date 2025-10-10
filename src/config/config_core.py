@@ -637,6 +637,9 @@ def _set_parameter_implementation(key: str, value: Any) -> bool:
     """Set configuration parameter."""
     return _config_core.set_parameter(key, value)
 
+def _get_all_parameters_implementation() -> Dict[str, Any]:
+    """Get all configuration parameters."""
+    return _config_core._config.copy()
 
 def _get_category_config_implementation(category: str) -> Dict[str, Any]:
     """Get category configuration."""
