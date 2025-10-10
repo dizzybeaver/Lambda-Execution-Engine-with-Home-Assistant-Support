@@ -198,7 +198,7 @@ class ConfigurationCore:
     
     # ===== ENVIRONMENT LOADING (from config_loader) =====
 
-      def get_parameter(self, key: str, default: Any = None) -> Any:
+    def get_parameter(self, key: str, default: Any = None) -> Any:
         """Get configuration parameter from cache, environment, or Parameter Store."""
         from gateway import cache_get, cache_set
         
