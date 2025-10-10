@@ -197,7 +197,54 @@ class ConfigurationCore:
             return create_error_response("Initialization failed", {"error": str(e)})
     
     # ===== ENVIRONMENT LOADING (from config_loader) =====
-    
+
+      def get_parameter(self, key: str, default: Any = None) -> Any:
+        """Get configuration parameter from cache, environment, or Parameter Store."""
+        from gateway import cache_get, cache_set
+        
+        cache_key = f"{self._cache_prefix}param_{key}"
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return cached
+        
+        env_map = {
+            'home_assistant_url': 'HOME_ASSISTANT_URL',
+            'home_assistant_token': 'HOME_ASSISTANT_TOKEN'
+        }
+        
+        env_var = env_map.get(key, key.upper())
+        value = os.getenv(env_var)
+        
+        if value:
+            cache_set(cache_key, value, ttl=300)
+            return value
+        
+        param_map = {
+            'home_assistant_url': '/lambda-execution-engine/homeassistant/url',
+            'home_assistant_token': '/lambda-execution-engine/homeassistant/token'
+        }
+        
+        if key in param_map:
+            try:
+                import boto3
+                ssm = boto3.client('ssm')
+                response = ssm.get_parameter(
+                    Name=param_map[key],
+                    WithDecryption='token' in key
+                )
+                value = response['Parameter']['Value']
+                cache_set(cache_key, value, ttl=300)
+                return value
+            except Exception:
+                pass
+        
+        value = self._get_nested_value(self._config, key, default)
+        if value is not None:
+            cache_set(cache_key, value, ttl=300)
+        
+        return value
+
+   
     def load_from_environment(self) -> Dict[str, Any]:
         """Load configuration from environment variables."""
         from gateway import log_info
@@ -444,52 +491,6 @@ class ConfigurationCore:
         return validation
     
     # ===== PARAMETER OPERATIONS =====
-    
-def get_parameter(self, key: str, default: Any = None) -> Any:
-    """Get configuration parameter from cache, environment, or Parameter Store."""
-    from gateway import cache_get, cache_set
-    
-    cache_key = f"{self._cache_prefix}param_{key}"
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-    
-    env_map = {
-        'home_assistant_url': 'HOME_ASSISTANT_URL',
-        'home_assistant_token': 'HOME_ASSISTANT_TOKEN'
-    }
-    
-    env_var = env_map.get(key, key.upper())
-    value = os.getenv(env_var)
-    
-    if value:
-        cache_set(cache_key, value, ttl=300)
-        return value
-    
-    param_map = {
-        'home_assistant_url': '/lambda-execution-engine/homeassistant/url',
-        'home_assistant_token': '/lambda-execution-engine/homeassistant/token'
-    }
-    
-    if key in param_map:
-        try:
-            import boto3
-            ssm = boto3.client('ssm')
-            response = ssm.get_parameter(
-                Name=param_map[key],
-                WithDecryption='token' in key
-            )
-            value = response['Parameter']['Value']
-            cache_set(cache_key, value, ttl=300)
-            return value
-        except Exception:
-            pass
-    
-    value = self._get_nested_value(self._config, key, default)
-    if value is not None:
-        cache_set(cache_key, value, ttl=300)
-    
-    return value
    
     def set_parameter(self, key: str, value: Any) -> bool:
         """Set configuration parameter."""
