@@ -3,14 +3,6 @@ config_core.py - Enhanced Configuration Core with Complete Consolidation
 Version: 2025.10.04.01
 Description: Unified configuration management with dynamic reload, multi-source loading, and validation
 
-PHASE 2 CONSOLIDATION COMPLETE:
-- Integrated config_loader functionality (environment variable loading)
-- Integrated config_manager functionality (validation and management)
-- Integrated ha_config functionality (Home Assistant configuration)
-- Integrated user_config functionality (user overrides)
-- Maintains existing dynamic reload capability
-- A/B testing through presets preserved
-
 ARCHITECTURE: CORE IMPLEMENTATION - INTERNAL ONLY
 - Lazy-loaded by gateway.py
 - Uses gateway for all operations (cache, logging, metrics)
@@ -18,7 +10,7 @@ ARCHITECTURE: CORE IMPLEMENTATION - INTERNAL ONLY
 - Configuration versioning and validation
 - Multi-source loading: environment, files, Home Assistant, user overrides
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP + LUGS Compatible
+Gateway System: SUGA + LIGS + ZAFP + LUGS Compatible
 
 Copyright 2025 Joseph Hersey
 
@@ -457,19 +449,16 @@ def get_parameter(self, key: str, default: Any = None) -> Any:
     """Get configuration parameter from cache, environment, or Parameter Store."""
     from gateway import cache_get, cache_set
     
-    # Try cache
     cache_key = f"{self._cache_prefix}param_{key}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
     
-    # Map to env vars
     env_map = {
         'home_assistant_url': 'HOME_ASSISTANT_URL',
         'home_assistant_token': 'HOME_ASSISTANT_TOKEN'
     }
     
-    # Check environment
     env_var = env_map.get(key, key.upper())
     value = os.getenv(env_var)
     
@@ -477,7 +466,6 @@ def get_parameter(self, key: str, default: Any = None) -> Any:
         cache_set(cache_key, value, ttl=300)
         return value
     
-    # Try Parameter Store
     param_map = {
         'home_assistant_url': '/lambda-execution-engine/homeassistant/url',
         'home_assistant_token': '/lambda-execution-engine/homeassistant/token'
@@ -497,12 +485,12 @@ def get_parameter(self, key: str, default: Any = None) -> Any:
         except Exception:
             pass
     
-    # Fallback to nested config
     value = self._get_nested_value(self._config, key, default)
     if value is not None:
         cache_set(cache_key, value, ttl=300)
     
-    return value    
+    return value
+   
     def set_parameter(self, key: str, value: Any) -> bool:
         """Set configuration parameter."""
         from gateway import cache_delete, log_info, record_metric
