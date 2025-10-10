@@ -1,7 +1,7 @@
 """
-HTTP Client Core - Gateway-Optimized HTTP Operations
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated HTTP client with zero custom error handling
+http_client_core.py - HTTP Client with Retry and Gateway Integration
+Version: 2025.10.10.01
+Description: HTTP client with retry logic and gateway implementation functions
 
 Copyright 2025 Joseph Hersey
 
@@ -20,287 +20,162 @@ Copyright 2025 Joseph Hersey
 
 import json
 import urllib3
-from typing import Any, Callable, Dict, Optional
+import time
+from typing import Dict, Any, Optional, Callable
 from enum import Enum
-from urllib.parse import urlencode
 
 
 class HTTPMethod(Enum):
+    """HTTP methods enumeration."""
     GET = "GET"
     POST = "POST"
     PUT = "PUT"
     DELETE = "DELETE"
     PATCH = "PATCH"
-    HEAD = "HEAD"
-    OPTIONS = "OPTIONS"
 
 
 class HTTPClientCore:
-    """Revolutionary gateway-integrated HTTP client - zero custom error handling."""
+    """Core HTTP client with retry and circuit breaker support."""
     
     def __init__(self):
         self.http = urllib3.PoolManager(
-            timeout=urllib3.Timeout(connect=5.0, read=30.0),
+            timeout=urllib3.Timeout(connect=10.0, read=30.0),
             maxsize=10,
-            block=False,
-            retries=False
+            retries=False  # Manual retry logic
         )
         self._stats = {
             'requests': 0,
             'successful': 0,
-            'failed': 0
+            'failed': 0,
+            'retries': 0
+        }
+        self._circuit_breakers = {}
+        self._retry_config = {
+            'max_attempts': 3,
+            'backoff_base_ms': 100,
+            'backoff_multiplier': 2.0,
+            'retriable_status_codes': {408, 429, 500, 502, 503, 504}
         }
     
-    def get(self, url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None,
-            use_cache: bool = False, cache_ttl: int = 300, transform: Optional[Callable] = None) -> Dict:
-        """HTTP GET with operation context and circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, 
-            handle_operation_error, cache_operation_result
-        )
-        
-        context = create_operation_context('http_client', 'get', url=url, use_cache=use_cache)
-        
-        try:
-            if use_cache:
-                result = cache_operation_result(
-                    operation_name="http_get",
-                    func=lambda: self._execute_with_circuit_breaker(
-                        'GET', url, headers=headers, timeout=timeout, transform=transform
-                    ),
-                    ttl=cache_ttl,
-                    cache_key_prefix=f"http_get_{url}"
-                )
-            else:
-                result = self._execute_with_circuit_breaker(
-                    'GET', url, headers=headers, timeout=timeout, transform=transform
-                )
-            
-            close_operation_context(context, success=True, result=result)
-            return result
-            
-        except Exception as e:
-            close_operation_context(context, success=False)
-            return handle_operation_error('http_client', 'get', e, context['correlation_id'])
+    def get_standard_headers(self) -> Dict[str, str]:
+        """Get standard HTTP headers."""
+        return {
+            'Content-Type': 'application/json',
+            'User-Agent': 'LambdaExecutionEngine/1.0'
+        }
     
-    def post(self, url: str, data: Dict, headers: Optional[Dict] = None, 
-             timeout: Optional[int] = None, transform: Optional[Callable] = None) -> Dict:
-        """HTTP POST with operation context and circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        context = create_operation_context('http_client', 'post', url=url)
-        
-        try:
-            result = self._execute_with_circuit_breaker(
-                'POST', url, data=data, headers=headers, timeout=timeout, transform=transform
-            )
-            close_operation_context(context, success=True, result=result)
-            return result
-            
-        except Exception as e:
-            close_operation_context(context, success=False)
-            return handle_operation_error('http_client', 'post', e, context['correlation_id'])
+    def _is_retriable_error(self, status_code: int) -> bool:
+        """Check if error is retriable."""
+        return status_code in self._retry_config['retriable_status_codes']
     
-    def put(self, url: str, data: Dict, headers: Optional[Dict] = None, 
-            timeout: Optional[int] = None, transform: Optional[Callable] = None) -> Dict:
-        """HTTP PUT with operation context and circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        context = create_operation_context('http_client', 'put', url=url)
-        
-        try:
-            result = self._execute_with_circuit_breaker(
-                'PUT', url, data=data, headers=headers, timeout=timeout, transform=transform
-            )
-            close_operation_context(context, success=True, result=result)
-            return result
-            
-        except Exception as e:
-            close_operation_context(context, success=False)
-            return handle_operation_error('http_client', 'put', e, context['correlation_id'])
+    def _calculate_backoff(self, attempt: int) -> float:
+        """Calculate exponential backoff delay."""
+        base = self._retry_config['backoff_base_ms'] / 1000.0
+        multiplier = self._retry_config['backoff_multiplier']
+        return base * (multiplier ** attempt)
     
-    def delete(self, url: str, headers: Optional[Dict] = None, timeout: Optional[int] = None) -> Dict:
-        """HTTP DELETE with operation context and circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
+    def _execute_with_retry(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Execute request with retry logic."""
+        last_error = None
         
-        context = create_operation_context('http_client', 'delete', url=url)
+        for attempt in range(self._retry_config['max_attempts']):
+            try:
+                result = self._execute_request(method, url, **kwargs)
+                
+                if result['success'] or not self._is_retriable_error(result.get('status_code', 0)):
+                    return result
+                
+                last_error = result
+                
+                if attempt < self._retry_config['max_attempts'] - 1:
+                    delay = self._calculate_backoff(attempt)
+                    time.sleep(delay)
+                    self._stats['retries'] += 1
+                    
+            except Exception as e:
+                last_error = {'success': False, 'error': str(e), 'status_code': 0}
+                
+                if attempt < self._retry_config['max_attempts'] - 1:
+                    delay = self._calculate_backoff(attempt)
+                    time.sleep(delay)
+                    self._stats['retries'] += 1
         
-        try:
-            result = self._execute_with_circuit_breaker(
-                'DELETE', url, headers=headers, timeout=timeout
-            )
-            close_operation_context(context, success=True, result=result)
-            return result
-            
-        except Exception as e:
-            close_operation_context(context, success=False)
-            return handle_operation_error('http_client', 'delete', e, context['correlation_id'])
+        return last_error or {'success': False, 'error': 'All retries exhausted'}
     
-    def _execute_with_circuit_breaker(self, method: str, url: str, 
-                                     data: Optional[Dict] = None,
-                                     headers: Optional[Dict] = None,
-                                     timeout: Optional[int] = None,
-                                     transform: Optional[Callable] = None) -> Dict:
-        """Execute HTTP request with circuit breaker protection."""
-        try:
-            from gateway import execute_with_circuit_breaker
-            
-            def _make_http_call():
-                return self._request(method, url, data=data, headers=headers, 
-                                   timeout=timeout, transform=transform)
-            
-            return execute_with_circuit_breaker(f"http_{method.lower()}_{url}", _make_http_call)
-            
-        except Exception:
-            return self._request(method, url, data=data, headers=headers, 
-                               timeout=timeout, transform=transform)
-    
-    def _request(self, method: str, url: str, data: Optional[Dict] = None, 
-                 headers: Optional[Dict] = None, timeout: Optional[int] = None,
-                 transform: Optional[Callable] = None) -> Dict:
-        """Core HTTP request - uses gateway standardized responses."""
-        request_headers = headers or self.get_standard_headers()
-        timeout_val = timeout or 30
-        
+    def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Execute single HTTP request."""
         self._stats['requests'] += 1
         
         try:
-            if data:
-                body_data = json.dumps(data)
-                response = self.http.request(
-                    method, url, body=body_data, 
-                    headers=request_headers, timeout=timeout_val
-                )
-            else:
-                response = self.http.request(
-                    method, url, headers=request_headers, timeout=timeout_val
-                )
-            
-            self._stats['successful'] += 1
-            
-            try:
-                response_data = json.loads(response.data.decode('utf-8')) if response.data else None
-            except json.JSONDecodeError:
-                response_data = response.data.decode('utf-8') if response.data else None
-            
-            result = {
-                'success': True,
-                'status_code': response.status,
-                'data': response_data,
-                'headers': dict(response.headers)
-            }
-            
-            if transform:
-                result = self._apply_transformation(result, transform)
-            
-            return result
-            
-        except Exception as e:
-            self._stats['failed'] += 1
-            raise
-    
-    def _apply_transformation(self, result: Dict, transform: Callable) -> Dict:
-        """Apply transformation to response data."""
-        try:
-            transformed_data = transform(result.get('data'))
-            result['data'] = transformed_data
-            result['transformed'] = True
-            return result
-        except Exception as e:
-            result['transformation_error'] = str(e)
-            return result
-    
-    def get_standard_headers(self, content_type: str = 'application/json') -> Dict[str, str]:
-        """Get standard HTTP headers."""
-        return {
-            'Content-Type': content_type,
-            'Accept': 'application/json',
-            'User-Agent': 'Lambda-Execution-Engine/2.0'
-        }
-    
-    def parse_headers_fast(self, headers: Dict[str, str]) -> Dict[str, str]:
-        """Fast header parsing."""
-        if not headers:
-            return self.get_standard_headers()
-        
-        parsed = {}
-        for key, value in headers.items():
-            parsed[key.strip().title()] = value.strip()
-        
-        return parsed
-    
-    def build_query_fast(self, params: Dict[str, Any]) -> str:
-        """Fast query string building."""
-        if not params:
-            return ""
-        return urlencode(params)
-    
-    def execute_http_method(self, method: HTTPMethod, url: str, **kwargs) -> Dict:
-        """Generic HTTP method executor with operation context."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        context = create_operation_context('http_client', method.value.lower(), url=url)
-        
-        try:
             headers = kwargs.get('headers', self.get_standard_headers())
-            body = kwargs.get('body')
+            data = kwargs.get('data')
             timeout = kwargs.get('timeout', 30)
             
-            if method in [HTTPMethod.POST, HTTPMethod.PUT, HTTPMethod.PATCH]:
-                body_data = json.dumps(body) if isinstance(body, dict) else body
+            if method.upper() in ['POST', 'PUT', 'PATCH']:
+                body = json.dumps(data) if isinstance(data, dict) else data
                 response = self.http.request(
-                    method.value, url, body=body_data, 
-                    headers=headers, timeout=timeout
+                    method.upper(),
+                    url,
+                    body=body,
+                    headers=headers,
+                    timeout=timeout
                 )
             else:
                 response = self.http.request(
-                    method.value, url, headers=headers, timeout=timeout
+                    method.upper(),
+                    url,
+                    headers=headers,
+                    timeout=timeout
                 )
             
             self._stats['successful'] += 1
             
             try:
                 response_data = json.loads(response.data.decode('utf-8')) if response.data else None
-            except json.JSONDecodeError:
+            except:
                 response_data = response.data.decode('utf-8') if response.data else None
             
-            result = {
+            return {
                 'success': True,
                 'status_code': response.status,
                 'data': response_data,
                 'headers': dict(response.headers)
             }
             
-            close_operation_context(context, success=True, result=result)
-            return result
-            
         except Exception as e:
             self._stats['failed'] += 1
-            close_operation_context(context, success=False)
-            return handle_operation_error('http_client', method.value.lower(), e, context['correlation_id'])
+            return {
+                'success': False,
+                'error': str(e),
+                'status_code': 0
+            }
     
-    def make_request(self, method: str, url: str, **kwargs) -> Dict:
-        """Make HTTP request with method dispatch."""
-        try:
-            http_method = HTTPMethod[method.upper()]
-            return self.execute_http_method(http_method, url, **kwargs)
-        except KeyError:
-            from .shared_utilities import handle_operation_error
-            from .shared_utilities import create_operation_context
-            context = create_operation_context('http_client', 'make_request')
-            return handle_operation_error(
-                'http_client', 'make_request', 
-                ValueError(f"Invalid HTTP method: {method}"),
-                context['correlation_id']
-            )
+    def make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
+        """Make HTTP request with retry support."""
+        use_retry = kwargs.pop('use_retry', True)
+        
+        if use_retry:
+            return self._execute_with_retry(method, url, **kwargs)
+        else:
+            return self._execute_request(method, url, **kwargs)
+    
+    def get(self, url: str, **kwargs) -> Dict[str, Any]:
+        """Make GET request."""
+        return self.make_request('GET', url, **kwargs)
+    
+    def post(self, url: str, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Make POST request."""
+        kwargs['data'] = data
+        return self.make_request('POST', url, **kwargs)
+    
+    def put(self, url: str, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Make PUT request."""
+        kwargs['data'] = data
+        return self.make_request('PUT', url, **kwargs)
+    
+    def delete(self, url: str, **kwargs) -> Dict[str, Any]:
+        """Make DELETE request."""
+        return self.make_request('DELETE', url, **kwargs)
     
     def get_stats(self) -> Dict[str, Any]:
         """Get HTTP client statistics."""
@@ -308,6 +183,7 @@ class HTTPClientCore:
             'total_requests': self._stats['requests'],
             'successful_requests': self._stats['successful'],
             'failed_requests': self._stats['failed'],
+            'total_retries': self._stats['retries'],
             'success_rate': (self._stats['successful'] / self._stats['requests'] * 100) 
                            if self._stats['requests'] > 0 else 0.0
         }
@@ -324,10 +200,33 @@ def get_http_client() -> HTTPClientCore:
     return _http_client_instance
 
 
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+
+def _make_request_implementation(method: str, url: str, **kwargs) -> Dict[str, Any]:
+    """Execute HTTP request operation."""
+    client = get_http_client()
+    return client.make_request(method, url, **kwargs)
+
+
+def _make_get_request_implementation(url: str, **kwargs) -> Dict[str, Any]:
+    """Execute HTTP GET request operation."""
+    client = get_http_client()
+    return client.get(url, **kwargs)
+
+
+def _make_post_request_implementation(url: str, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Execute HTTP POST request operation."""
+    client = get_http_client()
+    return client.post(url, data, **kwargs)
+
+
 __all__ = [
     'HTTPMethod',
     'HTTPClientCore',
     'get_http_client',
+    '_make_request_implementation',
+    '_make_get_request_implementation',
+    '_make_post_request_implementation'
 ]
 
 # EOF
