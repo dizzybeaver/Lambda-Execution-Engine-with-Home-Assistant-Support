@@ -453,23 +453,23 @@ class ConfigurationCore:
     
     # ===== PARAMETER OPERATIONS =====
     
-    def get_parameter(self, key: str, default: Any = None) -> Any:
-    """Get configuration parameter from environment or Parameter Store."""
+def get_parameter(self, key: str, default: Any = None) -> Any:
+    """Get configuration parameter from cache, environment, or Parameter Store."""
     from gateway import cache_get, cache_set
     
-    # Try cache first
+    # Try cache
     cache_key = f"{self._cache_prefix}param_{key}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
     
-    # Map common parameter names to env vars
+    # Map to env vars
     env_map = {
         'home_assistant_url': 'HOME_ASSISTANT_URL',
         'home_assistant_token': 'HOME_ASSISTANT_TOKEN'
     }
     
-    # Check environment variable
+    # Check environment
     env_var = env_map.get(key, key.upper())
     value = os.getenv(env_var)
     
@@ -487,25 +487,22 @@ class ConfigurationCore:
         try:
             import boto3
             ssm = boto3.client('ssm')
-            param_path = param_map[key]
-            with_decrypt = 'token' in key
-            
-            response = ssm.get_parameter(Name=param_path, WithDecryption=with_decrypt)
+            response = ssm.get_parameter(
+                Name=param_map[key],
+                WithDecryption='token' in key
+            )
             value = response['Parameter']['Value']
-            
             cache_set(cache_key, value, ttl=300)
             return value
         except Exception:
             pass
     
-    # Fallback to nested config lookup
+    # Fallback to nested config
     value = self._get_nested_value(self._config, key, default)
-    
     if value is not None:
         cache_set(cache_key, value, ttl=300)
     
-    return value
-    
+    return value    
     def set_parameter(self, key: str, value: Any) -> bool:
         """Set configuration parameter."""
         from gateway import cache_delete, log_info, record_metric
