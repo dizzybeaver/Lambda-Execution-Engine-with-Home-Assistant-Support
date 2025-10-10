@@ -1,7 +1,7 @@
 """
-Security Core - Generic Operations Optimized
-Version: 2025.10.03.01
-Description: Security validation with generic operation pattern
+security_core.py - Security Operations with Generic Pattern
+Version: 2025.10.10.01
+Description: Security validation, encryption, and sanitization with Smart Home support
 
 Copyright 2025 Joseph Hersey
 
@@ -18,16 +18,16 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
+import re
+import base64
 import hashlib
 import hmac
-import base64
-import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from enum import Enum
 
 
 class SecurityOperation(Enum):
-    """Generic security operations."""
+    """Security operations enumeration."""
     VALIDATE_REQUEST = "validate_request"
     VALIDATE_TOKEN = "validate_token"
     VALIDATE_STRING = "validate_string"
@@ -101,21 +101,32 @@ class SecurityCore:
         return None
     
     def validate_request(self, request: Dict[str, Any]) -> bool:
-        """Validate request structure."""
+        """Validate request structure - supports both Custom Skill and Smart Home formats."""
         self._stats['validations'] += 1
         
         if not isinstance(request, dict):
             self._stats['failed_validations'] += 1
             return False
         
-        required_fields = ['version', 'session']
-        for field in required_fields:
-            if field not in request:
-                self._stats['failed_validations'] += 1
-                return False
+        # Smart Home format: {directive: {header, payload}}
+        if 'directive' in request:
+            directive = request['directive']
+            if isinstance(directive, dict) and 'header' in directive and 'payload' in directive:
+                self._stats['successful_validations'] += 1
+                return True
         
-        self._stats['successful_validations'] += 1
-        return True
+        # Custom Skill format: {version, session}
+        if 'version' in request and 'session' in request:
+            self._stats['successful_validations'] += 1
+            return True
+        
+        # Health check format: {requestType: health_check}
+        if 'requestType' in request:
+            self._stats['successful_validations'] += 1
+            return True
+        
+        self._stats['failed_validations'] += 1
+        return False
     
     def validate_token(self, token: str) -> bool:
         """Validate token format."""
@@ -292,3 +303,5 @@ __all__ = [
     '_execute_encrypt_data_implementation',
     '_execute_decrypt_data_implementation',
 ]
+
+# EOF
