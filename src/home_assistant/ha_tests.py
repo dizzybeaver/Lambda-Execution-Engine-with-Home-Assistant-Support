@@ -1,18 +1,21 @@
 """
-ha_tests.py - Home Assistant Extension Test Suite
-Version: 2025.10.02.01
-Daily Revision: Project B Testing Implementation
+ha_tests.py
+Version: 2025.10.11.01
+Daily Revision: Home Assistant Extension Test Suite
 
-Self-contained testing for Home Assistant extension functionality.
-Uses existing debug infrastructure patterns and gateway interfaces.
+Copyright 2025 Joseph Hersey
 
-ARCHITECTURE: EXTENSION-SPECIFIC TESTING
-- Uses execute_test_with_caching() pattern from debug_test.py
-- Leverages existing gateway interfaces (no duplication)
-- Self-contained within HA extension scope
-- Integrates with debug interface when HA enabled
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Licensed under the Apache License, Version 2.0
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import os
