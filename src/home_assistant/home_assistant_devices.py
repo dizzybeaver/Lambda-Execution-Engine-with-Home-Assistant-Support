@@ -1,7 +1,7 @@
 """
-Home Assistant Devices - Gateway-Optimized Device Control
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated device control with zero custom error handling
+home_assistant_devices.py
+Version: 2025.10.11.01
+Description: Home Assistant Device Control
 
 Copyright 2025 Joseph Hersey
 
@@ -62,7 +62,7 @@ class HADeviceManager:
         **kwargs
     ) -> Dict[str, Any]:
         """Control device with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -125,7 +125,7 @@ class HADeviceManager:
         **attributes
     ) -> Dict[str, Any]:
         """Set device state with circuit breaker protection."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -197,7 +197,7 @@ class HADeviceManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get device state with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, 
             handle_operation_error, cache_operation_result
         )
@@ -253,7 +253,7 @@ class HADeviceManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List devices by domain with caching and circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
