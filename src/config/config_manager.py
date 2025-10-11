@@ -1,6 +1,6 @@
 """
-Configuration Manager - Central Configuration Management
-Version: 2025.10.03.01
+config_manager.py
+Version: 2025.10.11.01
 Description: Manages loading, validation, and access to all system configuration
 
 Copyright 2025 Joseph Hersey
