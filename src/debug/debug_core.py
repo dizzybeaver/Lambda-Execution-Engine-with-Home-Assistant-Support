@@ -1,7 +1,7 @@
 """
-debug_core.py - Debug Core Implementation with Configuration Testing
-Version: 2025.10.04.01
-Description: Debug operations including Phase 5 configuration testing
+debug_core.py
+Version: 2025.10.11.01
+Description: Debug Core Implementation with Configuration Testing
 
 Copyright 2025 Joseph Hersey
 
