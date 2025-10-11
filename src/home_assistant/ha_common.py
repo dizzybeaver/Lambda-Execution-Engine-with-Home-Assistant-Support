@@ -1,7 +1,7 @@
 """
-Home Assistant Common - Gateway-Optimized Shared Utilities
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated HA utilities with zero custom error handling
+ha_common.py
+Version: 2025.10.11.01
+Description: Home Assistant common utilities
 
 Copyright 2025 Joseph Hersey
 
