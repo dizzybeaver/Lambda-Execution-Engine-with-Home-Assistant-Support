@@ -1,22 +1,21 @@
 """
-singleton_convenience.py - Optimized Singleton Convenience Functions
+singleton_convenience.py
 Version: 2025.09.30.01
-Description: Ultra-optimized singleton access with generic pattern
+Description: Singleton access with generic pattern
 
-ARCHITECTURE: SECONDARY IMPLEMENTATION - INTERNAL ACCESS ONLY
-- Uses singleton_core.py for all singleton management
-- Provides convenient wrapper functions for external access
-- Optimized from 12 duplicate functions to 1 generic + 12 one-liners
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 4 Complete
-- 80-85% code reduction achieved
-- Memory savings: 0.3-0.5MB
-- Single pattern for all singleton access
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright 2024 Anthropic PBC
-Licensed under the Apache License, Version 2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import logging
@@ -24,7 +23,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from .singleton_core import get_singleton_registry
+from singleton_core import get_singleton_registry
 
 
 def get_named_singleton(name: str, create_if_missing: bool = True) -> Optional[Any]:

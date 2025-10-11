@@ -1,14 +1,7 @@
 """
-Singleton Core - Singleton Pattern Management with Generic Operations
+singleton_core.py
 Version: 2025.10.03.02
 Description: Singleton management with generic operation dispatch pattern
-
-ULTRA-OPTIMIZATION APPLIED:
-✅ Generic operation pattern for all _execute_*_implementation functions
-✅ Single execute_singleton_operation() dispatcher
-✅ 75-80% code reduction in wrapper functions
-✅ 200-250KB memory savings
-✅ 100% backward compatible
 
 Copyright 2025 Joseph Hersey
 
