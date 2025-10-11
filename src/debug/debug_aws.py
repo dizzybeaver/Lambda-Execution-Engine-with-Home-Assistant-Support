@@ -1,7 +1,7 @@
 """
-Debug AWS - AWS Test Interface and Program Runner
-Version: 2025.10.02.01
-Description: AWS-specific test interface with program-like execution capabilities
+debug_aws.py
+Version: 2025.10.11.01
+Description: Debug AWS-specific test interface with program-like execution capabilities
 
 Copyright 2025 Joseph Hersey
 
