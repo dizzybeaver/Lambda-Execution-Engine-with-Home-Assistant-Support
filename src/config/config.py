@@ -80,18 +80,6 @@ def config_load_from_file(filepath: str) -> Dict[str, Any]:
     return execute_operation(GatewayInterface.CONFIG, 'load_from_file', filepath=filepath)
 
 
-def config_load_ha_config() -> Dict[str, Any]:
-    """Load Home Assistant configuration."""
-    from gateway import execute_operation, GatewayInterface
-    return execute_operation(GatewayInterface.CONFIG, 'load_ha_config')
-
-
-def config_validate_ha_config(ha_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate Home Assistant configuration."""
-    from gateway import execute_operation, GatewayInterface
-    return execute_operation(GatewayInterface.CONFIG, 'validate_ha_config', ha_config=ha_config)
-
-
 def config_validate_all() -> Dict[str, Any]:
     """Validate all configuration sections."""
     from gateway import execute_operation, GatewayInterface
