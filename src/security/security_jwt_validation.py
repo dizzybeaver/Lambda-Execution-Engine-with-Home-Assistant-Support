@@ -1,24 +1,21 @@
 """
-security_jwt_validation.py - JWT Signature Verification Implementation
+security_jwt_validation.py
 Version: 2025.09.27.01
 Description: Proper JWT signature verification with enhanced security validation
 
-ARCHITECTURE: SECONDARY IMPLEMENTATION - JWT-SPECIFIC SECURITY
-- Implements proper JWT signature verification
-- Replaces simplified token length validation
-- Uses gateway interfaces for all operations
-- Memory-optimized for AWS Lambda 128MB compliance
+Copyright 2025 Joseph Hersey
 
-SECURITY ENHANCEMENTS:
-- ✅ PROPER JWT DECODING: Base64 URL-safe decoding with padding
-- ✅ SIGNATURE VERIFICATION: HMAC-SHA256 signature validation
-- ✅ EXPIRATION VALIDATION: Proper exp claim checking with clock skew tolerance
-- ✅ ISSUER VALIDATION: Configurable issuer claim verification
-- ✅ AUDIENCE VALIDATION: Configurable audience claim verification
-- ✅ ALGORITHM VALIDATION: Whitelist-based algorithm validation
-- ✅ MALFORMED TOKEN HANDLING: Comprehensive error handling for invalid tokens
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-FOLLOWS PROJECT_ARCHITECTURE_REFERENCE.md - ULTRA-PURE IMPLEMENTATION
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import base64

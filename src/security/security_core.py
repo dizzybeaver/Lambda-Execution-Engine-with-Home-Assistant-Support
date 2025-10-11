@@ -1,5 +1,5 @@
 """
-security_core.py - Security Operations with Generic Pattern
+security_core.py
 Version: 2025.10.10.01
 Description: Security validation, encryption, and sanitization with Smart Home support
 
