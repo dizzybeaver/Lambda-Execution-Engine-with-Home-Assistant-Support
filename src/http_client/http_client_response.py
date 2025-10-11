@@ -1,6 +1,6 @@
 """
-HTTP Client Response - Response Processing with Template Optimization
-Version: 2025.10.02.01
+http_client_responce.py
+Version: 2025.10.11.01
 Description: HTTP response processing and transformation with pre-compiled templates
 
 Copyright 2025 Joseph Hersey

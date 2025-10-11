@@ -1,6 +1,6 @@
 """
-http_client_core.py - HTTP Client with Retry and Gateway Integration
-Version: 2025.10.10.01
+http_client_core.py
+Version: 2025.10.11.01
 Description: HTTP client with retry logic and gateway implementation functions
 
 Copyright 2025 Joseph Hersey

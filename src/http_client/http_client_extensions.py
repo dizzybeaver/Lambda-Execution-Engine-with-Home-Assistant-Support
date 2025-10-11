@@ -1,19 +1,21 @@
 """
-http_client_extensions.py - HTTP Client Extensions
-Version: 2025.10.02.02
+http_client_extensions.py
+Version: 2025.10.11.01
 Description: Extends existing http_client_core.py with retry and transformations
 
-ARCHITECTURE: EXTENSION - Extends existing http_client_core.py
-- Uses shared_utilities for ALL operations
-- Uses gateway functions exclusively
-- Minimal new code, maximum reuse
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 3 - Extensions Only
-- Retry configuration wrapper
-- Transformation helpers using existing validation
-- Connection pool manager (thin wrapper)
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP + LUGS Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 from typing import Dict, Any, Optional, Callable

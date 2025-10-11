@@ -1,34 +1,21 @@
 """
-http_client_aws.py - AWS-Specific HTTP Client Operations
+http_client_aws.py
 Version: 2025.09.24.01
-Description: AWS-specific HTTP client operations using gateway interfaces and thin wrappers
+Description: AWS-specific HTTP client operations
 
-ARCHITECTURE: SECONDARY IMPLEMENTATION
-- Thin wrappers around AWS services using boto3
-- Leverages cache.py for AWS response caching
-- Uses security.py for AWS credential validation
-- Uses config.py for AWS endpoint configuration
-- Uses metrics.py for AWS service tracking
+Copyright 2025 Joseph Hersey
 
-GATEWAY LEVERAGE:
-- Eliminates custom AWS session management through singleton.py
-- Reduces credential handling code through security.py
-- Provides unified caching through cache.py
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-PRIMARY FILE: http_client.py (interface)
-SECONDARY FILE: http_client_aws.py (AWS implementation)
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import boto3
