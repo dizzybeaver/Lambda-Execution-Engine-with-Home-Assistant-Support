@@ -1,6 +1,6 @@
 """
 shared_utilities.py
-Version: 2025.10.02.01
+Version: 2025.10.11.01
 Description: Enhanced Utilities with Template Optimization
 
 
@@ -643,5 +643,95 @@ def extract_error_details(error: Exception) -> Dict[str, Any]:
             "error_message": "Error details extraction failed",
             "timestamp": int(time.time())
         }
+
+def create_operation_context(interface: str, operation: str, **kwargs) -> Dict[str, Any]:
+    """
+    Create operation context with correlation tracking and metrics recording.
+    Compatible with LUGSUtilityManager-based utilities.
+    """
+    try:
+        correlation_id = generate_correlation_id()
+        start_time = time.time()
+        
+        context = {
+            "interface": interface,
+            "operation": operation,
+            "correlation_id": correlation_id,
+            "start_time": start_time,
+            "parameters": kwargs,
+        }
+
+        # Record start metric
+        record_metric(
+            f"{interface}_operation_started",
+            1.0,
+            {
+                "operation": operation,
+                "correlation_id": correlation_id,
+                "timestamp": int(start_time),
+            },
+        )
+
+        log_info(f"{interface}.{operation} context created", {
+            "correlation_id": correlation_id,
+            "parameters": list(kwargs.keys())
+        })
+
+        return context
+
+    except Exception as e:
+        log_error(f"Failed to create operation context for {interface}.{operation}: {str(e)}")
+        return {
+            "interface": interface,
+            "operation": operation,
+            "correlation_id": f"err_{int(time.time())}",
+            "error": str(e),
+            "timestamp": int(time.time()),
+        }
+
+def close_operation_context(context: Dict[str, Any], success: bool = True, result: Any = None) -> Dict[str, Any]:
+    """
+    Close operation context and record final metrics.
+    Mirrors the older shared_utilities version but adapted to LUGSUtilityManager.
+    """
+    try:
+        end_time = time.time()
+        duration = end_time - context.get("start_time", end_time)
+        interface = context.get("interface", "unknown")
+        operation = context.get("operation", "unknown")
+        correlation_id = context.get("correlation_id", "unknown")
+
+        record_metric(
+            f"{interface}_operation_completed",
+            1.0,
+            {
+                "operation": operation,
+                "correlation_id": correlation_id,
+                "duration_ms": round(duration * 1000, 2),
+                "success": str(success).lower(),
+            },
+        )
+
+        log_info(f"{interface}.{operation} completed", {
+            "correlation_id": correlation_id,
+            "duration_ms": round(duration * 1000, 2),
+            "success": success
+        })
+
+        return {
+            "success": success,
+            "duration_ms": round(duration * 1000, 2),
+            "correlation_id": correlation_id,
+            "result": result,
+        }
+
+    except Exception as e:
+        log_error(f"Failed to close operation context: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": int(time.time()),
+        }
+
 
 #EOF
