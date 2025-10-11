@@ -21,9 +21,19 @@
 
 ### What does this Lambda function actually do?
 
-The Lambda Execution Engine acts as a translator between Amazon Alexa and your Home Assistant installation. When you speak a command to Alexa, your voice travels to Amazon's servers. Amazon processes your speech and determines you are asking a skill to do something. Amazon then sends a structured request to your Lambda function. Your Lambda function interprets this request, translates it into the appropriate Home Assistant API calls, sends those calls to your Home Assistant instance, receives the response, and sends a formatted reply back to Amazon. Amazon then tells Alexa what to say to you.
+The Lambda Execution Engine is a general-purpose Lambda optimization framework providing services like gateway routing, lazy loading, caching, circuit breaker protection, logging, and metrics. The Home Assistant Extension is one extension built on this framework. When loaded, it acts as a translator between Amazon Alexa and your Home Assistant installation, using the Engine's services to implement this functionality efficiently.
+
+When you speak a command to Alexa, your voice travels to Amazon's servers. Amazon processes your speech and determines you are asking a skill to do something. Amazon then sends a structured request to your Lambda function. Your Lambda function interprets this request through the Home Assistant Extension, which translates it into the appropriate Home Assistant API calls, sends those calls to your Home Assistant instance, receives the response, and sends a formatted reply back to Amazon. Amazon then tells Alexa what to say to you.
 
 This process happens in milliseconds. The Lambda function handles the complexity of understanding different types of Alexa requests, managing authentication with Home Assistant, retrying failed requests, caching information for performance, and formatting responses that Alexa can understand. You benefit from this without needing to write any code yourself.
+
+### What is the difference between the Engine and the Home Assistant Extension?
+
+The Lambda Execution Engine is a complete, standalone framework that provides optimized services for building Lambda functions. It implements the Single Universal Gateway Architecture where all operations flow through one entry point. It provides lazy loading to minimize memory usage, caching to reduce external API calls, circuit breaker protection to handle service failures gracefully, comprehensive logging, and performance metrics collection. The Engine can run entirely by itself without any extensions.
+
+The Home Assistant Extension is self-contained code that uses the Engine's services to provide Home Assistant integration. The extension implements device discovery, state queries, and device control by calling the Engine's gateway, using the Engine's HTTP client for API communication, leveraging the Engine's caching for performance, and relying on the Engine's circuit breaker for reliability. The extension depends on the Engine, but the Engine does not depend on the extension.
+
+This architecture allows you to build other extensions using the same Engine services. You could create a Google Assistant extension, a SmartThings extension, or extensions for entirely different purposes, all benefiting from the Engine's optimizations.
 
 ### How much does this cost to run?
 
@@ -39,15 +49,15 @@ You do need to keep your Home Assistant instance running since the Lambda functi
 
 ### Can I use this without Alexa?
 
-The Lambda Execution Engine is specifically designed to work with Amazon Alexa. The code expects to receive requests in the Alexa Smart Home API format and returns responses in that format. Without Alexa, the function would not receive properly formatted requests and could not operate correctly.
+The Lambda Execution Engine with the Home Assistant Extension is specifically designed to work with Amazon Alexa. The code expects to receive requests in the Alexa Smart Home API format and returns responses in that format. Without Alexa, the function would not receive properly formatted requests and could not operate correctly.
 
-If you want to control Home Assistant through other voice assistants like Google Assistant or Apple HomeKit, you would need different integrations specifically designed for those platforms. Home Assistant provides native integrations for these services that do not require Lambda functions.
+If you want to control Home Assistant through other voice assistants like Google Assistant or Apple HomeKit, you would need different integrations specifically designed for those platforms. Home Assistant provides native integrations for these services that do not require Lambda functions. However, you could build additional extensions for the Lambda Execution Engine to support other platforms using the same Engine services.
 
-### Will this work with Cloudflare Tunnel?
+### Will this work with different connection methods?
 
-Yes, Cloudflare Tunnel works excellently with the Lambda Execution Engine. Cloudflare Tunnel creates a secure connection from your Home Assistant instance to Cloudflare's network without requiring you to open ports on your firewall. When you configure Cloudflare Tunnel, you receive a public URL that routes to your local Home Assistant instance. You enter this URL in your Parameter Store configuration, and the Lambda function uses it to communicate with Home Assistant.
+Yes, the Lambda Execution Engine works with several connection methods for reaching your Home Assistant instance. You can use a direct HTTPS connection with a valid SSL certificate if your Home Assistant has a public domain name. You can use a direct HTTPS connection with SSL verification disabled if you have a self-signed certificate. You can connect over HTTP for local network testing though this is not recommended for production use. You can also establish a VPN connection between AWS and your home network for maximum security.
 
-Cloudflare Tunnel provides valid SSL certificates automatically, so you can set HA_VERIFY_SSL to true for secure connections. This is the recommended method for exposing Home Assistant to the internet because it combines security, ease of setup, and reliability.
+Each connection method has its own configuration requirements. Direct connections require your Home Assistant to be accessible from the internet. VPN connections require setting up AWS VPC and VPN gateway infrastructure. The choice of connection method depends on your security requirements, network setup, and technical comfort level.
 
 ### What happens if my internet goes down?
 
@@ -73,11 +83,11 @@ The gateway architecture is a design pattern where all operations flow through a
 
 This architecture provides several benefits. It enables lazy loading, where modules are only imported when they are needed rather than all at startup. It centralizes error handling so errors are caught and managed consistently. It simplifies monitoring because all operations pass through one point where you can log and measure them. It reduces memory usage because modules that are not needed for a particular request are never loaded.
 
-### Can I use this for both Alexa and Google Home?
+### Can I use this for both Alexa and other platforms?
 
-This Lambda function is designed specifically for Alexa and uses the Alexa Smart Home API format. Google Home uses a different API format called Google Smart Home API. You would need a separate integration for Google Home.
+The Lambda Execution Engine is designed as a general-purpose framework that can support multiple extensions. Currently, the Home Assistant Extension provides Alexa integration. However, the Engine's architecture allows you to build additional extensions for other voice assistants or platforms.
 
-However, your Home Assistant instance itself can support multiple voice assistants simultaneously. You can have the Lambda Execution Engine handling Alexa while using the native Google Assistant integration in Home Assistant for Google Home. Both can control the same devices through Home Assistant. You would just use Alexa commands for Alexa devices and Google commands for Google Home devices.
+You could create a Google Assistant extension that uses the same Engine services for gateway routing, HTTP communication, caching, and circuit breaker protection while implementing Google-specific device discovery and control. Similarly, you could build extensions for SmartThings, Apple HomeKit, or entirely different purposes. Each extension would be self-contained and use the Engine's services without modifying the Engine core itself.
 
 ---
 
@@ -109,13 +119,15 @@ If function creation fails with a role error, confirm that the IAM role you sele
 
 If creation fails with a quota error, you may have reached the limit for Lambda functions in your region. AWS imposes service quotas to prevent runaway resource creation. Check your service quotas in the AWS Console under Service Quotas. You can request quota increases if needed, though the default quotas are usually sufficient for personal projects.
 
+Note that Lambda function creation succeeds whether or not you plan to use the Home Assistant Extension. The Engine creates successfully with HOME_ASSISTANT_ENABLED set to false.
+
 ### Deployment package upload fails
 
 If uploading your ZIP file fails, first check the file size. Lambda has a 50 megabyte limit for direct ZIP file uploads. The Lambda Execution Engine code is much smaller than this limit, but if you accidentally included unnecessary files in your ZIP, it might exceed the limit. Verify your ZIP contains only Python files and no additional directories, images, or documentation.
 
-If upload succeeds but the function shows an error about missing handler, verify that your Python files are at the root level of the ZIP archive. If you unzip your deployment package, you should see Python files immediately, not a folder containing Python files. Repackage your ZIP ensuring files are at the root.
+If upload succeeds but the function shows an error about missing handler, verify that your Python files are at the root level of the ZIP archive. The files should not be inside a folder within the ZIP. When you open the ZIP file, you should see lambda_function.py and other Python files immediately, not a folder containing those files.
 
-If upload succeeds but imports fail during execution, check that all required files are included in your ZIP package. Missing core files like gateway.py or configuration files like variables.py will cause import errors. Review the required files list in the deployment documentation and verify each file is present.
+If the upload is very slow, your internet connection may be the bottleneck. Lambda deployment packages upload from your computer to AWS over your internet connection. Slow upload speeds can make large packages take several minutes to upload. Be patient and wait for the upload to complete rather than canceling and retrying, which will start the process over.
 
 ---
 
@@ -123,43 +135,41 @@ If upload succeeds but imports fail during execution, check that all required fi
 
 ### Cannot connect to Home Assistant
 
-If your Lambda function cannot connect to Home Assistant, first verify that your Home Assistant instance is accessible from the internet. Open a web browser on a device that is not connected to your home network, such as your phone using cellular data rather than WiFi. Navigate to the URL you configured in Parameter Store. If you cannot load the Home Assistant login page, your instance is not accessible from outside your network.
+If the Lambda function cannot connect to your Home Assistant instance, first verify that Home Assistant is running and accessible. Try accessing your Home Assistant URL from a web browser. If you cannot reach Home Assistant from your browser, the Lambda function will not be able to reach it either.
 
-Check your router's port forwarding configuration if you use direct connection. Verify that traffic on port 443 or 8123 forwards to your Home Assistant device. Test the port forwarding using an online port checking tool. Confirm your firewall allows incoming connections on the forwarded port.
+Check that the URL in your Parameter Store or environment variable is correct and complete. The URL should include the protocol (http or https), the full hostname or IP address, and the port if you use a non-standard port. For example, https://home.example.com or http://192.168.1.100:8123. Test the exact URL you configured by pasting it into a web browser.
 
-If you use Cloudflare Tunnel, verify the tunnel is running and connected. Check the Cloudflare Tunnel daemon logs on your Home Assistant host. Ensure the tunnel configuration points to the correct local address and port. Test the tunnel by accessing your Cloudflare URL directly in a browser.
+Verify that your Home Assistant is accessible from the internet if you are using a direct connection method. Some Home Assistant installations run only on local networks and cannot be reached from AWS. You need either port forwarding, a VPN, or a tunneling service to make local Home Assistant instances accessible from AWS.
 
-Verify your Parameter Store URL is correct. Common mistakes include missing the protocol (https://), incorrect port numbers, or typographical errors in the domain name. The URL should match exactly how you access Home Assistant from outside your network.
+Check your firewall settings both on your router and on the computer running Home Assistant. Firewalls may block incoming connections even if port forwarding is configured correctly. Temporarily disable firewalls for testing to determine if they are causing the connection problem.
 
 ### SSL certificate verification fails
 
-If you see SSL verification errors in CloudWatch logs, your Home Assistant instance either does not have SSL certificates or uses self-signed certificates that cannot be verified. First, determine which SSL configuration you have.
+If you see SSL certificate verification errors in your logs, your Home Assistant instance is using an SSL certificate that AWS does not trust. This commonly happens with self-signed certificates that you generated yourself rather than obtaining from a certificate authority.
 
-For self-signed certificates, set HA_VERIFY_SSL to false in your Lambda environment variables. This tells the function to accept the SSL connection without verifying the certificate against a trusted authority. Note that this reduces security because it makes your connection vulnerable to man-in-the-middle attacks, but it allows the connection to work with self-signed certificates.
+The simplest solution is to set HA_VERIFY_SSL to false in your environment variables. This tells the Lambda function to accept the certificate without verification. The connection is still encrypted, but the function does not validate the certificate's authenticity. This solution works fine for home use where you control both ends of the connection.
 
-For Cloudflare Tunnel, SSL verification should work automatically because Cloudflare provides valid certificates. If you see verification errors with Cloudflare Tunnel, check that you are using the HTTPS URL Cloudflare provided, not an HTTP URL. Verify the tunnel is running and connected.
-
-For direct connections with Let's Encrypt or other valid certificates, verification should work with HA_VERIFY_SSL set to true. If verification fails despite having valid certificates, check that your certificates are not expired. Verify that your Home Assistant SSL configuration includes the full certificate chain, not just the end certificate.
+For a more secure solution, obtain a valid SSL certificate from a certificate authority. Let's Encrypt provides free SSL certificates that are trusted by all major clients including AWS. Many DNS providers and domain registrars offer integrated Let's Encrypt support that automates certificate issuance and renewal.
 
 ### Connection timeout errors
 
-If requests to Home Assistant time out before completing, first check your network connection speed and latency. Use a speed test tool to measure your upload speed from your home network and download speed to your home network. Slow internet connections may not complete requests within the default 30-second timeout.
+Connection timeout errors mean the Lambda function waited for Home Assistant to respond but did not receive a response within the timeout period. This suggests Home Assistant is reachable but responding too slowly.
 
-Increase the HA_TIMEOUT environment variable to give requests more time to complete. Try 45 or 60 seconds for slower connections or complex automations. Remember that Alexa itself has timeouts, so extremely long timeouts may cause Alexa to give up before your Lambda function returns a response.
+Check Home Assistant's performance. If Home Assistant is running on underpowered hardware or processing many automations, it may respond slowly to API requests. Monitor Home Assistant's resource usage including CPU, memory, and disk I/O to identify bottlenecks.
 
-Check your Home Assistant performance and resource usage. If Home Assistant is using all available CPU or memory, it may respond slowly to API requests. Review Home Assistant logs for performance warnings. Consider upgrading your Home Assistant hardware or reducing the number of integrations and automations if performance is consistently poor.
+Increase the HA_TIMEOUT value to give Home Assistant more time to respond. The default is 30 seconds, but you can increase this to 45 or 60 seconds if your Home Assistant instance consistently requires more time. However, higher timeouts mean users wait longer when genuine problems occur.
 
-Verify that your Home Assistant instance is not blocking or rate-limiting requests from your Lambda function. Some firewall configurations or reverse proxy setups implement rate limiting that blocks rapid requests. Check your reverse proxy logs if you use one. Review Home Assistant configuration for any rate limiting settings.
+Verify your network connection between AWS and Home Assistant. Network latency and packet loss can cause slow responses even when Home Assistant performs well. Use network diagnostic tools to measure round-trip time and packet loss from AWS to your home network.
 
 ### Authentication failures
 
-If you see unauthorized or authentication errors, your Home Assistant access token may be invalid or expired. First, verify that you copied the complete token from Home Assistant when creating it. Tokens are long strings that must be copied exactly without any spaces or line breaks at the beginning or end.
+Authentication failures indicate that Home Assistant is rejecting the access token your Lambda function provides. This usually means the token is invalid, expired, or configured incorrectly.
 
-Try generating a new long-lived access token from your Home Assistant profile page. Copy the new token carefully and update your Parameter Store value with the new token. Wait a few minutes for the change to propagate, then test again.
+Generate a new long-lived access token in Home Assistant. Open your user profile in Home Assistant, scroll to Long-Lived Access Tokens, and create a new token. Copy this token immediately because Home Assistant will not display it again.
 
-Check that the Home Assistant user account associated with your token has permission to control devices. Some Home Assistant configurations restrict which users can control which devices. Ensure your token's user account has administrative access or appropriate permissions for the devices you want to control.
+Update your Parameter Store with the new token. Navigate to Parameter Store in AWS Systems Manager, find the homeassistant/token parameter, and update its value with the new token. Ensure you update the correct parameter and do not create a duplicate parameter with a slightly different name.
 
-Verify that you stored the token in Parameter Store as a SecureString type. While String type tokens can work, SecureString provides encryption and is the recommended type. If you used String type, the token might display differently than expected. Try recreating the parameter with SecureString type.
+Verify that the token grants the necessary permissions in Home Assistant. Tokens are associated with a user account, and that user account must have permission to view and control the entities you want the Lambda function to access. Check that your Home Assistant user account has appropriate permissions.
 
 ---
 
@@ -167,43 +177,41 @@ Verify that you stored the token in Parameter Store as a SecureString type. Whil
 
 ### Alexa cannot find devices
 
-If Alexa cannot find any devices during discovery, first verify that your Lambda function executed successfully. Check CloudWatch logs for the discovery request. The logs should show your Lambda function receiving a discovery directive from Alexa and sending back a list of devices.
+If Alexa fails to find any devices during discovery, verify that Home Assistant is accessible and your access token works correctly. Test your connection by manually invoking your Lambda function with a test discovery request to see if it successfully retrieves devices from Home Assistant.
 
-If the Lambda function never executed, verify that you added the Alexa trigger to your Lambda function with the correct Skill ID. The trigger must use the exact Skill ID from your Alexa skill in the developer console. Check that the trigger is enabled and not accidentally disabled.
+Check that you have entities exposed for Alexa in Home Assistant. By default, Home Assistant does not expose all entities to Alexa. You must explicitly mark entities as exposed. In Home Assistant, navigate to each entity's settings and enable Alexa exposure.
 
-If the Lambda function executed but returned an empty device list, check that you exposed entities in your Home Assistant configuration. Navigate to Home Assistant's Alexa integration settings and verify that entities are toggled on for exposure. Alternatively, if you use the customize method, check that entities have expose: true in configuration.yaml.
+Verify that the device discovery process completes successfully in the Lambda function logs. CloudWatch logs will show whether the function successfully contacted Home Assistant, retrieved the entity list, and returned a properly formatted discovery response to Alexa.
 
-Verify that the entities you want to expose are actually supported entity types. The Lambda function can discover lights, switches, climate devices, locks, covers, and scenes. Other entity types like sensors or binary sensors may not appear in device discovery depending on their configuration.
+Give Alexa time to process discovery results. The discovery process can take up to 45 seconds for large numbers of devices. If you cancel discovery too quickly, Alexa may not complete importing your devices. Let the discovery process finish completely before concluding it failed.
 
 ### Commands work but devices do not respond
 
-If Alexa acknowledges your commands but the physical devices do not change state, the problem likely exists between Home Assistant and your devices rather than between Alexa and Home Assistant. Test controlling the devices directly through the Home Assistant web interface. If the devices respond through Home Assistant, the issue is with Lambda or Alexa. If they do not respond through Home Assistant, the issue is with your Home Assistant device configuration.
+If Alexa acknowledges commands but your devices do not actually change state, the problem likely lies in the communication between the Lambda function and Home Assistant. Check CloudWatch logs to verify that the Lambda function is sending commands to Home Assistant.
 
-Check Home Assistant logs for messages when you issue voice commands. You should see incoming API requests from your Lambda function. If these requests appear in the logs, Home Assistant received the command from Lambda. If the device still does not respond, check the device's integration logs for errors or warnings.
+Verify that the entity IDs the Lambda function sends to Home Assistant match your actual entities. The function uses the entity ID Alexa provides, which is based on information from the discovery response. If entity IDs changed in Home Assistant after discovery, commands will fail.
 
-Verify that entity IDs match between Alexa and Home Assistant. Sometimes entity IDs get out of sync if you rename devices. When this happens, Alexa tries to control an entity that no longer exists under that ID. Re-run device discovery in the Alexa app to refresh entity IDs.
+Test device control directly in Home Assistant to ensure your devices work correctly. If a device does not respond to commands in Home Assistant's interface, the Lambda function cannot control it either. Troubleshoot the device in Home Assistant first.
 
-Check for temporary device connectivity issues. Some smart devices occasionally disconnect from Home Assistant and reconnect after a few minutes. If commands usually work but occasionally fail, this suggests intermittent device connectivity rather than a configuration problem.
+Check for automation or script errors in Home Assistant that might interfere with device control. Complex automations or scripts that trigger on state changes could potentially prevent or override commands sent through the Lambda function.
 
 ### Some devices work while others do not
 
-If some devices respond to Alexa commands while others do not, focus on the differences between working and non-working devices. Check whether non-working devices are exposed in your Home Assistant Alexa integration. Devices that are not exposed will not be discovered by Alexa.
+When some devices work correctly while others fail, the problem usually involves device-specific configuration or capabilities. Compare the working and non-working devices to identify differences.
 
-Verify that non-working devices are in a responsive state in Home Assistant. Devices that are unavailable or in an error state in Home Assistant will not respond to commands even if Alexa sends them. Check the device's status in Home Assistant and troubleshoot the device's connection to Home Assistant first.
+Verify that all devices are properly exposed to Alexa in Home Assistant. It is easy to accidentally expose some entities while forgetting others. Check each device's exposure settings in Home Assistant.
 
-Check for entity naming conflicts. If two devices have very similar names, Alexa might confuse them or send commands to the wrong device. Review your device names in both Home Assistant and the Alexa app. Rename devices with similar names to make them more distinct.
+Check CloudWatch logs for errors specific to the failing devices. The logs will show which entity IDs fail and may provide error messages explaining why. Common issues include unsupported entity types, missing required attributes, or devices that are unavailable in Home Assistant.
 
-Test non-working devices directly through the Home Assistant API using a tool like curl or Postman. If they respond to direct API calls but not to Alexa commands, the issue involves how Alexa formats the requests or how the Lambda function translates them. Check CloudWatch logs to see the exact API calls being made for non-working devices.
+Test the failing devices directly in Home Assistant to ensure they work correctly there. If a device does not work in Home Assistant, the Lambda function cannot control it.
 
 ### Scene or script activation fails
 
-If activating scenes or scripts through Alexa fails, first verify that scenes and scripts are exposed in your Home Assistant Alexa integration. Scenes and scripts must be explicitly exposed like other entities.
+Scene and script activation failures often result from incorrect entity IDs or missing exposures. Verify that you exposed the scene or script entity to Alexa in Home Assistant. Scenes and scripts must be explicitly exposed just like device entities.
 
-Check that your HA_FEATURE_PRESET includes scene and script support. The minimal preset does not include these features. You need at least the standard preset for scene activation and script execution.
+Check that the scene or script executes correctly when triggered manually in Home Assistant. If it does not work in Home Assistant, it will not work through the Lambda function.
 
-Verify that scenes and scripts work when activated directly through Home Assistant. If they fail when activated manually, they will also fail when activated through Alexa. Review scene and script configurations for errors. Check Home Assistant logs when activating them manually to diagnose configuration issues.
-
-Some scenes or scripts take longer to execute than others, especially if they control many devices or include delays. If a scene times out, try increasing HA_TIMEOUT to give it more time to complete.
+Review CloudWatch logs for detailed error messages about scene or script activation. The logs will indicate whether the Lambda function successfully sent the activation command to Home Assistant and what response Home Assistant returned.
 
 ---
 
@@ -211,33 +219,33 @@ Some scenes or scripts take longer to execute than others, especially if they co
 
 ### Lambda function is slow
 
-If your Lambda function responds slowly, first check whether the slowness occurs on cold starts or all invocations. Cold starts happen when Lambda needs to initialize a new container to run your function. This initialization includes loading Python, importing modules, and establishing connections. Cold starts typically take longer than subsequent invocations.
+If your Lambda function responds slowly, first determine whether the slowness occurs during cold starts or warm invocations. Cold starts happen when AWS allocates resources for a new function instance, while warm invocations use an already-running instance. Cold starts naturally take longer.
 
-To improve cold start performance, verify that LUGS_ENABLED is set to true. This enables lazy loading which reduces the number of modules that load during initialization. Consider switching to a lower HA_FEATURE_PRESET like minimal or standard to load fewer modules.
+Cold start performance improves by minimizing your deployment package size and enabling LUGS for lazy loading. Remove any unnecessary files from your deployment package. Ensure LUGS_ENABLED is set to true so the function only loads modules it actually needs for each request.
 
-If all invocations are slow, not just cold starts, the problem likely involves network latency between Lambda and Home Assistant. Measure the time Home Assistant takes to respond to API calls. You can do this by checking CloudWatch logs which include timestamps for request start and response receipt.
+Warm invocation slowness usually indicates performance issues in Home Assistant or network problems. Check Home Assistant's response time by reviewing its logs. Slow database queries, heavy automations, or resource exhaustion can all slow Home Assistant responses.
 
-Reduce network latency by ensuring your Home Assistant instance has good internet connectivity. If you use port forwarding over residential internet, upload speeds may be slow. Consider switching to Cloudflare Tunnel which often provides better performance for incoming connections.
+Monitor CloudWatch metrics for your Lambda function to identify specifically where time is spent. The metrics show how long each invocation takes and can help isolate whether delays occur in Lambda processing, network communication, or Home Assistant responses.
 
 ### High memory usage
 
-If your Lambda function approaches the 128 megabyte memory limit, reduce memory consumption by switching to a lower HA_FEATURE_PRESET. The minimal preset uses approximately 15 megabytes while the maximum preset can use 30 megabytes or more.
+High memory usage can indicate that too many modules are loading or caching is using excessive memory. Check your CONFIGURATION_TIER setting and consider lowering it to a tier that uses less memory. The minimum tier uses only 8 megabytes while the maximum tier uses over 100 megabytes.
 
-Reduce HA_CACHE_TTL to decrease cache memory usage. Caching saves memory by storing frequently accessed data, but large caches can use significant memory. Experiment with lower cache TTL values to find a balance between performance and memory usage.
+Verify that LUGS is enabled and functioning correctly. Without lazy loading, all modules load at startup which significantly increases memory usage. CloudWatch logs will show which modules load during function initialization.
 
-Verify that LUGS_ENABLED is set to true. Without lazy loading, all modules load into memory even if they are not used for a particular request. Lazy loading significantly reduces memory consumption.
+Review your feature preset setting if using the Home Assistant Extension. Higher feature presets like performance and maximum load more features into memory. The minimal or standard preset uses much less memory.
 
-Monitor memory usage through CloudWatch metrics over time. Occasional spikes in memory usage during complex operations are normal. If memory usage consistently remains high across many invocations, you may need to increase allocated memory to 256 megabytes or reduce your feature preset.
+Monitor actual memory usage in CloudWatch rather than relying on Lambda's allocated memory. Lambda allocates memory in fixed increments, but your function may use much less than allocated. CloudWatch metrics show actual memory consumption during invocations.
 
 ### Frequent timeout errors
 
-If your Lambda function times out frequently before completing requests, first determine whether the timeout occurs in Lambda itself or in communication with Home Assistant. Check CloudWatch logs for the last log entry before the timeout. If logs show the function trying to contact Home Assistant, the timeout likely occurs waiting for Home Assistant's response.
+Frequent timeout errors suggest that Home Assistant cannot respond within the configured timeout period. This may result from Home Assistant performance problems, network issues, or an unrealistically short timeout setting.
 
-Increase HA_TIMEOUT to give Home Assistant more time to respond. Some automations or scenes take several seconds to execute fully. Make sure HA_TIMEOUT is high enough to accommodate your slowest operations.
+Increase the HA_TIMEOUT environment variable to give Home Assistant more time to respond. Try 45 or 60 seconds instead of the default 30 seconds. This prevents timeouts when Home Assistant legitimately needs extra time but increases user wait time when genuine problems occur.
 
-Increase the Lambda function timeout in Lambda's general configuration. The default 30-second timeout should be sufficient for most operations, but if you have complex automations, you might need 45 or 60 seconds.
+Investigate Home Assistant performance if increasing timeout does not help. Check Home Assistant's CPU, memory, and database performance. Consider optimizing automations, cleaning up the database, or upgrading hardware if Home Assistant consistently responds slowly.
 
-If timeouts occur during discovery requests specifically, you might have many devices exposed which take time to enumerate. Consider exposing only devices you actually control through voice commands. Reducing the number of exposed devices speeds up discovery.
+Check network connectivity between AWS and your Home Assistant instance. High latency or packet loss can cause responses to arrive too slowly even when Home Assistant processes requests quickly. Use network monitoring tools to measure connection quality.
 
 ---
 
@@ -245,35 +253,37 @@ If timeouts occur during discovery requests specifically, you might have many de
 
 ### Is my access token secure?
 
-Your Home Assistant access token is stored in AWS Systems Manager Parameter Store as a SecureString type. AWS encrypts SecureString parameters using AWS Key Management Service. This encryption protects your token from unauthorized access. Even if someone gained access to your AWS account without proper IAM permissions, they would not be able to read the decrypted token value.
+When stored properly in Parameter Store as a SecureString, your access token is encrypted at rest using AWS encryption. Only your Lambda function can decrypt it because only your Lambda IAM role has permission to read that specific parameter. The token never appears in logs or error messages.
 
-Your Lambda function decrypts the token when it runs, loads it into memory, uses it to authenticate with Home Assistant, and then the memory is cleared when the function finishes. The token is never written to logs or stored in any permanent location outside Parameter Store.
+The Lambda function retrieves your token from Parameter Store when it initializes and holds it in memory only during request processing. When the function completes, all memory is cleared and the token disappears. AWS automatically secures the Lambda runtime environment, so other AWS customers cannot access your function's memory.
 
-To further secure your token, use IAM policies to restrict which users and roles can read Parameter Store parameters. Only your Lambda execution role should need permission to read the token. Regular users should not have Parameter Store read access unless they specifically need it for other purposes.
+Transmission of the token between Lambda and Home Assistant occurs over HTTPS when you set HA_VERIFY_SSL to true. The encrypted connection prevents the token from being intercepted during transmission. Never use HTTP connections over the public internet as they would expose your token.
 
 ### Can someone else invoke my Lambda function?
 
-Your Lambda function is protected by AWS IAM permissions. Only your Alexa skill can invoke the function because you configured an Alexa Skills Kit trigger with a specific Skill ID. Lambda validates that incoming requests come from Alexa and specifically from your Skill ID before allowing execution.
+By default, your Lambda function requires AWS credentials to invoke. Only accounts and IAM users with appropriate permissions in your AWS account can invoke the function. Alexa invokes your function using a special trigger that you must explicitly configure, which authorizes Alexa to invoke it without AWS credentials.
 
-Other AWS users cannot invoke your function unless you explicitly grant them permission. Your Lambda function is private to your AWS account by default. No one outside your account can even see that the function exists without proper IAM credentials.
+The Alexa trigger is specific to your Alexa skill. Only your Alexa skill can invoke your function, and only users who have enabled your skill in their Alexa app can trigger invocations. This limits function invocations to authorized Alexa users.
 
-Within your AWS account, users with Lambda invocation permissions could potentially invoke your function. Use IAM policies to restrict which users have Lambda invocation permissions if you share your AWS account with others.
+Monitor CloudWatch metrics for unusual invocation patterns. High invocation counts or invocations at unexpected times might indicate unauthorized access. CloudWatch alarms can notify you of abnormal activity.
 
 ### Should I use VPN for maximum security?
 
-VPN provides the highest level of security by creating an encrypted tunnel between AWS and your home network that does not expose any ports to the public internet. However, VPN requires complex AWS networking configuration, costs money for the VPN gateway, and provides minimal security benefit over properly configured SSL connections for most users.
+VPN provides the highest security level for Lambda-to-Home Assistant communication. With VPN, all traffic flows through an encrypted tunnel between AWS and your home network. No traffic traverses the public internet, eliminating exposure to potential interception.
 
-Cloudflare Tunnel with SSL verification enabled provides excellent security for most users without the complexity and cost of VPN. The connection is encrypted end-to-end, Cloudflare provides DDoS protection, and no ports are exposed on your home network.
+However, VPN adds significant complexity to your setup. You must create an AWS VPC, configure a VPN gateway, set up your Lambda function to run inside the VPC, establish the VPN connection to your home network, and maintain the VPN infrastructure. This complexity may not be justified for typical home automation use.
 
-Consider VPN only if you have specific security requirements that demand it, such as compliance with particular security standards, extreme privacy requirements, or integration with existing VPN infrastructure. For typical smart home use, Cloudflare Tunnel or direct connection with valid SSL certificates provides adequate security.
+For most home users, HTTPS with a valid SSL certificate provides adequate security. The connection is encrypted end-to-end, and only your Lambda function can access your token. This provides strong protection for the majority of use cases without VPN complexity.
 
 ### How often should I rotate access tokens?
 
-Home Assistant long-lived access tokens do not expire automatically unless you explicitly set an expiration date or revoke them. However, security best practices recommend rotating credentials periodically even if they have not been compromised.
+Rotating access tokens periodically limits the damage if a token is compromised. A compromised token only remains valid until you rotate it. Best practice suggests rotating tokens every 90 to 180 days even if you have no reason to believe they have been compromised.
 
-Consider rotating your access token every six to twelve months as a preventive measure. To rotate the token, generate a new long-lived access token in Home Assistant, update your Parameter Store value with the new token, test that everything still works, and then revoke the old token in Home Assistant.
+When you rotate tokens, generate a new long-lived access token in Home Assistant and update Parameter Store with the new value. The Lambda function will use the new token on its next invocation after reading the updated parameter. No code changes or function redeployment are required.
 
-If you suspect your token may have been compromised, rotate it immediately. Signs of compromise include unexpected device state changes, unusual entries in Home Assistant logs, or API requests from IP addresses you do not recognize.
+After updating Parameter Store, revoke the old token in Home Assistant. This ensures the old token cannot be used even if someone obtained it. Only the new token will work after revocation.
+
+If you suspect a token has been compromised, rotate it immediately rather than waiting for a scheduled rotation. Generate a new token, update Parameter Store, test that the new token works, and revoke the old token as quickly as possible.
 
 ---
 
@@ -281,13 +291,15 @@ If you suspect your token may have been compromised, rotate it immediately. Sign
 
 ### Reading CloudWatch Logs
 
-CloudWatch Logs contain detailed information about every Lambda function execution. To access logs, navigate to CloudWatch in the AWS Console, click Logs, then Log Groups, then find your Lambda function's log group.
+CloudWatch Logs contain detailed information about every Lambda function invocation. These logs are essential for troubleshooting because they show exactly what your function did, what errors occurred, and how long operations took.
 
-Each log group contains multiple log streams. Each stream represents a single container that ran your function. Click on the most recent stream to see logs from recent executions.
+Navigate to CloudWatch in the AWS Console, then select Log Groups. Find the log group for your Lambda function, which will be named /aws/lambda/lambda-execution-engine or similar. Click on the log group to see log streams.
 
-Logs include several types of entries. START entries mark the beginning of a function invocation and include the request ID. Log entries from your code show information the function logged during execution. END entries mark successful completion. REPORT entries provide statistics about memory usage, duration, and billed duration.
+Each log stream represents a separate instance of your Lambda function. When AWS scales your function to handle concurrent requests, it creates multiple instances, each with its own log stream. Click on a log stream to see the actual log messages.
 
-Look for ERROR or WARNING entries which indicate problems. Error entries usually include stack traces showing exactly where the code failed and what error occurred. Use these stack traces to diagnose problems.
+Log messages appear in chronological order and include timestamps. Look for error messages, warnings, and informational messages that describe what the function did during each invocation. ERROR level messages indicate problems that need attention.
+
+Use the search feature to find specific text in logs. You can search for entity IDs, error types, or any other text that appears in log messages. This helps locate relevant messages in large volumes of logs.
 
 ### Using Lambda Test Events
 
