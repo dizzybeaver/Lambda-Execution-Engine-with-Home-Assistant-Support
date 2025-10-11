@@ -162,20 +162,18 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             raise ValueError(f"Unknown METRICS operation: {operation}")
     
     elif interface == GatewayInterface.CONFIG:
-        from config_core import (
-            _initialize_implementation,
-            _get_parameter_implementation,
-            _set_parameter_implementation,
-            _get_category_implementation,
-            _reload_implementation,
-            _switch_preset_implementation,
-            _get_state_implementation,
-            _load_environment_implementation,
-            _load_file_implementation,
-            _load_ha_config_implementation,
-            _validate_ha_config_implementation,
-            _validate_all_implementation
-        )
+           from config_core import (
+                _initialize_implementation,
+                _get_parameter_implementation,
+                _set_parameter_implementation,
+                _get_category_implementation,
+                _reload_implementation,
+                _switch_preset_implementation,
+                _get_state_implementation,
+                _load_environment_implementation,
+                _load_file_implementation,
+                _validate_all_implementation
+         )
 
         if operation == 'initialize':
             return _initialize_implementation()
