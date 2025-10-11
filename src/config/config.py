@@ -1,7 +1,8 @@
 """
-config.py
-Version: 2025.10.11.01
-Description: Thin interface for configuration operations, delegates to gateway
+config.py  
+Version: 2025.10.12.01
+Description: Pure SUGA interface for configuration - all functions delegate to gateway
+Consolidates: config.py + config_helpers.py (legacy functions)
 
 Copyright 2025 Joseph Hersey
 
@@ -26,71 +27,43 @@ from typing import Dict, Any, Optional
 def config_initialize() -> Dict[str, Any]:
     """Initialize configuration system."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'initialize'
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'initialize')
 
 
 def config_get_parameter(key: str, default: Any = None) -> Any:
     """Get configuration parameter."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'get_parameter',
-        key=key,
-        default=default
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
 
 
 def config_set_parameter(key: str, value: Any) -> bool:
     """Set configuration parameter."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'set_parameter',
-        key=key,
-        value=value
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
 
 
 def config_get_category(category: str) -> Dict[str, Any]:
     """Get configuration for specific category."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'get_category_config',
-        category=category
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'get_category_config', category=category)
 
 
 def config_reload(validate: bool = True) -> Dict[str, Any]:
     """Reload configuration from all sources."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'reload_config',
-        validate=validate
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'reload_config', validate=validate)
 
 
 def config_switch_preset(preset_name: str) -> Dict[str, Any]:
     """Switch to different configuration preset."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'switch_preset',
-        preset_name=preset_name
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'switch_preset', preset_name=preset_name)
 
 
 def config_get_state() -> Dict[str, Any]:
     """Get current configuration state."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'get_state'
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'get_state')
 
 
 # ===== SOURCE-SPECIFIC OPERATIONS =====
@@ -98,54 +71,35 @@ def config_get_state() -> Dict[str, Any]:
 def config_load_from_environment() -> Dict[str, Any]:
     """Load configuration from environment variables."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'load_from_environment'
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'load_from_environment')
 
 
 def config_load_from_file(filepath: str) -> Dict[str, Any]:
     """Load configuration from file."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'load_from_file',
-        filepath=filepath
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'load_from_file', filepath=filepath)
 
 
 def config_load_ha_config() -> Dict[str, Any]:
     """Load Home Assistant configuration."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'load_ha_config'
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'load_ha_config')
 
 
 def config_validate_ha_config(ha_config: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Home Assistant configuration."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'validate_ha_config',
-        ha_config=ha_config
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'validate_ha_config', ha_config=ha_config)
 
-
-# ===== VALIDATION OPERATIONS =====
 
 def config_validate_all() -> Dict[str, Any]:
     """Validate all configuration sections."""
     from gateway import execute_operation, GatewayInterface
-    return execute_operation(
-        GatewayInterface.CONFIG,
-        'validate_all_sections'
-    )
+    return execute_operation(GatewayInterface.CONFIG, 'validate_all_sections')
 
 
 # ===== CATEGORY-SPECIFIC HELPERS =====
-# These are convenience functions that wrap config_get_category
+# These are convenience wrappers around config_get_category
 
 def config_get_cache() -> Dict[str, Any]:
     """Get cache configuration."""
@@ -203,7 +157,7 @@ def config_get_initialization() -> Dict[str, Any]:
 
 
 # ===== BACKWARD COMPATIBILITY ALIASES =====
-# These maintain compatibility with old function names
+# Maintains compatibility with old function names
 
 def get_parameter(key: str, default: Any = None) -> Any:
     """Get configuration parameter (backward compatibility)."""
@@ -235,73 +189,73 @@ def get_config_state() -> Dict[str, Any]:
     return config_get_state()
 
 
-# ===== LEGACY HELPER COMPATIBILITY =====
-# These maintain compatibility with config_helpers.py
+# ===== LEGACY HELPER FUNCTIONS =====
+# Absorbed from config_helpers.py - maintains full backward compatibility
 
 def get_cache_config(key: str, default: Any = None) -> Any:
-    """Get cache configuration setting (legacy compatibility)."""
+    """Get cache configuration setting (legacy)."""
     cache_config = config_get_cache()
-    return cache_config.get('settings', {}).get(key, default)
+    return cache_config.get(key, default)
 
 
 def get_logging_config(key: str, default: Any = None) -> Any:
-    """Get logging configuration setting (legacy compatibility)."""
+    """Get logging configuration setting (legacy)."""
     logging_config = config_get_logging()
-    return logging_config.get('settings', {}).get(key, default)
+    return logging_config.get(key, default)
 
 
 def get_metrics_config(key: str, default: Any = None) -> Any:
-    """Get metrics configuration setting (legacy compatibility)."""
+    """Get metrics configuration setting (legacy)."""
     metrics_config = config_get_metrics()
-    return metrics_config.get('settings', {}).get(key, default)
+    return metrics_config.get(key, default)
 
 
 def get_security_config(key: str, default: Any = None) -> Any:
-    """Get security configuration setting (legacy compatibility)."""
+    """Get security configuration setting (legacy)."""
     security_config = config_get_security()
-    return security_config.get('settings', {}).get(key, default)
+    return security_config.get(key, default)
 
 
 def get_circuit_breaker_config(key: str, default: Any = None) -> Any:
-    """Get circuit breaker configuration setting (legacy compatibility)."""
+    """Get circuit breaker configuration setting (legacy)."""
     cb_config = config_get_circuit_breaker()
-    return cb_config.get('settings', {}).get(key, default)
+    return cb_config.get(key, default)
 
 
 def get_singleton_config(key: str, default: Any = None) -> Any:
-    """Get singleton configuration setting (legacy compatibility)."""
+    """Get singleton configuration setting (legacy)."""
     singleton_config = config_get_singleton()
-    return singleton_config.get('settings', {}).get(key, default)
+    return singleton_config.get(key, default)
 
 
 def get_http_client_config(key: str, default: Any = None) -> Any:
-    """Get HTTP client configuration setting (legacy compatibility)."""
+    """Get HTTP client configuration setting (legacy)."""
     http_config = config_get_http_client()
-    return http_config.get('settings', {}).get(key, default)
+    return http_config.get(key, default)
 
 
 def get_lambda_opt_config(key: str, default: Any = None) -> Any:
-    """Get Lambda optimization configuration setting (legacy compatibility)."""
+    """Get Lambda optimization configuration setting (legacy)."""
     lambda_config = config_get_lambda_opt()
-    return lambda_config.get('settings', {}).get(key, default)
+    return lambda_config.get(key, default)
 
 
 def get_cost_protection_config(key: str, default: Any = None) -> Any:
-    """Get cost protection configuration setting (legacy compatibility)."""
+    """Get cost protection configuration setting (legacy)."""
     cost_config = config_get_cost_protection()
-    return cost_config.get('settings', {}).get(key, default)
+    return cost_config.get(key, default)
 
 
 def get_utility_config(key: str, default: Any = None) -> Any:
-    """Get utility configuration setting (legacy compatibility)."""
+    """Get utility configuration setting (legacy)."""
     utility_config = config_get_utility()
-    return utility_config.get('settings', {}).get(key, default)
+    return utility_config.get(key, default)
 
 
 def get_initialization_config(key: str, default: Any = None) -> Any:
-    """Get initialization configuration setting (legacy compatibility)."""
+    """Get initialization configuration setting (legacy)."""
     init_config = config_get_initialization()
-    return init_config.get('settings', {}).get(key, default)
+    return init_config.get(key, default)
 
 
 # EOF
