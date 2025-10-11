@@ -1,311 +1,254 @@
-# Lambda Execution Engine - Testing and Validation Guide
+# Custom Assistant Name Configuration Guide
 
-**Version:** 2025.10.10  
-**Purpose:** Comprehensive testing procedures and validation checklists
+**Version:** 2025.10.10.02  
+**Purpose:** Complete guide to configuring custom invocation names for Alexa
 
 ---
 
 ## Table of Contents
 
-1. [Testing Overview](#testing-overview)
-2. [Pre-Deployment Testing](#pre-deployment-testing)
-3. [Post-Deployment Testing](#post-deployment-testing)
-4. [Feature-Specific Testing](#feature-specific-testing)
-5. [Performance Testing](#performance-testing)
-6. [Security Validation](#security-validation)
-7. [Regression Testing](#regression-testing)
-8. [Automated Testing](#automated-testing)
+1. [Understanding Custom Names](#understanding-custom-names)
+2. [When to Use Custom Names](#when-to-use-custom-names)
+3. [Validation Rules](#validation-rules)
+4. [Configuration Methods](#configuration-methods)
+5. [Alexa Skill Setup](#alexa-skill-setup)
+6. [Testing Your Configuration](#testing-your-configuration)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Testing Overview
+## Understanding Custom Names
 
-Testing the Lambda Execution Engine involves verifying that all components work correctly together and that voice commands through Alexa successfully control your Home Assistant devices. This guide provides systematic testing procedures to ensure your installation is complete and functioning properly.
+By default, when you use the Home Assistant Extension with Alexa, you invoke commands using phrases like Alexa, ask Home Assistant to turn on the lights. The custom assistant name feature allows you to change Home Assistant to any name you prefer, enabling phrases like Alexa, ask Jarvis to turn on the lights or Alexa, tell Computer to lock the doors.
 
-### Testing Phases
+Custom names are a feature of the Home Assistant Extension, not the Lambda Execution Engine core. When you configure a custom name, you are customizing how the Extension presents itself to Alexa and your users. The Engine itself does not require or use custom names.
 
-Testing occurs in three main phases. Pre-deployment testing verifies your configuration before uploading code to Lambda. Post-deployment testing confirms the Lambda function works correctly after deployment. Ongoing testing validates that the system continues working as you add devices or change configurations.
+This feature works by configuring both your Lambda function and your Alexa skill to recognize your chosen name. The Lambda function needs to know the name so it can reference it in responses to Alexa. The Alexa skill needs to know the name so it understands what you say when you invoke the skill.
 
-### Testing Tools
-
-You will use several tools during testing. The AWS Lambda console provides a test interface for invoking your function with custom events. The Alexa Developer Console offers a simulator for testing voice commands without an Alexa device. CloudWatch Logs show detailed execution information. Your physical Alexa devices provide real-world testing. The Home Assistant web interface allows you to verify device state changes.
+Custom names only work with Custom Skills, not Smart Home Skills. Smart Home Skills provide direct device control without requiring an invocation name, which means you say Alexa, turn on the lights directly. Custom Skills require you to use an invocation phrase that includes your assistant name, but they allow you to use any name you choose within the validation rules.
 
 ---
 
-## Pre-Deployment Testing
+## When to Use Custom Names
 
-Before deploying your Lambda function, validate that your configuration is correct and your Home Assistant instance is accessible.
+Custom assistant names provide personalization and can make your smart home feel more unique. If you want to use a name from science fiction like Jarvis from Iron Man or Computer from Star Trek, custom names enable this. If you want a descriptive name like Smart Home or House Assistant that clearly indicates what the skill controls, custom names work well.
 
-### Validate Parameter Store Values
+Custom names work best when everyone in your household agrees on the name and finds it natural to use. If different family members prefer different names, the default Home Assistant name might create less friction. Custom names also require everyone to remember to include the invocation phrase before commands, which some users find more cumbersome than the direct control provided by Smart Home Skills.
 
-Navigate to AWS Systems Manager Parameter Store and verify that all required parameters exist. Check that the Home Assistant URL parameter contains your complete URL including protocol and port. Verify the format matches how you access Home Assistant from outside your network. For Cloudflare Tunnel, the format should be https://homeassistant.yourdomain.com. For direct connections, use https://your-domain-or-ip:port.
+Consider using custom names if you find the Home Assistant name confusing or too generic, if you want your smart home to feel more personalized, if you enjoy references to science fiction or other media, or if you want a name that clearly indicates the purpose of the skill to guests or family members who might use it.
 
-Check that the Home Assistant token parameter exists as a SecureString type. You cannot view the encrypted value, but you can verify the parameter exists and was created recently. If you are uncertain whether the token is correct, regenerate it in Home Assistant and update the parameter.
-
-Verify optional parameters if you created them. Check that the assistant name parameter contains a valid name between 2 and 25 characters. Verify the SSL verification parameter is set to true or false as appropriate for your SSL configuration. Confirm the timeout parameter contains a number representing seconds.
-
-### Test Home Assistant Accessibility
-
-From a device that is not connected to your home network, such as your phone using cellular data, attempt to access your Home Assistant URL. You should see the Home Assistant login page. If you cannot load the page, your Home Assistant instance is not accessible from the internet and Lambda will not be able to connect to it.
-
-If you use Cloudflare Tunnel, verify the tunnel is running by checking the tunnel daemon logs on your Home Assistant host. The logs should show the tunnel connected and ready to receive traffic. Test that the Cloudflare URL loads the Home Assistant login page.
-
-If you use port forwarding, verify your router forwards traffic correctly. Use an online port checking tool to test whether your port is open and accessible. Confirm your firewall allows incoming connections on the forwarded port.
-
-### Verify Home Assistant API Access
-
-Using a tool like curl or Postman, test direct API access to Home Assistant. Construct an API request to get all states using your access token for authentication. The command should return a JSON array containing all entity states in your Home Assistant instance.
-
-If the API request succeeds, your token is valid and Home Assistant is accessible. If the request fails with an authorization error, your token is invalid or expired. If the request fails with a connection error, Home Assistant is not accessible from the internet. If the request fails with an SSL error, your SSL configuration needs adjustment.
-
-### Check Environment Variable Configuration
-
-Before uploading your Lambda code, prepare a checklist of environment variables you will set. Verify you have values for HOME_ASSISTANT_ENABLED set to true, USE_PARAMETER_STORE set to true, PARAMETER_PREFIX matching your Parameter Store path, HA_FEATURE_PRESET set to your desired preset, and HA_TIMEOUT set appropriately for your network.
-
-Write down these values so you can enter them quickly after creating your Lambda function. Having them prepared prevents errors from mistyping values during configuration.
-
-### Validate Code Package
-
-Before uploading your deployment package, extract it to a temporary folder and verify the contents. Check that all required Python files are present at the root level of the ZIP archive. Verify no extra folders or files were accidentally included. Confirm that Python files use absolute imports rather than relative imports.
-
-Check that gateway.py includes the format_response function. Verify that variables_utils.py uses absolute imports. These are common issues that cause deployment failures if not corrected before upload.
+Consider keeping the default name if multiple people in your household cannot agree on a custom name, if you find invocation phrases like ask Name to be awkward, if you prefer the directness of Smart Home Skills, or if you frequently add new devices and want them to work immediately without skill updates.
 
 ---
 
-## Post-Deployment Testing
+## Validation Rules
 
-After deploying your Lambda function, systematically test each component to ensure everything works correctly.
+Amazon enforces specific rules for skill invocation names to prevent confusion and ensure the Alexa voice recognition system can understand them reliably. Your chosen name must comply with all these rules or Alexa will reject it during skill configuration.
 
-### Lambda Function Execution Test
+### Length Requirements
 
-From your Lambda function page in the AWS Console, click the Test tab. Create a new test event named health-check. Configure the test event with minimal JSON that the function can process successfully. Click Test to invoke the function.
+Your assistant name must contain at least two characters and no more than twenty-five characters. Single-letter names like A or H do not meet the minimum length requirement. Names longer than twenty-five characters exceed the maximum length and will be rejected.
 
-Watch the execution results. The function should complete successfully with a green success indicator. Check the execution duration to ensure it completes well under your timeout setting. Review the memory usage to confirm it stays within your allocated memory.
+### Character Requirements
 
-If the test fails, examine the error message and stack trace. Common issues include missing environment variables, incorrect IAM permissions, or Python syntax errors. Fix any errors before proceeding with additional testing.
+Your name can contain only letters from the English alphabet, numbers, and spaces. Letters can be uppercase or lowercase, though Amazon normalizes all invocation names to lowercase internally. You can use numbers within the name, but numbers by themselves without any letters are not allowed.
 
-### Home Assistant Connection Test
+Special characters including punctuation marks, symbols, and accented letters are not permitted. This means you cannot use names like Hal-9000 with hyphens, @Home with symbols, or Jarv!s with exclamation points.
 
-Create a test event that simulates an Alexa discovery request. This event instructs your function to query Home Assistant for available devices. The test event should follow the Alexa Smart Home discovery directive format.
+### Reserved Words
 
-Run the test and examine the response. A successful test returns a discovery response containing a list of devices from your Home Assistant instance. The response should include device IDs, friendly names, and capabilities for each device you have exposed to Alexa.
+Amazon prohibits several reserved words that could create confusion with Alexa's core functionality or Amazon's product names. You cannot use Alexa as your assistant name. You cannot use Amazon or any variation of the Amazon company name. You cannot use Echo or any Amazon device names like Echo Dot, Echo Show, or Echo Plus.
 
-If the discovery test fails, check CloudWatch Logs for detailed error information. Look for connection errors indicating the function cannot reach Home Assistant, authentication errors suggesting an invalid token, or SSL errors pointing to certificate problems.
+You also cannot use wake words that activate Alexa devices. These include the default wake word Alexa and alternate wake words like Computer, Amazon, and Echo. Note that while Computer is a prohibited wake word, you can use it as an invocation name in some regions where it is not enabled as a wake word option.
 
-### CloudWatch Logs Verification
+### Phrase Structure
 
-Navigate to CloudWatch Logs and find your Lambda function's log group. Click on the most recent log stream to view logs from your test invocations. Verify that logs appear for each test you ran.
+Your name should be something natural to say as part of a voice command. Names that sound like questions or commands themselves can confuse the voice recognition system. Avoid names that start with words like who, what, when, where, why, how, could, should, or would.
 
-Examine the log contents. You should see initialization messages when the function starts, connection messages when it contacts Home Assistant, and response messages when it returns results. Look for any warning or error messages that indicate problems even if the test appeared to succeed.
+Names should not include verb phrases that might be confused with commands. For example, Turn On is not a good name because Alexa might interpret it as the start of a command rather than an invocation name.
 
-Check that no sensitive information appears in logs. Access tokens and other secrets should never be logged. If you see tokens in logs, you have a security issue that needs immediate attention.
+### Testing Your Name
 
-### Environment Variable Validation
-
-Create a test that verifies your environment variables are correctly loaded. Some functions include a diagnostic endpoint that returns current configuration. Invoke this endpoint and verify that your environment variables show the expected values.
-
-Check that HA_FEATURE_PRESET matches what you configured. Verify HA_TIMEOUT shows the correct number. Confirm HOME_ASSISTANT_ENABLED shows true. If any values are incorrect, update your environment variables and test again.
+Before committing to a name, test it by saying it out loud in the context of commands you will use. Say Alexa, ask [your name] to turn on the lights. Does it feel natural? Is it easy to pronounce clearly? Will other people in your household find it comfortable to use? These practical considerations matter as much as the technical validation rules.
 
 ---
 
-## Feature-Specific Testing
+## Configuration Methods
 
-Test specific features based on your feature preset and requirements.
+You can configure your custom assistant name using either environment variables in Lambda, Parameter Store in AWS Systems Manager, or both. Environment variables take precedence over Parameter Store when both are set, which allows you to override Parameter Store settings temporarily without changing the stored value.
 
-### Device Control Testing
+### Using Environment Variables
 
-Test basic device control for each device type you have exposed. For lights, test turning them on and off. Test setting brightness levels if your lights support dimming. Test color changes if you have color-capable lights.
+To configure your assistant name with environment variables, navigate to your Lambda function in the AWS Console. Click on the Configuration tab, then select Environment Variables from the left menu. Click Edit to modify variables.
 
-For switches, test on and off commands. For climate devices, test setting temperature and changing modes between heat, cool, and auto. For locks, test locking and unlocking. For covers like garage doors or blinds, test opening, closing, and stopping.
+Add a new environment variable if one does not exist already, or edit the existing variable if you previously configured an assistant name. Set the key to HA_ASSISTANT_NAME. Set the value to your chosen assistant name, such as Jarvis or Computer. The value should match the validation rules described earlier. Click Save to apply your changes.
 
-Create a test event for each command type. Run the test and verify the response indicates success. Check your Home Assistant instance to confirm the device actually changed state. If the Lambda function reports success but the device did not change, the problem is between Home Assistant and the device rather than between Lambda and Home Assistant.
+Environment variable configuration takes effect immediately on the next function invocation. You do not need to redeploy your code or restart your function. This method works well for testing different names quickly or making temporary changes.
 
-### Scene Activation Testing
+### Using Parameter Store
 
-If your feature preset includes scene support, test activating scenes through Lambda. Create a test event that requests scene activation. Include the scene entity ID in the request.
+To configure your assistant name with Parameter Store, navigate to AWS Systems Manager in the AWS Console. Click on Parameter Store in the left sidebar. Click Create Parameter to add a new parameter.
 
-Run the test and verify the response indicates successful scene activation. Check your Home Assistant instance to confirm the scene ran and devices changed to the expected states. If the scene did not activate, verify that scenes are exposed in your Home Assistant Alexa integration and that the HA_FEATURE_PRESET includes scene support.
+Set the parameter name to /lambda-execution-engine/homeassistant/assistant_name. If you used a different parameter prefix in your PARAMETER_PREFIX environment variable, adjust the path accordingly. Set the tier to Standard, which is free and provides enough storage for a name. Set the type to String since assistant names are not sensitive information that needs encryption.
 
-### Script Execution Testing
+Set the value to your chosen assistant name following the validation rules. Add a description such as Custom invocation name for Alexa skill to help you remember the parameter's purpose. Click Create Parameter to save.
 
-For feature presets that include script support, test running scripts through Lambda. Create a test event requesting script execution with a specific script entity ID.
+Parameter Store configuration requires your Lambda function to read the parameter, which happens during function initialization. If you change a Parameter Store value while your function is warm from recent invocations, the change may not take effect until the function cold starts again or the cache expires based on your HA_CACHE_TTL setting.
 
-Verify the script runs successfully and completes all its actions. Check Home Assistant logs to see the script execution. If the script fails, ensure it works when executed directly through Home Assistant before troubleshooting the Lambda integration.
+### Using Both Methods
 
-### Custom Assistant Name Testing
+You can configure both environment variables and Parameter Store with assistant names. This approach allows you to set a stable default name in Parameter Store while using environment variables for temporary overrides during testing or troubleshooting.
 
-If you configured a custom assistant name, test that the function recognizes and uses this name in responses. Create test events that reference your custom name in the request. Verify that responses from the function also use your custom name when addressing the user.
-
-Check that the name validation works correctly by trying to configure an invalid name. The function should reject names that violate the validation rules and fall back to the default name.
-
-### Conversation Interface Testing
-
-For advanced feature presets that include conversation support, test sending natural language commands. Create test events with conversational requests like what is the temperature in the bedroom or turn on all the lights in the kitchen.
-
-Verify that the function processes these requests correctly and returns appropriate responses. Check that the conversation interface integrates properly with Home Assistant's conversation component.
+The environment variable always takes precedence when both are set. If you set HA_ASSISTANT_NAME to Jarvis in environment variables and set the Parameter Store value to Computer, the function will use Jarvis. If you later remove the environment variable, the function will fall back to using Computer from Parameter Store.
 
 ---
 
-## Performance Testing
+## Alexa Skill Setup
 
-Performance testing ensures your function responds quickly enough for good user experience with voice commands.
+Custom assistant names require creating a Custom Skill rather than a Smart Home Skill. Custom Skills support invocation names while Smart Home Skills do not. This section walks through creating and configuring the Custom Skill.
 
-### Cold Start Testing
+### Creating the Skill
 
-Lambda functions experience cold starts when AWS must initialize a new container to run your code. Test cold start performance by waiting several minutes between test invocations to ensure the function container has been terminated.
+Navigate to the Amazon Developer Console at https://developer.amazon.com/alexa/console/ask. Sign in with your Amazon Developer account. Click Create Skill to begin the skill creation process.
 
-Invoke the function after this wait period and measure the duration. Cold starts should complete within 1000 to 1500 milliseconds for minimal and standard presets. Higher presets may take up to 2000 milliseconds for cold starts.
+On the Create Skill page, enter a skill name that includes your custom assistant name. For example, if your assistant name is Jarvis, you might name the skill Jarvis Home Assistant Control. This name appears in the Alexa app and helps users identify the skill, but it does not need to match your invocation name exactly.
 
-If cold starts take longer than 2000 milliseconds, verify that LUGS_ENABLED is set to true for lazy loading. Consider switching to a lower feature preset to reduce initialization time. Review your code package to ensure no unnecessary files are included that increase initialization overhead.
+Under Choose a Model, select Custom. This enables you to define a custom invocation name rather than using direct device control like Smart Home Skills provide. Under Choose a Method to Host Your Skill's Backend Resources, select Provision Your Own. This indicates you will use your own Lambda function rather than Alexa-hosted resources. Click Create Skill to proceed.
 
-### Warm Execution Testing
+Alexa displays a template selection page. Choose Start From Scratch to create a minimal skill that you will configure manually. Click Continue to finish the initial creation.
 
-Warm executions occur when Lambda reuses an existing container from a previous invocation. Test warm execution performance by running multiple test invocations in quick succession without waiting between them.
+### Configuring the Invocation Name
 
-Measure the duration of the second and subsequent invocations. Warm executions should complete within 200 to 500 milliseconds depending on the complexity of the request and your network latency to Home Assistant.
+After skill creation completes, Alexa displays the skill builder interface. In the left sidebar, click on Invocation under the Skill Builder Checklist section. This opens the invocation configuration page.
 
-If warm executions are slow, measure the time spent communicating with Home Assistant versus time spent in Lambda processing. Slow Home Assistant responses indicate a Home Assistant performance issue rather than a Lambda issue.
+In the Skill Invocation Name field, enter your chosen assistant name in lowercase. For example, if you configured HA_ASSISTANT_NAME as Jarvis, enter jarvis here. If you configured it as Computer, enter computer. The invocation name must exactly match your Lambda configuration in lowercase form.
 
-### Memory Usage Testing
+Alexa automatically converts multi-word names to lowercase with spaces preserved. For example, Smart Home becomes smart home as the invocation name. Users will say Alexa, ask smart home to turn on lights.
 
-Run tests while monitoring memory usage through CloudWatch metrics. Verify that memory usage stays well below your allocated limit. Usage should typically be between 15 and 30 megabytes depending on your feature preset.
+Click Save Model at the top of the page to save your invocation configuration. This saves the change but does not build the skill yet.
 
-If memory usage approaches your 128 megabyte limit, switch to a lower feature preset or increase allocated memory to 256 megabytes. Monitor memory usage over many invocations to identify any memory leaks where usage gradually increases without being released.
+### Defining Intents
 
-### Concurrent Request Testing
+Intents define what types of requests your skill can handle. You need to create intents that process commands and route them to your Lambda function. Click on JSON Editor in the left sidebar to access the raw interaction model.
 
-Test how the function handles multiple simultaneous requests. From different Alexa devices or using multiple test invocations started rapidly, generate concurrent requests to your function.
+Replace the existing JSON with an interaction model that includes intents for conversation, help, and stop. The conversation intent should include sample utterances that users might say to control their smart home. The help intent responds when users ask for help. The stop intent allows users to exit the skill.
 
-Verify that all requests complete successfully and that performance does not degrade significantly under concurrent load. Lambda automatically scales to handle concurrent requests by running multiple container instances simultaneously.
+Your JSON should define the invocation name to match your assistant name, list the intents your skill supports, and provide sample utterances for each intent. After pasting your interaction model, click Save Model at the top.
 
-### Timeout Testing
+Click Build Model to compile your interaction model. This process takes thirty to sixty seconds. Alexa validates your interaction model and reports any errors. If errors occur, review the error messages and correct the issues before building again.
 
-Test scenarios that might approach your timeout limit. Execute complex scenes or scripts that take several seconds to complete. Monitor the duration to ensure operations complete well before your timeout setting.
+### Configuring the Endpoint
 
-If operations frequently approach the timeout limit, increase either the Lambda timeout or the HA_TIMEOUT environment variable to provide more time for completion.
+After building your interaction model successfully, click on Endpoint in the left sidebar. Select AWS Lambda ARN as your endpoint type since you are using an existing Lambda function.
 
----
+You need to enter your Lambda function ARN in the Default Region field. To find your ARN, open your Lambda function in the AWS Console. The ARN appears near the top of the page in the format arn:aws:lambda:region:account:function:name. Copy this complete ARN.
 
-## Security Validation
+Paste the ARN into the Default Region field in the Alexa Developer Console. If your Lambda function is in a region other than the default, you may need to use the region-specific endpoint field instead. Click Save Endpoints to apply the configuration.
 
-Validate that your deployment follows security best practices and does not expose sensitive information.
+### Adding Lambda Trigger
 
-### Access Token Protection
+Return to your Lambda function in the AWS Console. Click Add Trigger on the function overview page. Select Alexa Skills Kit from the trigger type dropdown.
 
-Verify that your access token is stored as a SecureString in Parameter Store. Attempt to read the parameter through the AWS Console. You should not be able to see the decrypted value unless you use an AWS CLI command with proper permissions.
+In the Skill ID field, paste your Alexa Skill ID. Find this ID in the Alexa Developer Console on your skill's main page under Skill ID. The ID looks like amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
 
-Check CloudWatch Logs to confirm that access tokens never appear in log output. Search logs for your token string. If you find it, you have a logging vulnerability that must be fixed immediately.
+Click Add to create the trigger. This allows your Alexa skill to invoke your Lambda function.
 
-Test that only your Lambda execution role can read the token parameter. Try to read the parameter using an IAM user without the necessary permissions. The attempt should fail with an access denied error.
+### Enabling Testing
 
-### IAM Permission Validation
-
-Review your Lambda execution role permissions. Verify that the role has only the permissions it needs and no excess privileges. The role should include AWSLambdaBasicExecutionRole for logging and AmazonSSMReadOnlyAccess for Parameter Store but nothing more.
-
-Attempt to invoke your Lambda function using IAM credentials that do not have Lambda invocation permission. The attempt should fail, confirming that only authorized principals can invoke your function.
-
-Verify that your Alexa Skills Kit trigger properly validates the Skill ID. Try to invoke the function with a request that does not include the correct Skill ID. Lambda should reject the invocation.
-
-### Network Security Testing
-
-Test your SSL configuration by examining the SSL handshake during Home Assistant connection. If you use valid SSL certificates, the connection should verify successfully with HA_VERIFY_SSL set to true.
-
-If you use self-signed certificates, verify that connections fail when HA_VERIFY_SSL is true and succeed when it is false. This confirms that SSL verification is actually occurring.
-
-Test that your Home Assistant instance is not accessible through unencrypted HTTP if you configured HTTPS. Attempting to connect via HTTP should fail or redirect to HTTPS.
-
-### Parameter Store Encryption
-
-Verify that your SecureString parameters are actually encrypted. Use the AWS CLI to describe the parameter and check its type. Confirm it shows SecureString rather than String.
-
-Test that changing the encryption key for Parameter Store parameters works correctly. This ensures you can rotate encryption keys if needed for security compliance.
+In the Alexa Developer Console, locate the dropdown menu at the top of the page that says Skill Testing is Disabled. Click on it and select Development. This enables you to test your skill through the Alexa Developer Console simulator and on your registered Alexa devices.
 
 ---
 
-## Regression Testing
+## Testing Your Configuration
 
-Regression testing ensures that changes to your configuration or code do not break existing functionality.
+After configuring your custom assistant name in both Lambda and your Alexa skill, test that everything works correctly.
 
-### Configuration Change Testing
+### Testing in Developer Console
 
-Before making configuration changes in production, test them in a development environment if possible. If you must test in production, document your current configuration so you can revert changes if problems occur.
+In the Alexa Developer Console, click on the Test tab. The testing interface shows a text input and a microphone button. Type or speak a test command using your custom assistant name.
 
-After changing environment variables, run your complete test suite to verify that all previously working features still function. Pay special attention to features that might be affected by the specific variable you changed.
+For example, if your custom name is Jarvis, type ask jarvis to turn on the lights. The simulator processes your request and shows both the request sent to Lambda and the response received. Review the response to verify it uses your custom name appropriately.
 
-When updating Parameter Store values, test immediately after the change. Remember that cached values may delay when the change takes effect. Wait for the cache to expire or restart the function to force the new values to load.
+Test several different commands to ensure the skill recognizes your invocation name consistently. Try commands with different phrasing to verify the intents handle variations correctly.
 
-### Code Update Testing
+### Testing with Alexa Devices
 
-Before deploying new code versions, test them thoroughly in a separate Lambda function or development environment. Run the complete test suite against the new code. Compare performance metrics to the previous version to ensure the update does not degrade performance.
+On a registered Alexa device linked to the same Amazon account as your developer account, speak a command using your custom name. Say Alexa, ask [your name] to turn on the lights. Alexa should process the command and control your device.
 
-After deploying a code update to production, run abbreviated smoke tests to quickly verify core functionality. If critical features fail, immediately roll back to the previous code version while you diagnose the issue.
+Test that Alexa responses include your custom name where appropriate. The responses should feel natural and refer to your assistant by the custom name rather than using generic phrases.
 
-### Device Addition Testing
+### Verifying Lambda Logs
 
-When you add new devices to Home Assistant and expose them to Alexa, run device discovery through the Alexa app. Verify that new devices appear correctly. Test controlling each new device to ensure it responds properly.
+Navigate to CloudWatch Logs and open the log group for your Lambda function. Find the most recent log stream corresponding to your test invocation. Review the logs to verify the function received and processed your custom assistant name correctly.
 
-Check that adding new devices did not cause existing devices to stop working. Sometimes entity ID changes or configuration conflicts can affect other devices when you add new ones.
-
-### Integration Update Testing
-
-When Home Assistant or the Alexa integration updates, retest your Lambda function integration. Major Home Assistant updates sometimes change API behavior or entity structures that might affect Lambda function compatibility.
-
-After updating the Alexa integration in Home Assistant, re-run device discovery and test device control to ensure the update did not break the integration.
+Check that configuration loading shows your custom name. Look for log entries indicating which assistant name the function is using. This helps confirm that environment variables or Parameter Store values loaded correctly.
 
 ---
 
-## Automated Testing
+## Troubleshooting
 
-While manual testing is important, automated testing provides consistent validation and catches regressions quickly.
+### Alexa Does Not Recognize Your Name
 
-### Lambda Test Events Library
+If Alexa responds that it cannot find a skill when you use your custom name, verify that the skill is enabled on your account. Open the Alexa app, navigate to Skills & Games, then Your Skills, and confirm your skill appears and shows as enabled.
 
-Build a library of Lambda test events covering common scenarios. Create events for device discovery, turning devices on and off, scene activation, script execution, and error conditions.
+Check that the invocation name in your Alexa skill configuration exactly matches what you say. The names must match character for character, ignoring case differences. If you configured jarvis as the invocation name, you must say ask jarvis not ask Jarvis or ask JARVIS.
 
-Name your test events descriptively so you can identify them easily. Organize them into categories like device-control, scenes, scripts, and errors. Save all test events so you can run them repeatedly as you make changes.
+Verify that skill testing is enabled in Development mode. If testing is disabled, Alexa devices will not recognize the skill even if it is properly configured.
 
-### Test Event Documentation
+Wait five to ten minutes after enabling testing or making changes. Skills sometimes take time to propagate to devices. Try disabling and re-enabling the skill in the Alexa app. Sometimes this forces a refresh of skill information.
 
-Document what each test event does and what response it should produce. Include expected duration ranges and memory usage. This documentation helps you identify when test results deviate from normal behavior.
+### Lambda Function Errors
 
-Create a checklist that lists all your test events. After making changes, work through the checklist running each test and verifying it passes. This systematic approach ensures you do not skip critical tests.
+If Alexa responds with an error message when you use your custom name, check CloudWatch logs for detailed error information. The logs show exactly what went wrong during function execution.
 
-### CloudWatch Alarms
+Verify your HA_ASSISTANT_NAME environment variable is set correctly in Lambda. Typos in the variable name or value prevent proper configuration. Confirm your Lambda function has the correct IAM permissions to read Parameter Store if you use Parameter Store for configuration.
 
-Set up CloudWatch alarms to alert you when your function experiences errors or performance degradation. Create an alarm that triggers when error count exceeds a threshold. Set up an alarm for high execution duration or memory usage.
+Test your Lambda function directly using the test feature in the Lambda console. Create a test event that simulates an Alexa request with your custom name. This isolates whether the problem is with Alexa skill configuration or Lambda function execution.
 
-Configure alarms to send notifications through email or SMS so you know immediately when problems occur. This allows you to respond quickly before users experience widespread issues.
+### Name Validation Failures
 
-### Monitoring Dashboard
+If Amazon rejects your chosen name during skill configuration, review the validation rules to identify which rule your name violates. Common violations include using reserved words like Alexa or Amazon, using special characters or punctuation, making the name too short or too long, or using only numbers without letters.
 
-Create a CloudWatch dashboard that displays key metrics for your Lambda function. Include graphs for invocation count, duration, memory usage, error count, and throttles.
+Choose a different name that complies with all validation rules. Test the new name using the same process. Keep in mind that Amazon may update validation rules occasionally, so a name that worked previously might not work for new skills.
 
-Review the dashboard regularly to identify trends. Gradual increases in duration or memory usage may indicate developing problems that need attention before they cause failures.
+### Invocation Phrase Awkwardness
 
----
+If your custom name works technically but feels awkward to say in practice, consider whether the name flows naturally in spoken commands. Some names sound good in writing but are difficult to pronounce clearly or feel unnatural in conversation.
 
-## Test Checklists
+Test your name with other household members to gather feedback. Different people may have different comfort levels with certain names. Consider choosing a shorter name if longer names feel cumbersome. Single-word names like Jarvis or Computer often work better than multi-word names like Smart Home System.
 
-These checklists provide quick reference for common testing scenarios.
+### Family Members Forget Custom Name
 
-### Initial Deployment Checklist
+If household members frequently forget to use your custom name and try to use direct commands instead, consider whether the custom name adds enough value to justify the learning curve. Smart Home Skills with direct commands may be more practical for households where not everyone wants to use custom invocations.
 
-Verify all Parameter Store parameters exist and contain correct values. Confirm environment variables are set correctly in Lambda configuration. Test Lambda function execution with a simple test event. Run Home Assistant connection test to verify API access. Test device discovery to confirm entity exposure. Test basic device control for at least one device of each type. Check CloudWatch Logs for errors or warnings. Verify no sensitive information appears in logs. Test one complete voice command through Alexa. Document test results and any issues encountered.
-
-### Configuration Change Checklist
-
-Document current configuration before making changes. Apply configuration changes in environment variables or Parameter Store. Wait for cache expiration or force function restart. Run abbreviated smoke tests for core functionality. Test features specifically affected by the configuration change. Monitor CloudWatch metrics for any performance changes. If problems occur, revert configuration and retest. Document the change and test results.
-
-### Code Update Checklist
-
-Test new code in development environment before production deployment. Run complete test suite against new code. Compare performance metrics to previous version. Create new deployment package with updated code. Upload deployment package to Lambda function. Verify upload completed successfully and handler is correct. Run smoke tests immediately after deployment. Monitor error rates through CloudWatch. If critical issues occur, roll back to previous code version. Document the update and any issues encountered.
-
-### Periodic Validation Checklist
-
-Run complete test event library. Verify all tests pass with expected results. Check CloudWatch metrics for any unusual patterns. Review recent logs for any errors or warnings. Test voice commands through Alexa devices. Verify all exposed devices appear in Alexa app. Test device control for each device type. Check that scenes and scripts activate correctly. Verify response times remain acceptable. Document test date and results.
+Create reminder cards or notes near Alexa devices listing example commands with your custom name. Practice using the commands together as a family to build the habit. Consider whether a more memorable or meaningful name might be easier for everyone to remember.
 
 ---
 
-## Conclusion
+## Example Commands
 
-Systematic testing ensures your Lambda Execution Engine deployment works correctly and continues working as you make changes. Use the checklists and procedures in this guide to validate your installation thoroughly. Regular testing catches problems early before they affect users and helps maintain a reliable smart home voice control system.
+This section provides example commands showing how to use custom assistant names in practice.
+
+### With Custom Name Jarvis
+
+Alexa, ask Jarvis to turn on the living room lights.  
+Alexa, tell Jarvis to set the thermostat to 72 degrees.  
+Alexa, ask Jarvis what the temperature is in the bedroom.  
+Alexa, tell Jarvis to lock the front door.  
+Alexa, ask Jarvis to activate the movie scene.
+
+### With Custom Name Computer
+
+Alexa, ask Computer to turn off all the lights.  
+Alexa, tell Computer to start the morning routine.  
+Alexa, ask Computer what devices are on.  
+Alexa, tell Computer to close the garage door.  
+Alexa, ask Computer to turn on the fan.
+
+### With Custom Name Smart Home
+
+Alexa, ask Smart Home to dim the bedroom lights to 50 percent.  
+Alexa, tell Smart Home to turn on the coffee maker.  
+Alexa, ask Smart Home if the front door is locked.  
+Alexa, tell Smart Home to turn off the TV.  
+Alexa, ask Smart Home to run the bedtime script.
