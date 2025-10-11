@@ -1,22 +1,21 @@
 """
-Metrics Specialized - Consolidated Specialized Metrics
+metrics_specialized.py
 Version: 2025.09.30.01
 Description: Consolidated response, HTTP client, and circuit breaker metrics
 
-ARCHITECTURE: SECONDARY IMPLEMENTATION - INTERNAL ONLY
-- Consolidates metrics_response.py, metrics_http_client.py, metrics_circuit_breaker.py
-- 15-20% code reduction through shared patterns
-- Single file for all specialized metrics
+Copyright 2025 Joseph Hersey
 
-OPTIMIZATION: Phase 5 Complete
-- Unified metric recording patterns
-- Shared statistics reporting
-- Consistent data structures
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP Compatible
+       http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright 2024 Anthropic PBC
-Licensed under the Apache License, Version 2.0
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
@@ -58,7 +57,7 @@ class ResponseMetrics:
 def record_response_metric(response_type: ResponseType, response_time_ms: float = 0.0, **kwargs):
     """Record response metric with shared pattern."""
     try:
-        from .shared_utilities import record_operation_metrics
+        from shared_utilities import record_operation_metrics
         record_operation_metrics(
             interface="response",
             operation=response_type.value,
@@ -115,7 +114,7 @@ def record_http_request(success: bool, response_time_ms: float = 0.0, **dimensio
     """Record HTTP request with shared pattern."""
     _http_client_metrics.record_request(success, response_time_ms, **dimensions)
     try:
-        from .shared_utilities import record_operation_metrics
+        from shared_utilities import record_operation_metrics
         record_operation_metrics(
             interface="http_client",
             operation="request",
@@ -197,7 +196,7 @@ class CircuitBreakerMetricsManager:
             })
         
         try:
-            from .shared_utilities import record_operation_metrics
+            from shared_utilities import record_operation_metrics
             record_operation_metrics(
                 interface="circuit_breaker",
                 operation="request",

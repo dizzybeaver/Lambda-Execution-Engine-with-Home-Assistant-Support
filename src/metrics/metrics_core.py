@@ -1,5 +1,5 @@
 """
-Metrics Core - Generic Operations Optimized
+metrics_core.py
 Version: 2025.10.03.01
 Description: Metrics collection with generic operation pattern
 
