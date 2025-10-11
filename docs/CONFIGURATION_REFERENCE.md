@@ -8,20 +8,51 @@
 ## Table of Contents
 
 1. [Configuration Overview](#configuration-overview)
-2. [Environment Variables](#environment-variables)
-3. [Parameter Store Settings](#parameter-store-settings)
-4. [Feature Presets](#feature-presets)
-5. [Connection Methods](#connection-methods)
-6. [Performance Tuning](#performance-tuning)
-7. [Security Configuration](#security-configuration)
+2. [Architecture: Engine and Extensions](#architecture-engine-and-extensions)
+3. [Environment Variables](#environment-variables)
+4. [Parameter Store Settings](#parameter-store-settings)
+5. [Feature Presets](#feature-presets)
+6. [Connection Methods](#connection-methods)
+7. [Performance Tuning](#performance-tuning)
+8. [Security Configuration](#security-configuration)
 
 ---
 
 ## Configuration Overview
 
+The Lambda Execution Engine is a general-purpose Lambda optimization framework that provides core services for building extensions. The Home Assistant Extension is one extension that uses these services. Configuration settings fall into two categories: Engine-level settings that control core framework behavior, and extension-specific settings that control the Home Assistant Extension when loaded.
+
 The Lambda Execution Engine uses a layered configuration system. Environment variables in your Lambda function control runtime behavior and feature selection. Parameter Store holds sensitive credentials and instance-specific settings. Environment variables take precedence over Parameter Store values when both define the same setting.
 
 Configuration changes in environment variables take effect immediately on the next function invocation. Parameter Store changes require the function to restart or cache to expire before taking effect. The cache duration is controlled by the HA_CACHE_TTL setting.
+
+---
+
+## Architecture: Engine and Extensions
+
+The Lambda Execution Engine follows a layered architecture that separates core framework services from extension-specific functionality. Understanding this architecture helps you configure the system correctly and explains why certain settings exist.
+
+### Engine Core Services
+
+The Engine core provides services that any extension can consume. These services include the gateway pattern where all operations route through a single entry point, lazy loading that imports modules only when needed, caching that stores frequently accessed data in memory, circuit breaker protection that prevents cascading failures when external services are unavailable, comprehensive logging that tracks all operations, and performance metrics that measure execution characteristics.
+
+These services are always available when the Lambda function runs, regardless of which extensions are loaded. The Engine core does not implement any integration-specific logic. It provides the infrastructure that extensions use to implement their specific functionality.
+
+### Home Assistant Extension
+
+The Home Assistant Extension is self-contained code that implements Home Assistant integration by consuming Engine services. The extension uses the gateway for routing operations, the HTTP client for communicating with the Home Assistant API, the caching system for storing entity states, the circuit breaker for handling Home Assistant outages, and the logging system for recording operations.
+
+The extension implements Home Assistant-specific logic including device discovery that queries Home Assistant for available entities, state queries that retrieve current entity states, device control that sends commands to change entity states, scene activation that triggers Home Assistant scenes, and script execution that runs Home Assistant scripts.
+
+When HOME_ASSISTANT_ENABLED is false, the extension does not load. The Engine core still provides all its services, but no Home Assistant-specific functionality is available. When HOME_ASSISTANT_ENABLED is true, the extension loads and uses Engine services to provide full Home Assistant integration.
+
+### Extension Development
+
+The Engine's architecture allows you to develop additional extensions. Each extension must be self-contained, meaning it includes all its own logic without modifying the Engine core. Extensions use Engine services through well-defined interfaces. Extensions can access the gateway for routing, the HTTP client for external communication, the caching system for performance optimization, the circuit breaker for reliability, and the logging and metrics systems for observability.
+
+An extension for Google Assistant would follow the same pattern as the Home Assistant Extension. It would implement Google-specific device discovery, state queries, and command execution while using Engine services for HTTP communication, caching, and error handling. An extension for SmartThings would similarly implement SmartThings-specific logic while leveraging Engine services.
+
+The Engine does not limit what extensions can do. As long as an extension is self-contained and uses Engine services through their interfaces, it can implement any functionality. Extensions could integrate with different smart home platforms, provide webhook endpoints for other services, or implement entirely different Lambda function purposes.
 
 ---
 
@@ -31,174 +62,216 @@ Environment variables are set in the Lambda function configuration under the Env
 
 ### Core System Variables
 
-HOME_ASSISTANT_ENABLED controls whether the Home Assistant integration loads. Valid values are true and false. Set this to true to enable Home Assistant functionality or false to disable it completely. When disabled, the Lambda function will not attempt to connect to Home Assistant or load any Home Assistant modules. The default value is false.
+**HOME_ASSISTANT_ENABLED**
 
-USE_PARAMETER_STORE controls whether the function reads configuration from AWS Systems Manager Parameter Store. Valid values are true and false. Set this to true to enable Parameter Store integration or false to use only environment variables. When enabled, the function reads Home Assistant URL, token, and other settings from Parameter Store on startup. The default value is false.
+This variable controls whether the Home Assistant Extension loads into the Lambda Execution Engine. The Engine itself is a standalone framework that provides services like gateway routing, lazy loading, caching, circuit breaker protection, and logging. These services remain available whether this variable is true or false. When set to true, the Home Assistant Extension loads and consumes these services to provide Home Assistant integration. When set to false, the Engine runs without the Home Assistant Extension, and the core services remain available for other extensions or purposes. The default value is false.
 
-PARAMETER_PREFIX defines the base path for Parameter Store parameters. The value should be a string starting with a forward slash. The default value is /lambda-execution-engine. The function appends additional path segments to this prefix to locate specific parameters. For example, with the default prefix, the Home Assistant URL parameter would be located at /lambda-execution-engine/homeassistant/url.
+Valid values are true and false. Set this to true to enable Home Assistant functionality or false to disable it completely. When disabled, the Lambda function will not attempt to connect to Home Assistant or load any Home Assistant modules.
 
-AWS_REGION specifies which AWS region to use for Parameter Store and other AWS services. Valid values include us-east-1, us-west-2, eu-west-1, and other AWS region codes. The default value is the region where your Lambda function runs. You only need to set this variable if you store parameters in a different region than your Lambda function.
+**USE_PARAMETER_STORE**
 
-DEBUG_MODE enables verbose logging for troubleshooting. Valid values are true and false. Set this to true during initial setup or when diagnosing problems. Set this to false in production to reduce log volume and memory usage. When enabled, the function logs detailed information about each operation, including parameter values, HTTP requests, and internal state. The default value is false.
+This variable controls whether the function reads configuration from AWS Systems Manager Parameter Store. Valid values are true and false. Set this to true to enable Parameter Store integration or false to use only environment variables. When enabled, the function reads Home Assistant URL, token, and other settings from Parameter Store on startup. The default value is false.
 
-### Home Assistant Integration Variables
+**PARAMETER_PREFIX**
 
-HA_FEATURE_PRESET determines which Home Assistant features are loaded into memory. Valid values are minimal, standard, performance, and maximum. The minimal preset loads only basic device control functionality. The standard preset adds scene and script support. The performance preset includes advanced features like conversation and input helper support. The maximum preset loads all available features. The default value is standard. Higher presets consume more memory but provide more functionality.
+This setting defines the base path for Parameter Store parameters. The value should be a string starting with a forward slash. The default value is /lambda-execution-engine. The function appends additional path segments to this prefix to locate specific parameters. For example, with the default prefix, the Home Assistant URL parameter would be located at /lambda-execution-engine/homeassistant/url.
 
-HA_TIMEOUT sets the maximum time in seconds to wait for Home Assistant API responses. Valid values are integers from 5 to 120. Set lower values for faster local network connections or higher values for slower internet connections or complex automations. If Home Assistant does not respond within this timeout, the request fails and Alexa receives an error message. The default value is 30 seconds.
+**AWS_REGION**
 
-HA_VERIFY_SSL controls SSL certificate verification when connecting to Home Assistant. Valid values are true and false. Set this to true when using valid SSL certificates from a certificate authority or Cloudflare Tunnel. Set this to false when using self-signed certificates or local HTTP connections. Disabling verification reduces security but allows connections to Home Assistant instances without proper certificates. The default value is true.
+This variable specifies which AWS region to use for Parameter Store and other AWS services. Valid values include us-east-1, us-west-2, eu-west-1, and other AWS region codes. The default value is the region where your Lambda function runs. You only need to set this variable if you store parameters in a different region than your Lambda function.
 
-HA_CACHE_TTL sets the duration in seconds to cache Home Assistant entity states and configuration. Valid values are integers from 0 to 3600. Higher values reduce API calls to Home Assistant but may return stale data. Lower values provide fresher data but increase network traffic. A value of 0 disables caching entirely. The default value is 300 seconds, which is five minutes.
+**DEBUG_MODE**
 
-HA_MAX_RETRIES specifies how many times to retry failed Home Assistant API calls. Valid values are integers from 0 to 5. Higher values increase reliability when Home Assistant experiences temporary issues but may delay error responses to Alexa. The default value is 3 retries.
+This setting enables verbose logging for troubleshooting. Valid values are true and false. When enabled, the function generates detailed log output including request payloads, response structures, internal state changes, and timing information. Debug mode significantly increases CloudWatch log volume and should only be enabled temporarily during troubleshooting. The default value is false.
 
-HA_CIRCUIT_BREAKER_THRESHOLD sets the number of consecutive failures before the circuit breaker opens and stops sending requests to Home Assistant. Valid values are integers from 1 to 20. When the circuit breaker opens, the function immediately returns errors without attempting to contact Home Assistant. This protects Home Assistant from being overwhelmed during outages. The circuit breaker automatically closes after a recovery period. The default value is 5 failures.
+### Extension Architecture
 
-HA_BATCH_SIZE controls how many operations to batch together when processing multiple device commands. Valid values are integers from 1 to 50. Higher values improve efficiency when controlling multiple devices simultaneously but may increase memory usage. The default value is 10 operations.
+The Lambda Execution Engine follows an extension-based architecture. The Engine core provides optimized services that extensions consume. Each extension is self-contained and uses the services the Engine provides without modifying the Engine itself.
 
-HA_ASSISTANT_NAME sets the invocation name for custom Alexa skills. Valid values are strings between 2 and 25 characters containing only letters, numbers, and spaces. Invalid values include reserved words like Alexa, Amazon, Echo, or strings containing special characters. This setting overrides the Parameter Store assistant_name value if both are set. The default value when not set is Home Assistant.
+The Home Assistant Extension is currently the primary extension available. It uses Engine services for gateway routing, HTTP communication, caching, circuit breaker protection, logging, and metrics. The extension implements Home Assistant-specific logic for device discovery, state queries, and command execution.
+
+You can build additional extensions following the same pattern. An extension for Google Assistant integration could use the same Engine services. An extension for SmartThings could use the same caching and circuit breaker services. The Engine's services are purpose-agnostic and support any extension that follows the extension interface.
+
+### Home Assistant Extension Variables
+
+These variables control the Home Assistant Extension when HOME_ASSISTANT_ENABLED is set to true. If the extension is not loaded, these variables have no effect, though they can remain configured without causing errors.
+
+**HA_ASSISTANT_NAME**
+
+This setting defines how Alexa refers to your Home Assistant system in custom skills. Valid values are strings between 2 and 25 characters containing only letters, numbers, and spaces. You cannot use reserved words like Alexa, Amazon, or Echo. The default value is Home Assistant. Examples of valid custom names include Jarvis, Computer, Smart Home, or House Control. The name you set here must match the invocation name in your Alexa Custom Skill configuration.
+
+**HA_FEATURE_PRESET**
+
+This variable controls which Home Assistant features load into memory and how much resources they consume. Valid values are minimal, standard, performance, and maximum. The minimal preset loads only essential functionality and uses approximately 15MB of memory. The standard preset provides all core features with balanced resource allocation and uses approximately 25MB of memory. The performance preset adds optimization features and enhanced caching using approximately 40MB of memory. The maximum preset enables all available features and uses approximately 60MB of memory. The default value is standard.
+
+**HA_TIMEOUT**
+
+This setting specifies how long in seconds the function waits for Home Assistant to respond before timing out. Valid values are integers from 15 to 120. Lower values fail faster when Home Assistant is unreachable but may cause timeouts on slow networks. Higher values provide more tolerance for network delays but can cause user-visible lag when Home Assistant is down. For local network connections, values between 15 and 30 work well. For internet connections, values between 30 and 45 provide good balance. For slow or unreliable connections, consider values up to 60 seconds. The default value is 30.
+
+**HA_VERIFY_SSL**
+
+This variable controls whether the function verifies SSL certificates when connecting to Home Assistant. Valid values are true and false. Set this to true for production deployments with valid SSL certificates. Set to false for development environments, local installations with self-signed certificates, or HTTP connections. When set to false, the connection is still encrypted but certificate validity is not checked. The default value is true.
+
+**HA_CACHE_TTL**
+
+This setting defines how long in seconds the function caches Home Assistant entity states before refreshing them. Valid values are integers from 60 to 3600. Lower values keep state information more current but generate more Home Assistant API calls. Higher values reduce API traffic but may show stale information. For frequently changing devices like sensors, values between 60 and 300 work well. For stable configurations like device lists, values between 600 and 1800 are appropriate. During development when you are making frequent changes, use 60 to see updates quickly. The default value is 300 (5 minutes).
+
+**HA_MAX_RETRIES**
+
+This variable specifies how many times the function retries failed Home Assistant requests before giving up. Valid values are integers from 1 to 10. Higher values provide more resilience to temporary network issues but can increase response time when Home Assistant is truly unavailable. Lower values fail faster but may not recover from transient problems. The default value is 3.
+
+**HA_CIRCUIT_BREAKER_THRESHOLD**
+
+This setting determines how many consecutive failures trigger the circuit breaker to open and temporarily stop requests to Home Assistant. Valid values are integers from 1 to 20. Lower values protect Home Assistant from excessive traffic during outages but may open too quickly from isolated failures. Higher values tolerate more errors before opening but may allow more failed requests through. The default value is 5.
+
+**HA_BATCH_SIZE**
+
+This variable controls how many entities the function processes in batch operations like device discovery. Valid values are integers from 1 to 50. Lower values reduce memory usage but increase processing time. Higher values process faster but use more memory. The default value is 10.
 
 ### Performance and Resource Variables
 
-LUGS_ENABLED controls the Lazy loading Universal Gateway System. Valid values are true and false. Set this to true to enable lazy loading of modules, which reduces memory usage and improves cold start times. Set this to false to load all modules at startup. The default value is true. You should keep this enabled unless you need to debug module loading issues.
+**CONFIGURATION_TIER**
 
-CONFIGURATION_TIER specifies the overall system resource usage tier. Valid values are minimum, standard, and maximum. The minimum tier disables non-essential features to reduce memory usage. The standard tier balances features and resources. The maximum tier enables all features and allocates more resources for performance. The default value is standard. This setting works in conjunction with HA_FEATURE_PRESET but controls system-wide resources rather than just Home Assistant features.
+This setting controls the overall resource allocation and feature set for the Engine core services. Valid values are minimum, standard, maximum, and user. The minimum tier uses approximately 8MB of memory and provides essential functionality only. The standard tier uses approximately 32MB and provides complete production capability with balanced features. The maximum tier uses approximately 103MB and activates all available features. The user tier allows custom per-interface configuration. The default value is standard.
+
+**LUGS_ENABLED**
+
+This variable enables the Lazy Universal Gateway System that delays loading modules until they are actually needed. Valid values are true and false. When enabled, the function starts faster and uses less memory because it only loads modules required for each specific request. When disabled, all modules load at startup which increases cold start time but may reduce individual request latency. This setting should almost always be true. The default value is true.
 
 ### Integration Control Variables
 
-ALEXA_SKILL_ENABLED controls whether Alexa skill functionality is available. Valid values are true and false. Set this to true when using Alexa to control Home Assistant. Set this to false if you use the Lambda function for other purposes without Alexa integration. The default value is true.
+**ALEXA_SKILL_ENABLED**
+
+This setting controls whether the function processes Alexa skill requests. Valid values are true and false. Set this to true when using the function with Alexa or false to disable Alexa integration. The default value is true.
 
 ---
 
 ## Parameter Store Settings
 
-Parameter Store settings are created in AWS Systems Manager Parameter Store. Each parameter has a name following a hierarchical path structure, a type indicating how the value is stored, and a value containing the actual configuration data.
+AWS Systems Manager Parameter Store provides secure storage for sensitive configuration values like Home Assistant URLs and access tokens. Parameters are organized under a prefix path defined by the PARAMETER_PREFIX environment variable.
 
-### Home Assistant Connection Parameters
+### Connection Parameters
 
-The /lambda-execution-engine/homeassistant/url parameter stores your Home Assistant base URL. Create this as a String type parameter. The value should be your complete Home Assistant URL including the protocol and port number. For Cloudflare Tunnel connections, use the format https://homeassistant.yourdomain.com. For direct connections with port forwarding, use the format https://your-ip-or-domain:8123. For local HTTP connections during testing, use the format http://192.168.1.100:8123. The URL must be exactly how you access Home Assistant from outside your local network.
+**/lambda-execution-engine/homeassistant/url**
 
-The /lambda-execution-engine/homeassistant/token parameter stores your Home Assistant long-lived access token. Create this as a SecureString type parameter for encryption. Generate the token from your Home Assistant profile page. Copy the entire token value without any spaces or line breaks. The token typically starts with a long random string of letters and numbers. SecureString encryption protects this sensitive credential even if someone gains access to Parameter Store.
+This parameter stores the complete URL to your Home Assistant instance. The value should include the protocol (http or https), hostname or IP address, and port if non-standard. For example, https://your-home.example.com or http://192.168.1.100:8123. The function uses this URL for all Home Assistant API requests.
 
-### Home Assistant Behavior Parameters
+Create this parameter as type String (not SecureString because URLs are not sensitive). If you change this value, the function will use the new URL on the next invocation after the cache expires.
 
-The /lambda-execution-engine/homeassistant/assistant_name parameter sets the custom invocation name for Alexa. Create this as a String type parameter. Valid values are strings between 2 and 25 characters containing only letters, numbers, and spaces. Avoid reserved words like Alexa, Amazon, or Echo. Common choices include Jarvis, Computer, Smart Home, or House Assistant. This parameter is optional. When not set, the system uses Home Assistant as the default invocation name. The HA_ASSISTANT_NAME environment variable overrides this parameter if both are set.
+**/lambda-execution-engine/homeassistant/token**
 
-The /lambda-execution-engine/homeassistant/verify_ssl parameter controls SSL certificate verification. Create this as a String type parameter. Valid values are true and false. Set this to true for connections using valid SSL certificates. Set this to false for self-signed certificates or local HTTP connections. This parameter is optional. When not set, the system defaults to true. The HA_VERIFY_SSL environment variable overrides this parameter if both are set.
+This parameter stores your Home Assistant long-lived access token. Create this parameter as type SecureString to ensure the token is encrypted at rest. The token value should be the complete access token string generated in Home Assistant under your user profile. The function uses this token to authenticate all Home Assistant API requests.
 
-The /lambda-execution-engine/homeassistant/timeout parameter sets the API timeout in seconds. Create this as a String type parameter. Valid values are integers from 5 to 120 represented as strings. Higher values work better for slower network connections or complex automations that take longer to execute. This parameter is optional. When not set, the system defaults to 30 seconds. The HA_TIMEOUT environment variable overrides this parameter if both are set.
+If you regenerate your Home Assistant token, update this parameter with the new value and the function will use it on the next invocation.
+
+### Behavior Parameters
+
+**/lambda-execution-engine/homeassistant/assistant_name**
+
+This optional parameter stores the custom assistant name for Alexa invocations. The value should match the invocation name configured in your Alexa Custom Skill. If this parameter exists, its value is used unless the HA_ASSISTANT_NAME environment variable is set (environment variables take precedence). Create this as type String.
+
+**/lambda-execution-engine/homeassistant/timeout**
+
+This optional parameter sets the Home Assistant request timeout in seconds. If this parameter exists, its value is used unless the HA_TIMEOUT environment variable is set. Valid values are integers from 15 to 120. Create this as type String.
+
+**/lambda-execution-engine/homeassistant/verify_ssl**
+
+This optional parameter controls SSL certificate verification. Valid values are true and false as strings. If this parameter exists, its value is used unless the HA_VERIFY_SSL environment variable is set. Create this as type String.
 
 ---
 
 ## Feature Presets
 
-Feature presets control which Home Assistant capabilities are loaded into memory. Each preset includes a specific set of modules optimized for different use cases. Higher presets provide more functionality but consume more memory and increase cold start times.
+Feature presets control which Home Assistant Extension features load into memory. These presets only apply when HOME_ASSISTANT_ENABLED is set to true. When the extension is not loaded, preset settings have no effect.
 
 ### Minimal Preset
 
-The minimal preset loads only essential modules for basic device control. This preset includes entity state management, device control operations, and basic error handling. It supports turning devices on and off, setting brightness and temperature, and checking device status. The minimal preset uses approximately 15 megabytes of memory and completes cold starts in under 500 milliseconds.
+The minimal preset loads only essential Home Assistant functionality and uses approximately 15MB of memory. This preset includes basic device control and state queries. It provides cache TTL of 60 seconds, supports 2 retry attempts, has a timeout of 15 seconds, and enables basic features only. Use this preset for testing, development, or resource-constrained environments where you need to minimize memory usage.
 
-The minimal preset does not include scene activation, script execution, automation control, conversation interface, input helper management, or area-based control. Use this preset when you only need simple device control and want to minimize resource usage.
+### Standard Preset (Recommended)
 
-### Standard Preset
-
-The standard preset adds scene and script support to the minimal feature set. This preset includes all minimal features plus scene activation and script execution capabilities. It supports activating predefined scenes like movie mode or good morning, running automation scripts, and combining multiple device actions into single commands.
-
-The standard preset uses approximately 20 megabytes of memory and completes cold starts in under 700 milliseconds. This is the recommended preset for most users as it provides commonly used features while maintaining good performance.
+The standard preset provides all core Home Assistant functionality with balanced resource allocation. This preset uses approximately 25MB of memory and includes all typical smart home features. It provides cache TTL of 300 seconds (5 minutes), supports 3 retry attempts, has a timeout of 30 seconds, and enables all standard features. This preset works well for most production deployments and provides the right balance between functionality and resource efficiency.
 
 ### Performance Preset
 
-The performance preset includes advanced features for power users. This preset adds conversation interface support, input helper management, and enhanced error handling to the standard feature set. It supports natural language commands through Home Assistant conversation, setting input booleans and input numbers, and more detailed error messages.
-
-The performance preset uses approximately 25 megabytes of memory and completes cold starts in under 900 milliseconds. Use this preset when you need advanced features and your Home Assistant instance includes conversation integration or extensive input helper configurations.
+The performance preset adds optimization features and enhanced caching to improve response times. This preset uses approximately 40MB of memory. It provides cache TTL of 600 seconds (10 minutes), supports 5 retry attempts, has a timeout of 45 seconds, and enables all features plus optimizations. Use this preset for large installations with many devices or when you want maximum responsiveness and can afford the extra memory usage.
 
 ### Maximum Preset
 
-The maximum preset loads all available modules for complete functionality. This preset includes all features from lower presets plus area-based control, announcement capabilities, and comprehensive diagnostics. It supports controlling all devices in a specific area with one command, sending text-to-speech announcements through Home Assistant, and accessing detailed system diagnostics through Alexa.
-
-The maximum preset uses approximately 30 megabytes of memory and completes cold starts in under 1200 milliseconds. Use this preset when you need every available feature and memory usage is not a concern.
+The maximum preset enables all available Home Assistant Extension features and uses approximately 60MB of memory. It provides cache TTL of 1800 seconds (30 minutes), supports 7 retry attempts, has a timeout of 60 seconds, and enables everything with maximum caching. This preset suits enterprise deployments or situations requiring maximum reliability. The increased cache duration and retry attempts provide excellent resilience but consume more memory and may show less current state information.
 
 ---
 
 ## Connection Methods
 
-The Lambda Execution Engine supports multiple methods for connecting to your Home Assistant instance. Each method has different security, cost, and configuration requirements.
-
-### Cloudflare Tunnel
-
-Cloudflare Tunnel provides secure access to your Home Assistant instance without exposing ports to the internet. This method requires a domain name and Cloudflare account. Configuration involves installing the Cloudflare Tunnel client on your Home Assistant host and creating a tunnel that routes traffic to your local instance.
-
-Set your Parameter Store URL to the format https://homeassistant.yourdomain.com where yourdomain.com is your registered domain. Set HA_VERIFY_SSL to true since Cloudflare provides valid SSL certificates automatically. This is the recommended method for most users due to its security and ease of use.
+Your Home Assistant installation must be accessible from AWS for the Lambda function to communicate with it. Several connection methods are available depending on your network setup and security requirements.
 
 ### Direct Connection with Valid SSL
 
-Direct connection with valid SSL certificates requires port forwarding on your router and properly configured SSL certificates. This method uses a static IP address or dynamic DNS service. Configuration involves forwarding port 443 on your router to your Home Assistant instance and obtaining SSL certificates from a certificate authority.
-
-Set your Parameter Store URL to the format https://your-domain.com:443 or https://your-static-ip:443. Set HA_VERIFY_SSL to true since you have valid SSL certificates. Ensure your certificates are current and automatically renewing to prevent connection failures.
+If your Home Assistant has a public domain name with a valid SSL certificate, this is the simplest and most secure connection method. Set HA_VERIFY_SSL to true and provide your complete HTTPS URL. The function will verify the SSL certificate on every connection ensuring secure communication. This method works with Let's Encrypt certificates, certificates from commercial certificate authorities, or any other valid SSL certificate.
 
 ### Direct Connection with Self-Signed Certificates
 
-Self-signed certificates provide encryption without using a certificate authority. This method requires port forwarding and manual certificate creation. Configuration involves generating self-signed certificates on your Home Assistant host and configuring Home Assistant to use them.
-
-Set your Parameter Store URL to the format https://your-ip:8123. Set HA_VERIFY_SSL to false since self-signed certificates cannot be verified against a trusted certificate authority. This method provides encryption but does not protect against man-in-the-middle attacks.
+If your Home Assistant uses a self-signed SSL certificate, you need to disable SSL verification to allow the connection. Set HA_VERIFY_SSL to false and provide your HTTPS URL. The traffic is still encrypted, but the function does not verify the certificate validity. This method is acceptable for home use but should not be used for production environments with sensitive data.
 
 ### VPN Connection
 
-VPN connection provides the highest security by creating an encrypted tunnel between AWS and your home network. This method requires configuring AWS VPC, setting up a VPN gateway, and establishing a VPN connection to your home router. Configuration is complex and involves AWS networking services beyond the scope of this document.
+For maximum security, you can set up a VPN connection between your AWS VPC and your home network. This method requires creating an AWS VPC, setting up a VPN gateway, configuring your Lambda function to run inside the VPC, and establishing the VPN connection to your home network. VPN connections provide the highest security level but add complexity and may incur additional AWS costs outside the free tier.
 
-Set your Parameter Store URL to your Home Assistant local IP address in the format http://192.168.1.100:8123. Set HA_VERIFY_SSL based on your internal certificate configuration. VPN connections incur additional AWS charges for VPN gateway operation.
+### HTTP Connection (Local Networks Only)
+
+If your Home Assistant is not accessible via HTTPS, you can use an HTTP connection. Set HA_VERIFY_SSL to false and provide your HTTP URL. This method transmits all traffic including your access token in the clear and should only be used on trusted local networks. Never use HTTP connections over the public internet as your credentials could be intercepted.
 
 ---
 
 ## Performance Tuning
 
-You can optimize Lambda Execution Engine performance by adjusting various configuration parameters based on your specific requirements and constraints.
+The Lambda Execution Engine provides multiple ways to optimize performance for your specific use case. Understanding these tuning options helps you find the right balance between response time, resource usage, and cost.
 
 ### Memory Optimization
 
-Reduce memory usage by setting HA_FEATURE_PRESET to minimal or standard. Enable LUGS_ENABLED to activate lazy loading. Set CONFIGURATION_TIER to minimum for the smallest memory footprint. Reduce HA_CACHE_TTL to decrease cache memory usage. These changes trade some functionality for lower memory consumption.
+Lower memory usage reduces AWS Lambda costs and allows more concurrent invocations within free tier limits. To optimize memory, use a lower feature preset like minimal or standard. Enable LUGS to ensure lazy loading. Set HA_BATCH_SIZE to smaller values to process entities in smaller chunks. Choose the minimum CONFIGURATION_TIER that meets your functional needs. Monitor actual memory usage in CloudWatch and adjust configuration accordingly.
 
-Monitor memory usage through CloudWatch metrics. If your function consistently uses less than 80 megabytes, you can leave the memory allocation at 128 megabytes. If usage approaches 128 megabytes, either increase the allocated memory or reduce the feature preset.
+Memory usage varies by operation type. Device discovery uses the most memory because it processes all entities at once. Simple device commands use minimal memory because they only load required modules. State queries fall in between depending on how many entities you query.
 
 ### Response Time Optimization
 
-Improve response times by increasing HA_CACHE_TTL to reduce API calls to Home Assistant. Set HA_TIMEOUT to a lower value if you have a fast local network connection. Enable LUGS_ENABLED to reduce cold start times through lazy loading. Consider increasing Lambda allocated memory to 256 megabytes, which provides more CPU power and can improve execution speed.
+Faster response times improve user experience but may require more memory or generate more API calls. To optimize response times, use a higher feature preset like performance or maximum. Increase HA_CACHE_TTL to cache entity states longer and reduce API calls. Set HA_BATCH_SIZE to larger values to process entities faster. Choose a higher CONFIGURATION_TIER to enable performance features. Ensure your Home Assistant responds quickly by optimizing its performance.
 
-Monitor execution duration through CloudWatch metrics. Target response times under 1000 milliseconds for good user experience with voice commands. Response times over 3000 milliseconds may cause Alexa to timeout.
+The most impactful optimization is cache tuning. Longer cache TTL means the function returns cached entity states instead of querying Home Assistant, dramatically improving response time. However, cached states may be stale if devices change state between queries.
 
 ### Reliability Optimization
 
-Improve reliability by increasing HA_MAX_RETRIES to handle temporary network issues. Set HA_CIRCUIT_BREAKER_THRESHOLD higher to tolerate more failures before stopping requests. Increase HA_TIMEOUT for slower network connections. Enable comprehensive logging with DEBUG_MODE during troubleshooting but disable it in production.
+Higher reliability ensures the function handles temporary issues gracefully but may increase response time when problems occur. To optimize reliability, increase HA_MAX_RETRIES to retry more times on failures. Raise HA_CIRCUIT_BREAKER_THRESHOLD to tolerate more errors before opening. Extend HA_TIMEOUT to allow more time for slow responses. Use performance or maximum preset for enhanced error recovery features. Monitor circuit breaker activations in CloudWatch logs.
 
-Monitor error rates through CloudWatch metrics. Error rates above 5 percent indicate configuration or connectivity problems that need attention.
+The circuit breaker is the most important reliability feature. When Home Assistant becomes unreachable, the circuit breaker opens after the threshold number of failures. While open, the function immediately rejects requests without trying to connect, preventing timeout delays. The circuit closes automatically after a recovery period, allowing requests to try again.
 
 ---
 
 ## Security Configuration
 
-Proper security configuration protects your Home Assistant credentials and prevents unauthorized access to your smart home.
+Security configuration protects your Home Assistant credentials and ensures only authorized requests reach your smart home.
 
 ### Credential Protection
 
-Always store your Home Assistant access token in Parameter Store using SecureString encryption. Never include tokens directly in environment variables or code. Use IAM roles to control access to Parameter Store parameters. Regularly rotate your Home Assistant access tokens by generating new tokens and updating Parameter Store.
+Your Home Assistant access token grants complete control over your smart home installation. Proper credential protection is essential. Always store tokens in Parameter Store as SecureString type which encrypts the token at rest. Never put tokens in environment variables because those are visible in the Lambda console. Rotate tokens periodically by generating a new token in Home Assistant and updating Parameter Store. Limit token scope to required operations when Home Assistant supports scoped tokens. Monitor token usage in Home Assistant logs to detect unauthorized access.
 
-Enable AWS CloudTrail to log all access to Parameter Store parameters. Review these logs periodically to detect any unauthorized access attempts. Configure Parameter Store parameter policies to restrict which IAM roles can read token values.
+The Lambda function retrieves tokens from Parameter Store on each invocation. The token exists in memory only during request processing and disappears when the function completes. The function never logs tokens or includes them in error messages.
 
 ### Network Security
 
-Use SSL connections to Home Assistant whenever possible by setting HA_VERIFY_SSL to true. Obtain proper SSL certificates from a certificate authority rather than using self-signed certificates. Consider using Cloudflare Tunnel which provides SSL termination and DDoS protection automatically.
+Network security ensures communication between the Lambda function and Home Assistant cannot be intercepted or modified. Use SSL/TLS connections with valid certificates whenever possible by setting HA_VERIFY_SSL to true. Only disable SSL verification for local networks you control. Never transmit credentials over unencrypted HTTP connections. Consider VPN connections for maximum security. Keep Home Assistant updated with security patches.
 
-If you must use self-signed certificates, ensure the private key remains secure on your Home Assistant host. Replace self-signed certificates with proper certificates as soon as possible for production deployments.
+The Lambda function runs in AWS's secure environment. AWS manages all security for the Lambda runtime, operating system, and network infrastructure. You are responsible for securing your Home Assistant installation and network connection.
 
 ### Lambda Security
 
-Restrict Lambda function IAM role permissions to the minimum required. The role should only have permission to write CloudWatch logs and read Parameter Store parameters. Do not grant additional permissions unless absolutely necessary.
+Lambda function security controls what the function can access in AWS. Use the principle of least privilege by granting only required IAM permissions. Never grant Administrator access or overly broad permissions. Enable MFA on your AWS account to prevent unauthorized changes. Review permissions regularly and remove any that are no longer needed. Monitor CloudWatch logs for unusual activity. Use CloudWatch alarms to detect suspicious invocation patterns.
 
-Enable Lambda function encryption for environment variables if you store any sensitive values there. Review Lambda function configuration periodically to ensure no unnecessary permissions have been added. Monitor Lambda invocation logs through CloudWatch for any suspicious activity patterns.
+The Lambda execution role should grant access to Parameter Store for reading configuration, CloudWatch Logs for writing log entries, and no other AWS services unless specifically required for additional functionality.
 
 ### Access Token Security
 
-Generate long-lived access tokens with the minimum permissions required for Lambda function operation. Create a dedicated Home Assistant user account for Lambda with restricted permissions if possible. Set token expiration dates and calendar reminders to rotate tokens before expiration.
+Home Assistant access tokens provide complete control over your installation. Generate tokens with appropriate scope when Home Assistant supports scoped tokens. Set token expiration when Home Assistant supports expiring tokens. Revoke tokens immediately if compromised. Use different tokens for different integrations. Monitor token usage in Home Assistant audit logs.
 
-Never share access tokens between multiple integrations or services. Create separate tokens for each integration to enable individual revocation if a token is compromised. Store backup tokens securely in case you need to restore access quickly.
+When you rotate tokens, update Parameter Store with the new value. The function will use the new token on its next invocation. There is no need to restart or redeploy the Lambda function.
