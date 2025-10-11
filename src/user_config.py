@@ -1,5 +1,5 @@
 """
-User Custom Configuration - Override Preset Values
+user_config.py
 Version: 2025.10.03.01
 Description: User-customizable configuration overrides for all system categories
 

@@ -1,7 +1,7 @@
 """
-cache_core.py - LUGS-Integrated Caching System
+cache_core.py
 Version: 2025.10.09.01
-Description: Dynamic caching with LUGS module dependency tracking
+Description: Dynamic caching dependency tracking
 
 Copyright 2025 Joseph Hersey
 

@@ -1,7 +1,7 @@
 """
-Circuit Breaker Core - Gateway-Optimized Circuit Breaker
+circuit_breaker_core.py
 Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated circuit breaker with shared_utilities error handling
+Description: Circuit Breaker with error handling
 
 Copyright 2025 Joseph Hersey
 
@@ -45,7 +45,7 @@ class CircuitBreaker:
     
     def call(self, func: Callable, *args, **kwargs) -> Any:
         """Execute function with circuit breaker protection."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, 
             handle_operation_error, record_operation_metrics
         )
@@ -124,7 +124,7 @@ class CircuitBreaker:
     
     def reset(self):
         """Reset circuit breaker state."""
-        from .shared_utilities import record_operation_metrics
+        from shared_utilities import record_operation_metrics
         
         start_time = time.time()
         

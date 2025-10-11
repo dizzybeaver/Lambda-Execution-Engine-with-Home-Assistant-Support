@@ -1,7 +1,7 @@
 """
-Health Data Core - Health Data Management with Template Optimization
+health_data_core.py
 Version: 2025.10.03.01
-Description: Health data structures with pre-compiled templates for performance
+Description: Health Data Management
 
 Copyright 2025 Joseph Hersey
 

@@ -1,5 +1,5 @@
 """
-Error Context Core - Error Context Management with Template Optimization
+error_context_core.py
 Version: 2025.10.03.01
 Description: Error context creation and management with pre-compiled templates
 

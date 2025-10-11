@@ -1,7 +1,7 @@
 """
-Fast Path - LUGS-Aware Hot Path Protection
+fast_path.py
 Version: 2025.10.03.03
-Description: Zero-abstraction fast paths with LUGS module protection
+Description: Zero-abstraction fast paths with module protection
 
 Copyright 2025 Joseph Hersey
 
