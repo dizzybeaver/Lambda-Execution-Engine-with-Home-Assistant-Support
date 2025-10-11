@@ -1,0 +1,11 @@
+{
+  "httpMethod": "GET",
+  "path": "/diagnostics",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": {
+    "type": "full"
+  },
+  "body": null
+}
