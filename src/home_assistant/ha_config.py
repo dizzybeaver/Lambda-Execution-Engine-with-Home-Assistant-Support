@@ -1,7 +1,7 @@
 """
-Home Assistant Extension Configuration
-Version: 2025.10.03.01
-Description: Self-contained configuration for Home Assistant integration extension
+ha_config.py
+Version: 2025.10.11.01
+Description: Home Assistant Extension Configuration
 
 Copyright 2025 Joseph Hersey
 
