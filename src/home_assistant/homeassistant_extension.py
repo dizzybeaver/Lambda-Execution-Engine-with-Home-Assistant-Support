@@ -60,6 +60,10 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
         elif namespace == 'Alexa.ThermostatController':
             result = manager.handle_thermostat_control(directive)
             return result
+        elif namespace == 'Alexa.Authorization' and name == 'AcceptGrant':
+            # Store OAuth grant code for account linking
+            result = manager.handle_accept_grant(directive)
+            return _create_accept_grant_response(header)
             
         else:
             log_error(f"Unsupported directive: {namespace}.{name}")
