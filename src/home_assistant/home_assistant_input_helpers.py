@@ -1,7 +1,7 @@
 """
-Home Assistant Input Helpers - Gateway-Optimized Input Helper Management
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated input helper management with zero custom error handling
+home_assistant_input_helpers.py
+Version: 2025.10.11.01
+Description: Home Assistant Input Helpers Management
 
 Copyright 2025 Joseph Hersey
 
@@ -63,7 +63,7 @@ class HAInputHelperManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Set input helper value with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -141,7 +141,7 @@ class HAInputHelperManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get input helper value with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -190,7 +190,7 @@ class HAInputHelperManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List input helpers with caching and circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
