@@ -1,6 +1,6 @@
 """
 homeassistant_alexa.py - Alexa Smart Home Integration
-Version: 2025.10.10.03
+Version: 2025.10.10.04
 Description: Alexa Smart Home API integration using REST API
 
 Copyright 2025 Joseph Hersey
@@ -26,10 +26,22 @@ from gateway import (
     generate_correlation_id, record_metric, increment_counter
 )
 
-from ha_common import (
-    batch_get_states, call_ha_service, is_ha_available, get_ha_config,
-    HA_CACHE_TTL_ENTITIES
-)
+try:
+    from ha_common import (
+        batch_get_states, call_ha_service, is_ha_available, get_ha_config,
+        HA_CACHE_TTL_ENTITIES
+    )
+except ImportError:
+    # Fallback if ha_common doesn't exist
+    def batch_get_states(*args, **kwargs):
+        return {'success': False, 'error': 'ha_common not available'}
+    def call_ha_service(*args, **kwargs):
+        return {'success': False, 'error': 'ha_common not available'}
+    def is_ha_available():
+        return False
+    def get_ha_config():
+        return {}
+    HA_CACHE_TTL_ENTITIES = 300
 
 
 class AlexaSmartHomeManager:
