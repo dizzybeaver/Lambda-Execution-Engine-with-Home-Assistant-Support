@@ -262,14 +262,15 @@ class AlexaSmartHomeManager:
     ) -> Dict[str, Any]:
         """Handle OAuth AcceptGrant directive."""
         try:
-            from config_manager import store_parameter
+            from gateway import execute_operation, GatewayInterface
 
             payload = directive.get('payload', {})
             grant = payload.get('grant', {})
             code = grant.get('code', '')
 
             # Store grant code in Parameter Store
-            store_parameter('alexa_grant_code', code)
+            execute_operation(GatewayInterface.CONFIG, 'set_parameter', 
+                 key='alexa_grant_code', value=code)
 
             log_info("AcceptGrant processed successfully")
 
