@@ -1,6 +1,6 @@
 # Home Assistant Lambda Execution Engine - Complete Setup Guide
 
-**Version:** 2025.10.10  
+**Version:** 2025.10.10.02  
 **Estimated Time:** 45-75 minutes  
 **Target Audience:** First-time AWS users setting up Home Assistant integration
 
@@ -25,7 +25,9 @@
 
 ## What This Guide Covers
 
-This guide will walk you through setting up the Lambda Execution Engine, which allows Amazon Alexa to control your Home Assistant installation. When you speak a command to Alexa, the request travels to your Lambda function in AWS, which then communicates with your Home Assistant instance to execute the command.
+This guide will walk you through setting up the Lambda Execution Engine with the Home Assistant Extension. The Lambda Execution Engine is a general-purpose Lambda optimization framework. The Home Assistant Extension is one extension built on top of this framework, providing integration between Amazon Alexa and your Home Assistant installation. When you speak a command to Alexa, the request travels to your Lambda function in AWS, which then communicates with your Home Assistant instance to execute the command.
+
+The Lambda Execution Engine provides core services including the gateway architecture, lazy loading, caching, circuit breaker protection, logging, and metrics collection. The Home Assistant Extension uses these services to implement Home Assistant-specific functionality. You could build other extensions using the same Engine services for different smart home platforms or entirely different purposes.
 
 The Lambda Execution Engine uses a gateway architecture where all operations flow through a single entry point. This design keeps memory usage low, typically between 15 and 25 megabytes per request, with response times under 150 milliseconds.
 
@@ -43,7 +45,9 @@ You need an Amazon Web Services account. Create one at https://aws.amazon.com. A
 
 You need an Amazon Developer account to create Alexa skills. Create one at https://developer.amazon.com. You can use your existing Amazon account credentials and add developer permissions.
 
-### Home Assistant Requirements
+### Home Assistant Extension Requirements
+
+These requirements apply only if you are using the Home Assistant Extension. The Lambda Execution Engine itself does not require Home Assistant.
 
 Your Home Assistant instance must be accessible from the internet. This typically means using Cloudflare Tunnel, a VPN connection, or port forwarding with SSL certificates. You will need a long-lived access token from your Home Assistant profile page.
 
@@ -59,101 +63,121 @@ This section covers creating your AWS account and selecting your region.
 
 ### Step 1: Create Your AWS Account
 
-Navigate to https://aws.amazon.com and click the Create an AWS Account button. Enter your email address and choose an account name. Select Personal as the account type. Provide your contact information including phone number.
+Navigate to https://aws.amazon.com and click the Create an AWS Account button. Enter your email address and choose an account name. AWS sends a verification code to your email address. Enter the code to verify your email.
 
-AWS requires a credit card for identity verification. Enter your payment information. AWS will place a small authorization hold that will be reversed, typically one dollar.
+Choose a password for your AWS account. AWS requires strong passwords with uppercase letters, lowercase letters, numbers, and special characters. Enter your password and confirm it by entering it again.
 
-Select the Basic Support plan, which is free and provides access to documentation, forums, and service health dashboards.
+### Step 2: Provide Contact Information
 
-### Step 2: Identity Verification
+AWS asks for your contact information including name, phone number, and address. This information is required for account verification and billing purposes. Enter accurate information as AWS may use it to verify your identity.
 
-AWS will verify your identity through a phone call or text message. Choose your preferred verification method. If you select text message, AWS will send you a four-digit code. If you select voice call, an automated system will call you and read the code twice. Enter the verification code when prompted.
+Choose Personal or Business account type. Personal accounts work fine for home automation purposes. Business accounts provide features needed for commercial use but are not necessary for smart home control.
 
-After verification completes, AWS needs a few minutes to activate your account. You will receive a welcome email when your account is ready. This usually takes five to ten minutes but can take up to one hour during high-traffic periods.
+### Step 3: Payment Information
 
-### Step 3: Enable Multi-Factor Authentication
+AWS asks for payment information during registration. Enter your credit or debit card details. AWS uses this information for identity verification and will charge your card only if you exceed free tier limits. Most home automation usage stays well within free tier limits.
 
-After your account activates, log in to the AWS Console. Click on your account name in the top right corner and select Security Credentials. Under Multi-Factor Authentication, click Activate MFA. Choose Virtual MFA device and follow the prompts to set up an authenticator app on your phone.
+AWS may place a temporary hold on your card for verification purposes. This hold typically releases within a few days.
 
-Multi-factor authentication adds an extra security layer. Even if someone obtains your password, they cannot access your account without the second factor.
+### Step 4: Identity Verification
 
-### Step 4: Select Your Region
+AWS requires phone verification to confirm your identity. Choose whether you want to receive verification by voice call or SMS text message. AWS sends a verification code to your phone. Enter the code on the verification page.
 
-AWS operates in multiple geographic regions. You should select the region closest to your physical location to minimize latency. Common regions include us-east-1 for US East Coast, us-west-2 for US West Coast, and eu-west-1 for Europe.
+### Step 5: Support Plan Selection
 
-All services you create in this guide must be in the same region. Note your selected region and use it consistently throughout the setup process.
+AWS asks you to select a support plan. Choose the Basic Support plan which is free. This plan provides access to documentation, whitepapers, support forums, and AWS Trusted Advisor. You do not need paid support plans for home automation purposes.
+
+### Step 6: Region Selection
+
+After account creation completes, sign in to the AWS Console. In the top right corner, you will see your selected region. Click on the region to open a dropdown menu showing all available regions.
+
+Choose a region geographically close to your location for best performance. For users in the eastern United States, us-east-1 (Virginia) works well. For western United States users, us-west-2 (Oregon) provides good performance. European users should choose eu-west-1 (Ireland) or eu-central-1 (Frankfurt).
+
+Remember which region you selected. You must create all related AWS resources in the same region for them to work together. If you create your Lambda function in us-east-1, your Parameter Store parameters must also be in us-east-1.
 
 ---
 
 ## Phase 2: IAM Role Creation
 
-IAM stands for Identity and Access Management. You need to create a role that defines what permissions your Lambda function has. This role allows the Lambda function to write logs to CloudWatch and read configuration from Parameter Store, but prevents it from accessing other AWS services.
+IAM (Identity and Access Management) controls permissions for AWS services. Your Lambda function needs an IAM role that grants permission to write logs and read Parameter Store values.
 
 ### Step 1: Access IAM Console
 
-From the AWS Console, use the search bar at the top of the page. Type IAM and press Enter. Click on IAM in the search results to open the Identity and Access Management console.
+From the AWS Console search bar at the top of the page, type IAM and select IAM from the search results. This opens the IAM console where you manage users, roles, and permissions.
 
-### Step 2: Navigate to Roles
+### Step 2: Create Role
 
-In the left sidebar, click on Roles. You will see a list of existing roles if any exist in your account. Click the Create Role button to begin creating a new role.
+Click on Roles in the left sidebar navigation. This displays all roles in your account. Click the Create Role button to begin creating a new role.
 
-### Step 3: Select Trusted Entity
+Under Select Type of Trusted Entity, choose AWS Service. This indicates that an AWS service rather than a user will use this role. Under Choose a Use Case, select Lambda from the list. This tells AWS that your Lambda function will use this role. Click Next: Permissions to continue.
 
-On the Select Trusted Entity page, choose AWS Service as the trusted entity type. From the list of use cases, select Lambda. This configuration allows Lambda functions to assume this role. Click Next to continue.
+### Step 3: Attach Policies
 
-### Step 4: Attach Permissions Policies
+The permissions page lets you select which policies to attach to your role. Policies define what actions the role can perform. You need to attach two policies for the Lambda Execution Engine to function correctly.
 
-You need to attach two managed policies to this role. In the search box, type AWSLambdaBasicExecutionRole. This is a managed policy provided by AWS that grants permission to create log groups, create log streams, and write log events to CloudWatch Logs. Check the box next to this policy.
+In the search box, type AWSLambdaBasicExecutionRole. Select the checkbox next to this policy. This policy grants permission to write logs to CloudWatch Logs, which allows you to see what your Lambda function is doing and diagnose any problems.
 
-Next, search for AmazonSSMReadOnlyAccess. This policy grants read-only access to Systems Manager Parameter Store where you will store your Home Assistant credentials. Check the box next to this policy.
+Clear the search box and type AmazonSSMReadOnlyAccess. Select the checkbox next to this policy. This policy grants permission to read values from Parameter Store, which is where you will store your Home Assistant URL and access token.
 
-After selecting both policies, click Next to continue.
+After selecting both policies, click Next: Tags to continue.
+
+### Step 4: Add Tags
+
+Tags help you organize and track AWS resources. Tags are optional but can be useful if you manage multiple AWS resources. You can add a tag with Key set to Purpose and Value set to Home Assistant Integration.
+
+Click Next: Review to continue to the review page.
 
 ### Step 5: Name and Create Role
 
-Enter LambdaExecutionEngineRole as the role name. Add an optional description such as Execution role for Lambda Execution Engine with Home Assistant integration. Review the permissions to confirm both policies are attached. Click Create Role to complete the process.
+On the review page, enter LambdaExecutionEngineRole as the role name. Role names must be unique within your AWS account. This name clearly indicates the role's purpose.
 
-The role now appears in your roles list. Click on the role name to view its details and confirm that both AWSLambdaBasicExecutionRole and AmazonSSMReadOnlyAccess are listed under permissions policies.
+Enter a description such as Execution role for Lambda Execution Engine with Home Assistant Extension. Descriptions help you remember what each role does if you create multiple roles.
+
+Verify that both AWSLambdaBasicExecutionRole and AmazonSSMReadOnlyAccess appear in the policies list. If either is missing, click Previous to go back and add it.
+
+Click Create Role to create the role. AWS creates the role and returns you to the roles list where you can see your new role.
 
 ---
 
 ## Phase 3: Parameter Store Configuration
 
-Parameter Store is part of AWS Systems Manager. It provides secure storage for configuration data and secrets. You will store your Home Assistant URL and access token here as encrypted parameters that only your Lambda function can read.
+AWS Systems Manager Parameter Store provides secure storage for configuration values. You will store your Home Assistant URL and access token here so they do not appear directly in your Lambda function code or environment variables.
 
-### Step 1: Access Systems Manager
+### Step 1: Access Parameter Store
 
-From the AWS Console search bar, type Systems Manager and select it from the results. In the left sidebar, find and click on Parameter Store under the Application Management section.
+From the AWS Console search bar, type Systems Manager and select AWS Systems Manager from the results. In the left sidebar, scroll down to the Application Management section and click Parameter Store.
 
-### Step 2: Create Home Assistant URL Parameter
+### Step 2: Create URL Parameter
 
-Click the Create Parameter button. Enter the following details for your first parameter.
+Click Create Parameter to begin creating your first parameter. Set the name to /lambda-execution-engine/homeassistant/url. The forward slashes create a hierarchy that organizes your parameters. The Lambda function reads parameters starting with /lambda-execution-engine/ by default.
 
-For the parameter name, enter /lambda-execution-engine/homeassistant/url. This path follows a hierarchical structure that groups related parameters together.
+Under Description, enter Home Assistant base URL for API access. Descriptions help you remember what each parameter contains.
 
-Set the tier to Standard. The Standard tier is free and supports parameters up to 4 kilobytes, which is sufficient for a URL.
+Set Tier to Standard. Standard tier is free and provides adequate storage for URLs. Advanced tier costs money and is unnecessary for these parameters.
 
-Set the type to String. The URL does not need encryption since it is not secret information.
+Set Type to String. The URL does not need encryption since it is not sensitive information.
 
-In the value field, enter your complete Home Assistant URL. Include the protocol and port number. For example, if you use Cloudflare Tunnel, enter something like https://homeassistant.yourdomain.com. If you use port forwarding, enter https://your-ip-or-domain:8123. Make sure the URL is exactly how you access your Home Assistant instance from outside your network.
+In the Value field, enter your complete Home Assistant URL including the protocol and port. For Cloudflare Tunnel access, use https://homeassistant.yourdomain.com. For direct access with SSL, use https://your-domain-or-ip:8123. For local access without SSL, use http://your-ip:8123 but this is not recommended for security reasons.
 
-Add a description such as Home Assistant base URL for API access. Click Create Parameter to save.
+Do not include a trailing slash at the end of the URL. The URL should end with the domain or port number.
 
-### Step 3: Create Home Assistant Token Parameter
+Click Create Parameter to save this parameter.
 
-Click Create Parameter again for your access token. Enter /lambda-execution-engine/homeassistant/token as the parameter name.
+### Step 3: Create Token Parameter
 
-Set the tier to Standard. Set the type to SecureString. The SecureString type encrypts the value using AWS Key Management Service. This encryption protects your access token even if someone gains access to Parameter Store.
+Click Create Parameter again to create the access token parameter. Set the name to /lambda-execution-engine/homeassistant/token.
 
-In the value field, paste your Home Assistant long-lived access token. You can generate this token from your Home Assistant profile page. Make sure you copy the entire token without any extra spaces or line breaks.
+Set Type to SecureString. This encrypts your access token so it cannot be viewed in plain text through the AWS Console. AWS automatically encrypts the value using your account's default encryption key.
 
-Add a description such as Home Assistant long-lived access token for API authentication. Click Create Parameter to save.
+In the Value field, enter your Home Assistant long-lived access token. To create a long-lived access token, open your Home Assistant web interface, click on your user profile in the bottom left corner, scroll down to the Long-Lived Access Tokens section, and click Create Token. Give the token a name like Lambda Function Access and copy the generated token.
 
-### Step 4: Create Optional Configuration Parameters
+Paste the token into the Parameter Store value field. Click Create Parameter to save this parameter.
 
-You can create additional parameters for advanced configuration. These are optional but useful for customization.
+### Step 4: Create Optional Parameters
 
-Create a parameter named /lambda-execution-engine/homeassistant/assistant_name with type String. Set the value to your preferred assistant name such as Jarvis or Computer. This controls how you invoke your assistant through Alexa. If you skip this parameter, the system defaults to Home Assistant.
+You can create additional optional parameters that override default behavior. These parameters are not required but provide additional control if needed.
+
+Create a parameter named /lambda-execution-engine/homeassistant/assistant_name with type String if you want to use a custom invocation name for Alexa. Set the value to your desired name such as Jarvis or Computer. If you skip this parameter, the system defaults to Home Assistant.
 
 Create a parameter named /lambda-execution-engine/homeassistant/verify_ssl with type String. Set the value to true if you use valid SSL certificates or false if you use self-signed certificates. If you skip this parameter, the system defaults to true.
 
@@ -201,25 +225,23 @@ You need to upload the Lambda Execution Engine code to your function. The code c
 
 You need these Python files for a complete deployment. The core files include lambda_function.py which serves as the main entry point, gateway.py which implements the universal gateway pattern, and fast_path.py for performance optimization.
 
-The core module files include cache_core.py for caching functionality, logging_core.py for logging, security_core.py for security features, metrics_core.py for performance metrics, singleton_core.py for singleton pattern implementation, http_client_core.py for HTTP communications, utility_core.py for utility functions, initialization_core.py for system initialization, lambda_core.py for Lambda-specific functionality, circuit_breaker_core.py for circuit breaker pattern, and config_core.py for configuration management.
+The core modules include cache_core.py for caching functionality, logging_core.py for logging, security_core.py for security features, metrics_core.py for performance tracking, config_core.py for configuration management, http_client_core.py for HTTP communication, singleton_core.py for singleton pattern implementation, circuit_breaker_core.py for resilience, initialization_core.py for startup management, lambda_core.py for Lambda-specific functionality, and utility_core.py for utility functions.
 
-The supporting files include variables.py which defines configuration data structures and variables_utils.py which provides configuration utilities.
+Supporting files include variables.py which contains configuration presets and variables_utils.py for configuration utilities. The Home Assistant extension file is homeassistant_extension.py.
 
-For Home Assistant integration, include homeassistant_extension.py.
+### Step 2: Verify File Structure
 
-### Step 2: Verify File Requirements
+Ensure all Python files are in a single folder with no subdirectories. The Lambda function expects to find all modules at the root level. Check that no files use relative imports like from .gateway import function. All imports should be absolute, like from gateway import function.
 
-Before creating your deployment package, verify that all files use absolute imports instead of relative imports. Open gateway.py and confirm it includes a function named format_response. Open variables_utils.py and verify all import statements use absolute imports without dot notation.
+Verify that gateway.py includes the format_response function which Lambda uses to format responses for Alexa. This function must be present at the gateway module level.
 
-If any files use relative imports like from .module_name import, change them to from module_name import using the absolute module name.
+### Step 3: Create ZIP Archive
 
-### Step 3: Create Deployment Package
+You need to create a ZIP archive containing all Python files at the root level. The method for creating the archive depends on your operating system.
 
-On your computer, create a new folder and place all the Python files directly into this folder. The files must be at the root level of the folder, not in a subfolder.
+On Windows, select all Python files in File Explorer. Right-click on the selected files and choose Send To then Compressed Zip Folder. Name the archive lambda-execution-engine.zip. Verify that the files are at the root of the ZIP archive by opening it. You should see the Python files immediately, not a folder containing the files.
 
-To create the ZIP archive on Windows, select all the Python files in the folder. Right-click on the selected files and choose Send To, then Compressed Zipped Folder. Name the file lambda-execution-engine.zip. Make sure you select the files themselves, not the folder containing them.
-
-To create the ZIP archive on Mac, select all the Python files. Right-click and choose Compress Items. Rename the resulting archive to lambda-execution-engine.zip.
+On Mac, select all Python files in Finder. Right-click on the selected files and choose Compress Items. macOS creates Archive.zip. Rename it to lambda-execution-engine.zip. Open the archive to verify the files are at the root level.
 
 To create the ZIP archive on Linux, open a terminal in the folder containing your Python files. Run the command zip -r lambda-execution-engine.zip *.py to create the archive.
 
@@ -241,7 +263,7 @@ In the Handler field, enter lambda_function.lambda_handler. This tells Lambda wh
 
 ## Phase 6: Environment Variables
 
-Environment variables control your Lambda function behavior without modifying code. You will set variables that enable Home Assistant integration and configure performance settings.
+Environment variables control your Lambda function behavior without modifying code. You will set variables that enable the Home Assistant Extension and configure performance settings.
 
 ### Step 1: Access Environment Variables
 
@@ -251,7 +273,7 @@ From your Lambda function page, click the Configuration tab. In the left menu, s
 
 Click Add Environment Variable to add each variable. For the key field, enter the variable name exactly as shown. For the value field, enter the corresponding value.
 
-Set HOME_ASSISTANT_ENABLED to true. This enables the Home Assistant integration in your Lambda function.
+Set HOME_ASSISTANT_ENABLED to true. This enables loading the Home Assistant Extension. When set to false, the Lambda Execution Engine runs without loading the Home Assistant Extension, and the Engine's core services remain available for other extensions or purposes.
 
 Set USE_PARAMETER_STORE to true. This instructs the Lambda function to read configuration from Parameter Store.
 
@@ -289,7 +311,7 @@ Your Home Assistant instance must be accessible from the internet for Lambda to 
 
 ### Step 2: Configure Entity Exposure
 
-Home Assistant provides three methods to control which entities Alexa can access. The cloud method uses the cloud integration if you have configured it. The customize method adds expose: true to each entity in your configuration.yaml file. The manual selection method uses the Alexa integration settings in Home Assistant.
+Home Assistant provides several methods to control which entities Alexa can access. The manual selection method uses the Alexa integration settings in Home Assistant. The customize method adds expose: true to each entity in your configuration.yaml file.
 
 For manual selection, open your Home Assistant interface. Navigate to Configuration, then Integrations. If you do not see an Alexa integration, click Add Integration and search for Alexa Smart Home. Follow the prompts to add it.
 
@@ -331,76 +353,74 @@ Navigate to the Amazon Developer Console and click Create Skill. Enter a skill n
 
 In the Build tab, click Invocation in the left menu. Change the Skill Invocation Name to your chosen name in lowercase, such as jarvis. Click Save Model.
 
-Click JSON Editor in the left menu. You need to paste a JSON interaction model that defines the intents your skill handles. The model should include intents for conversation, device control, and help requests.
+Click JSON Editor in the left menu. Replace the existing JSON with an interaction model that defines intents for conversation, help, and stop. After pasting your interaction model, click Save Model, then click Build Model.
 
-After pasting the interaction model, click Save Model at the top, then click Build Model. Wait for the build to complete.
+Click Endpoint in the left sidebar. Select AWS Lambda ARN as your endpoint type. Enter your Lambda function ARN in the Default Region field. Click Save Endpoints.
 
-In the Endpoint section, select AWS Lambda ARN. Paste your Lambda function ARN in the Default Region field.
+Return to your Lambda function in the AWS Console. Click Add Trigger. Select Alexa Skills Kit from the trigger list. Paste your Skill ID in the Skill ID field. Click Add to create the trigger.
 
-Copy your Skill ID from the top of the page. Return to your Lambda function and add an Alexa Skills Kit trigger. Paste the Skill ID when prompted.
-
-In the Alexa app, enable your custom skill under Skills and Games. You can now test commands using your custom name.
+In the Build tab of the Alexa Developer Console, click on the dropdown menu next to Skill Testing is Disabled at the top of the page. Select Development to enable testing. Test your skill by saying Alexa, ask [your name] to turn on the lights.
 
 ---
 
 ## Phase 9: Testing
 
-After completing the setup, you should test that all components work together correctly.
+After completing setup, test your installation to verify everything works correctly.
 
-### Voice Command Testing
+### Step 1: Test in Alexa App
 
-Start with simple commands to verify basic functionality. Try saying Alexa, turn on the living room lights if using a Smart Home skill, or Alexa, ask Jarvis to turn on the living room lights if using a custom skill.
+Open the Alexa app on your phone. Navigate to Devices. If you created a Smart Home Skill, you should see your Home Assistant devices listed. If you created a Custom Skill, enable the skill in the Skills section before testing.
 
-If Alexa responds that she cannot find the device, verify that the device is exposed in your Home Assistant Alexa integration settings. If Alexa responds but the device does not change state, check your Home Assistant logs for incoming API requests.
+### Step 2: Test Voice Commands
 
-Test multiple device types to ensure the integration works broadly. Try lights, switches, locks, and climate controls if you have them configured.
+Try simple commands first. For Smart Home Skills, say Alexa, turn on [device name]. For Custom Skills, say Alexa, ask [your assistant name] to turn on [device name]. Verify that your devices respond to commands.
 
-### CloudWatch Logs Review
+Test different types of devices including lights, switches, and scenes. Verify that Alexa responds with confirmation messages and that your devices actually change state.
 
-Open the AWS Console and navigate to CloudWatch. Click Logs in the left menu, then click Log Groups. Find the log group named /aws/lambda/lambda-execution-engine.
+### Step 3: Check CloudWatch Logs
 
-Click on the log group to see log streams. Each stream represents an execution of your function. Click on the most recent stream to view the logs.
+Navigate to CloudWatch in the AWS Console. Click Logs, then Log Groups. Find the log group for your Lambda function, which will be named /aws/lambda/lambda-execution-engine.
 
-Look for log entries that show successful connection to Home Assistant, device discovery, and command execution. Error messages in the logs will indicate problems that need attention.
+Click on the log group to see recent log streams. Each Lambda invocation creates a new log stream. Click on the most recent stream to see detailed execution logs. Look for any errors or warnings that might indicate problems.
 
-### Lambda Metrics Review
+### Step 4: Monitor Performance
 
-From your Lambda function page, click the Monitor tab. View the invocation count to see how many times your function has been called. Check the error count and success rate. Review the duration metric to confirm execution times remain under your timeout setting.
+In the Lambda console, click on the Monitor tab for your function. Review the invocation metrics to see how many times your function has run. Check the duration and memory usage to verify they fall within expected ranges. The Engine typically uses 15-25 MB of memory and completes requests in 100-200 milliseconds.
 
 ---
 
 ## Troubleshooting
 
-This section covers common issues and their solutions.
+### Lambda Function Does Not Invoke
 
-### Alexa Cannot Find Devices
+If your Lambda function does not invoke when you speak commands to Alexa, verify that you added the correct trigger to your Lambda function. The Skill ID in the trigger must match your Alexa skill exactly.
 
-If Alexa says she cannot find any devices after discovery, first verify that your Lambda function executed successfully by checking CloudWatch logs. Confirm that devices are exposed to Alexa in your Home Assistant configuration. Verify that your Home Assistant URL and token in Parameter Store are correct. Test that your Home Assistant instance is accessible from outside your network.
+Check that your skill is enabled in the Alexa app. Navigate to Skills & Games, then Your Skills, and verify your skill appears and shows as enabled.
 
-### Device Commands Do Not Work
+### Cannot Connect to Home Assistant
 
-If Alexa acknowledges commands but devices do not respond, check that the device works when controlled directly through Home Assistant. Review CloudWatch logs to confirm the Lambda function received and processed the command. Verify that your Home Assistant access token has the necessary permissions to control devices. Check for entity ID mismatches between Alexa and Home Assistant.
+If CloudWatch logs show connection errors, verify that your Home Assistant URL in Parameter Store is correct and accessible from the internet. Test the URL from a device outside your local network.
 
-### Lambda Function Timeout
+Check that your access token is valid. Try using the token to make a direct API request to Home Assistant using a tool like curl or Postman. If the token does not work, generate a new long-lived access token and update the Parameter Store parameter.
 
-If your function times out before completing, increase the timeout setting in Lambda General Configuration to 45 or 60 seconds. Check your Home Assistant response time by testing API calls directly. Verify your network connection between Lambda and Home Assistant is not experiencing high latency. Consider switching to a lower HA_FEATURE_PRESET to reduce processing time.
+Verify that HA_VERIFY_SSL is set appropriately. If you use self-signed certificates, set it to false. If you use valid certificates, set it to true.
 
-### High Memory Usage
+### Devices Do Not Appear
 
-If your function approaches the 128 MB memory limit, verify that LUGS_ENABLED is set to true in environment variables. Switch to a lower HA_FEATURE_PRESET value such as minimal. Reduce HA_CACHE_TTL to decrease cache memory usage. Review CloudWatch metrics to identify which invocations use the most memory.
+If device discovery completes but no devices appear in Alexa, verify that you exposed entities in Home Assistant. Check the Alexa integration settings in Home Assistant to confirm that entities are enabled for Alexa access.
 
-### Invalid Token Errors
+Run a discovery test event in Lambda to see which devices the function discovers. Compare this list to the entities you expect. If devices are missing from the Lambda response, they are not properly exposed in Home Assistant.
 
-If you see unauthorized or invalid token errors, regenerate your Home Assistant long-lived access token from your profile page. Update the token value in Parameter Store. Verify the token has not expired. Confirm you copied the entire token without extra spaces or line breaks.
+### Commands Fail
 
-### SSL Certificate Errors
+If commands invoke your Lambda function but devices do not respond, check CloudWatch logs for specific error messages. Common issues include incorrect entity IDs, unsupported device types, or Home Assistant errors.
 
-If you see SSL verification errors, verify that your Home Assistant instance uses valid SSL certificates. For self-signed certificates, set HA_VERIFY_SSL to false in environment variables. Consider obtaining proper SSL certificates through Let's Encrypt for production use.
+Verify that devices work when controlled directly through the Home Assistant web interface. If devices do not work in Home Assistant, they will not work through Alexa.
 
----
+### Performance Issues
 
-## Next Steps
+If your Lambda function is slow or times out, check the execution duration in CloudWatch metrics. If duration exceeds several seconds, you may need to optimize your Home Assistant configuration or network connection.
 
-After completing this setup, you have a working integration between Alexa and Home Assistant. You can now explore additional features and customization options.
+Verify that HA_CACHE_TTL is set to cache frequently accessed data. Caching reduces the number of API calls to Home Assistant and improves response times.
 
-Review the Configuration Reference guide for detailed information about all available environment variables and Parameter Store settings. Read the Assistant Name Guide if you want to implement custom invocation names. Consult the FAQ and Troubleshooting guide for solutions to common issues and advanced configuration techniques.
+Check your HA_TIMEOUT setting. If your Home Assistant instance is slow to respond, increase the timeout to 45 or 60 seconds to prevent premature timeout errors.
