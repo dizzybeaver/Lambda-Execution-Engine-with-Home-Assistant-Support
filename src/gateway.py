@@ -207,12 +207,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _load_file_implementation(
                 kwargs.get('filepath')
             )
-        elif operation == 'load_ha_config':
-            return _load_ha_config_implementation()
-        elif operation == 'validate_ha_config':
-            return _validate_ha_config_implementation(
-                kwargs.get('ha_config')
-            )
         elif operation == 'validate_all_sections':
             return _validate_all_implementation()
         else:
