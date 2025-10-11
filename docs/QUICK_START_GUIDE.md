@@ -1,6 +1,6 @@
 # Lambda Execution Engine - Quick Start Guide
 
-**Version:** 2025.10.10  
+**Version:** 2025.10.10.02  
 **Estimated Time:** 10-15 minutes  
 **Target Audience:** Users familiar with AWS services
 
@@ -8,7 +8,9 @@
 
 ## Prerequisites
 
-You need an AWS account with appropriate IAM permissions, a Home Assistant instance accessible from the internet, and a Home Assistant long-lived access token. You should be comfortable with AWS Lambda, IAM, and Parameter Store.
+You need an AWS account with appropriate IAM permissions. If you plan to use the Home Assistant Extension, you also need a Home Assistant instance accessible from the internet and a Home Assistant long-lived access token. The Lambda Execution Engine can run without these if you are not using the Home Assistant Extension.
+
+You should be comfortable with AWS Lambda, IAM, and Parameter Store.
 
 ---
 
@@ -62,9 +64,11 @@ Upload the ZIP file through the Lambda console Code tab using the Upload From ZI
 
 ## Environment Variables
 
+The Lambda Execution Engine is a standalone framework. The following variable controls whether the Home Assistant Extension loads.
+
 Configure these environment variables in your Lambda function.
 
-Set HOME_ASSISTANT_ENABLED to true to enable the integration.
+Set HOME_ASSISTANT_ENABLED to true to load the Home Assistant Extension. Set to false to run the Engine without this extension, leaving Engine services available for other extensions or purposes.
 
 Set USE_PARAMETER_STORE to true to read configuration from Parameter Store.
 
@@ -113,15 +117,3 @@ Create a test event in Lambda using an Alexa discovery directive to verify Home 
 ## Verification Checklist
 
 Confirm that your Lambda function executes without errors. Verify that the function connects to Home Assistant successfully. Check that Alexa discovers your exposed entities. Test device control commands through Alexa. Review CloudWatch logs for any warnings or errors. Monitor Lambda execution metrics for performance.
-
----
-
-## Common Issues
-
-If devices do not appear in Alexa discovery, verify Parameter Store values are correct and check entity exposure settings in Home Assistant. If commands fail, review CloudWatch logs for error messages and verify your access token permissions. If you encounter timeout errors, increase the Lambda timeout or HA_TIMEOUT environment variable. For SSL errors with self-signed certificates, set HA_VERIFY_SSL to false.
-
----
-
-## Next Steps
-
-Review the Configuration Reference guide for detailed environment variable documentation. See the Assistant Name Guide for custom invocation name setup. Consult the FAQ and Troubleshooting guide for advanced configuration and optimization techniques.
