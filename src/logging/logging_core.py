@@ -1,5 +1,5 @@
 """
-Logging Core - Template Optimized with Generic Operations
+logging_core.py
 Version: 2025.10.03.01
 Description: Structured logging with template-based message generation and generic operations
 
