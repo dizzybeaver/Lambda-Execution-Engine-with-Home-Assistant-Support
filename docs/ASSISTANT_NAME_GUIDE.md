@@ -1,6 +1,6 @@
 # Custom Assistant Name Configuration Guide
 
-**Version:** 2025.10.10  
+**Version:** 2025.10.10.02  
 **Purpose:** Complete guide to configuring custom invocation names for Alexa
 
 ---
@@ -19,7 +19,9 @@
 
 ## Understanding Custom Names
 
-By default, when you use the Lambda Execution Engine with Alexa, you invoke commands using phrases like Alexa, ask Home Assistant to turn on the lights. The custom assistant name feature allows you to change Home Assistant to any name you prefer, enabling phrases like Alexa, ask Jarvis to turn on the lights or Alexa, tell Computer to lock the doors.
+By default, when you use the Home Assistant Extension with Alexa, you invoke commands using phrases like Alexa, ask Home Assistant to turn on the lights. The custom assistant name feature allows you to change Home Assistant to any name you prefer, enabling phrases like Alexa, ask Jarvis to turn on the lights or Alexa, tell Computer to lock the doors.
+
+Custom names are a feature of the Home Assistant Extension, not the Lambda Execution Engine core. When you configure a custom name, you are customizing how the Extension presents itself to Alexa and your users. The Engine itself does not require or use custom names.
 
 This feature works by configuring both your Lambda function and your Alexa skill to recognize your chosen name. The Lambda function needs to know the name so it can reference it in responses to Alexa. The Alexa skill needs to know the name so it understands what you say when you invoke the skill.
 
@@ -141,59 +143,57 @@ After building your interaction model successfully, click on Endpoint in the lef
 
 You need to enter your Lambda function ARN in the Default Region field. To find your ARN, open your Lambda function in the AWS Console. The ARN appears near the top of the page in the format arn:aws:lambda:region:account:function:name. Copy this complete ARN.
 
-Paste your Lambda ARN into the Default Region field in the Alexa Developer Console. You do not need to configure multiple regions unless you want your skill to work in multiple geographic areas. Click Save Endpoints to save your configuration.
+Paste the ARN into the Default Region field in the Alexa Developer Console. If your Lambda function is in a region other than the default, you may need to use the region-specific endpoint field instead. Click Save Endpoints to apply the configuration.
 
 ### Adding Lambda Trigger
 
-Your Lambda function needs permission to accept invocations from your Alexa skill. Navigate to your Lambda function in the AWS Console. Click Add Trigger to create a new trigger configuration.
+Return to your Lambda function in the AWS Console. Click Add Trigger on the function overview page. Select Alexa Skills Kit from the trigger type dropdown.
 
-In the trigger configuration page, select Alexa Skills Kit from the trigger type list. In the Skill ID Verification field, select Enable. This ensures only your specific skill can invoke your function.
+In the Skill ID field, paste your Alexa Skill ID. Find this ID in the Alexa Developer Console on your skill's main page under Skill ID. The ID looks like amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
 
-You need to enter your Skill ID to enable verification. Return to the Alexa Developer Console and find your Skill ID at the top of the skill page. It starts with amzn1.ask.skill followed by a long random string. Copy this Skill ID.
+Click Add to create the trigger. This allows your Alexa skill to invoke your Lambda function.
 
-Paste your Skill ID into the Skill ID field in the Lambda trigger configuration. Click Add to create the trigger. Your Lambda function now accepts invocations from your specific Alexa skill.
+### Enabling Testing
+
+In the Alexa Developer Console, locate the dropdown menu at the top of the page that says Skill Testing is Disabled. Click on it and select Development. This enables you to test your skill through the Alexa Developer Console simulator and on your registered Alexa devices.
 
 ---
 
 ## Testing Your Configuration
 
-After completing the configuration, you should test that everything works correctly before relying on it for daily use.
+After configuring your custom assistant name in both Lambda and your Alexa skill, test that everything works correctly.
 
 ### Testing in Developer Console
 
-The Alexa Developer Console provides a test interface for trying commands without using a physical Alexa device. In your skill page, click on the Test tab at the top. Enable testing by selecting Development in the skill testing dropdown.
+In the Alexa Developer Console, click on the Test tab. The testing interface shows a text input and a microphone button. Type or speak a test command using your custom assistant name.
 
-In the Alexa Simulator section, type or speak a command that includes your invocation name. For example, if your name is Jarvis, type ask jarvis to turn on the living room lights. Alexa processes your command and displays both the request sent to your Lambda function and the response received.
+For example, if your custom name is Jarvis, type ask jarvis to turn on the lights. The simulator processes your request and shows both the request sent to Lambda and the response received. Review the response to verify it uses your custom name appropriately.
 
-Review the JSON request to confirm Alexa recognized your invocation name correctly. Review the response to verify your Lambda function processed the command. If errors occur, the simulator displays error messages that help diagnose problems.
+Test several different commands to ensure the skill recognizes your invocation name consistently. Try commands with different phrasing to verify the intents handle variations correctly.
 
 ### Testing with Alexa Devices
 
-After successful testing in the developer console, test with your actual Alexa devices. The skill is automatically available on all Alexa devices linked to your Amazon account when testing is enabled.
+On a registered Alexa device linked to the same Amazon account as your developer account, speak a command using your custom name. Say Alexa, ask [your name] to turn on the lights. Alexa should process the command and control your device.
 
-Say your test command out loud to an Alexa device. For example, say Alexa, ask Jarvis to turn on the lights. Alexa should respond and execute the command if everything is configured correctly.
-
-If Alexa responds that she does not know that, wait five to ten minutes and try again. Skills sometimes take a few minutes to propagate to devices. If Alexa still does not recognize your skill after ten minutes, verify that testing is enabled in the developer console and that you said the invocation name exactly as configured.
+Test that Alexa responses include your custom name where appropriate. The responses should feel natural and refer to your assistant by the custom name rather than using generic phrases.
 
 ### Verifying Lambda Logs
 
-CloudWatch logs provide detailed information about what happens when Alexa invokes your Lambda function. Navigate to CloudWatch in the AWS Console. Click on Logs, then Log Groups. Find the log group for your Lambda function, typically named /aws/lambda/lambda-execution-engine.
+Navigate to CloudWatch Logs and open the log group for your Lambda function. Find the most recent log stream corresponding to your test invocation. Review the logs to verify the function received and processed your custom assistant name correctly.
 
-Click on the most recent log stream to view logs from your test. Look for log entries that show Alexa sending a request with your custom assistant name. Verify the function processes the request correctly and returns an appropriate response.
-
-If errors appear in the logs, they indicate configuration problems or bugs in your interaction model. Common errors include missing intents, incorrect slot values, or Lambda function timeout issues.
+Check that configuration loading shows your custom name. Look for log entries indicating which assistant name the function is using. This helps confirm that environment variables or Parameter Store values loaded correctly.
 
 ---
 
 ## Troubleshooting
 
-This section covers common problems with custom assistant names and their solutions.
-
 ### Alexa Does Not Recognize Your Name
 
-If Alexa responds that she does not know that when you use your custom name, first verify that you enabled testing in the developer console. Without testing enabled, your skill is not available on your devices.
+If Alexa responds that it cannot find a skill when you use your custom name, verify that the skill is enabled on your account. Open the Alexa app, navigate to Skills & Games, then Your Skills, and confirm your skill appears and shows as enabled.
 
-Check that your invocation name in the Alexa skill exactly matches your HA_ASSISTANT_NAME configuration in lowercase. Even small differences prevent recognition. Verify that you built your interaction model after setting the invocation name. If you changed the invocation name, you must rebuild the model for changes to take effect.
+Check that the invocation name in your Alexa skill configuration exactly matches what you say. The names must match character for character, ignoring case differences. If you configured jarvis as the invocation name, you must say ask jarvis not ask Jarvis or ask JARVIS.
+
+Verify that skill testing is enabled in Development mode. If testing is disabled, Alexa devices will not recognize the skill even if it is properly configured.
 
 Wait five to ten minutes after enabling testing or making changes. Skills sometimes take time to propagate to devices. Try disabling and re-enabling the skill in the Alexa app. Sometimes this forces a refresh of skill information.
 
@@ -229,10 +229,26 @@ Create reminder cards or notes near Alexa devices listing example commands with 
 
 This section provides example commands showing how to use custom assistant names in practice.
 
-If your assistant name is Jarvis, you might say Alexa, ask Jarvis to turn on the living room lights. You might say Alexa, tell Jarvis to set the thermostat to seventy-two degrees. You might say Alexa, ask Jarvis what is the temperature in the bedroom.
+### With Custom Name Jarvis
 
-If your assistant name is Computer, you might say Alexa, ask Computer to lock all doors. You might say Alexa, tell Computer to start the movie mode scene. You might say Alexa, ask Computer to turn off everything in the kitchen.
+Alexa, ask Jarvis to turn on the living room lights.  
+Alexa, tell Jarvis to set the thermostat to 72 degrees.  
+Alexa, ask Jarvis what the temperature is in the bedroom.  
+Alexa, tell Jarvis to lock the front door.  
+Alexa, ask Jarvis to activate the movie scene.
 
-If your assistant name is Smart Home, you might say Alexa, ask Smart Home to turn on the porch light. You might say Alexa, tell Smart Home to run the morning routine. You might say Alexa, ask Smart Home to check if the garage door is closed.
+### With Custom Name Computer
 
-The key pattern is always Alexa followed by ask or tell, then your custom name, then to, and finally your command. Both ask and tell work equivalently in most cases, so choose whichever sounds more natural to you for each command.
+Alexa, ask Computer to turn off all the lights.  
+Alexa, tell Computer to start the morning routine.  
+Alexa, ask Computer what devices are on.  
+Alexa, tell Computer to close the garage door.  
+Alexa, ask Computer to turn on the fan.
+
+### With Custom Name Smart Home
+
+Alexa, ask Smart Home to dim the bedroom lights to 50 percent.  
+Alexa, tell Smart Home to turn on the coffee maker.  
+Alexa, ask Smart Home if the front door is locked.  
+Alexa, tell Smart Home to turn off the TV.  
+Alexa, ask Smart Home to run the bedtime script.
