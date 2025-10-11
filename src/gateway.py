@@ -357,13 +357,13 @@ def increment_counter(counter_name: str, value: int = 1):
 
 # ===== CONFIG INTERFACE FUNCTIONS =====
 
-def get_parameter(parameter_name: str, default_value: Any = None):
+def get_parameter(key: str, default: Any = None):
     """Get configuration parameter."""
-    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', parameter_name=parameter_name, default_value=default_value)
+    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
 
-def set_parameter(parameter_name: str, value: Any):
+def set_parameter(key: str, value: Any):
     """Set configuration parameter."""
-    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', parameter_name=parameter_name, value=value)
+    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
 
 def get_all_parameters() -> Dict[str, Any]:
     """Get all configuration parameters."""
