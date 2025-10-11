@@ -1,7 +1,7 @@
 """
-Home Assistant Alexa - Gateway-Optimized Alexa Smart Home Integration
-Version: 2025.10.03.02
-Description: Alexa Smart Home API integration with full gateway pattern compliance
+homeassistant_alexa.py - Alexa Smart Home Integration
+Version: 2025.10.10.03
+Description: Alexa Smart Home API integration using REST API
 
 Copyright 2025 Joseph Hersey
 
@@ -27,16 +27,15 @@ from gateway import (
 )
 
 from ha_common import (
-    HABaseManager, call_ha_api, call_ha_service, batch_get_states,
-    SingletonManager, is_ha_available, get_ha_config, HA_CACHE_TTL_ENTITIES
+    batch_get_states, call_ha_service, is_ha_available, get_ha_config,
+    HA_CACHE_TTL_ENTITIES
 )
 
 
-class AlexaSmartHomeManager(HABaseManager):
-    """Manages Alexa Smart Home API integration with gateway pattern."""
+class AlexaSmartHomeManager:
+    """Manages Alexa Smart Home API integration."""
     
     def __init__(self):
-        super().__init__()
         self._stats = {
             'total_directives': 0,
             'successful_directives': 0,
@@ -44,66 +43,46 @@ class AlexaSmartHomeManager(HABaseManager):
             'discoveries': 0
         }
     
-    def get_feature_name(self) -> str:
-        return "alexa_smarthome"
-    
-    def handle_discovery(
-        self,
-        ha_config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Handle Alexa device discovery with circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context,
-            handle_operation_error, cache_operation_result
-        )
-        
-        context = create_operation_context('alexa', 'discovery')
-        
+    def handle_discovery(self, ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Handle Alexa device discovery."""
         try:
             if not is_ha_available():
-                close_operation_context(context, success=False)
-                return handle_operation_error(
-                    'alexa', 'discovery',
-                    Exception("Home Assistant circuit breaker open"),
-                    context['correlation_id']
+                return create_error_response(
+                    'discovery_failed',
+                    'Home Assistant circuit breaker open'
                 )
             
             config = ha_config or get_ha_config()
             
-            def _discover_devices():
-                response = batch_get_states(None, config, use_cache=True)
-                
-                if not response.get('success'):
-                    return []
-                
-                states = response.get('data', [])
-                endpoints = []
-                
-                for state in states:
-                    entity_id = state.get('entity_id', '')
-                    domain = entity_id.split('.')[0] if '.' in entity_id else ''
-                    
-                    if domain in ['light', 'switch', 'fan', 'climate', 'cover', 'lock', 'media_player']:
-                        endpoint = self._build_endpoint(state, domain)
-                        if endpoint:
-                            endpoints.append(endpoint)
-                
-                return endpoints
+            # Get all states from /api/states
+            response = batch_get_states(None, config, use_cache=True)
             
-            endpoints = cache_operation_result(
-                operation_name="alexa_discovery",
-                func=_discover_devices,
-                ttl=HA_CACHE_TTL_ENTITIES,
-                cache_key_prefix="alexa_endpoints"
-            )
+            if not response.get('success'):
+                return create_error_response(
+                    'discovery_failed',
+                    response.get('error', 'Failed to get states')
+                )
+            
+            states = response.get('data', [])
+            endpoints = []
+            
+            # Transform HA entities to Alexa endpoints
+            for state in states:
+                entity_id = state.get('entity_id', '')
+                domain = entity_id.split('.')[0] if '.' in entity_id else ''
+                
+                if domain in ['light', 'switch', 'fan', 'climate', 'cover', 'lock', 'media_player']:
+                    endpoint = self._build_endpoint(state, domain)
+                    if endpoint:
+                        endpoints.append(endpoint)
             
             self._stats['discoveries'] += 1
             self._stats['total_directives'] += 1
             self._stats['successful_directives'] += 1
             
-            close_operation_context(context, success=True)
-            
             increment_counter('alexa_discovery')
+            
+            log_info(f"Discovered {len(endpoints)} devices")
             
             return create_success_response(
                 f"Discovered {len(endpoints)} devices",
@@ -112,143 +91,135 @@ class AlexaSmartHomeManager(HABaseManager):
             
         except Exception as e:
             self._stats['failed_directives'] += 1
-            close_operation_context(context, success=False)
-            return handle_operation_error('alexa', 'discovery', e, context['correlation_id'])
+            log_error(f"Discovery failed: {str(e)}")
+            return create_error_response('discovery_failed', str(e))
     
     def handle_power_control(
         self,
         directive: Dict[str, Any],
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Handle Alexa power control directive with circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        endpoint = directive.get('endpoint', {})
-        entity_id = endpoint.get('endpointId', '')
-        header = directive.get('header', {})
-        name = header.get('name', '')
-        
-        context = create_operation_context('alexa', 'power_control',
-                                          entity_id=entity_id, directive=name)
-        
+        """Handle Alexa power control directive."""
         try:
+            endpoint = directive.get('endpoint', {})
+            entity_id = endpoint.get('endpointId', '')
+            header = directive.get('header', {})
+            name = header.get('name', '')
+            
+            if not entity_id:
+                return self._create_error_response(header, 'INVALID_DIRECTIVE', 'Missing entity ID')
+            
             if not is_ha_available():
-                close_operation_context(context, success=False)
-                return handle_operation_error(
-                    'alexa', 'power_control',
-                    Exception("Home Assistant circuit breaker open"),
-                    context['correlation_id']
-                )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', 'Home Assistant unavailable')
             
             config = ha_config or get_ha_config()
             domain = entity_id.split('.')[0] if '.' in entity_id else ''
-            service = 'turn_on' if name == 'TurnOn' else 'turn_off'
             
+            # Determine service based on directive
+            if name == 'TurnOn':
+                service = 'turn_on'
+                power_state = 'ON'
+            elif name == 'TurnOff':
+                service = 'turn_off'
+                power_state = 'OFF'
+            else:
+                return self._create_error_response(header, 'INVALID_DIRECTIVE', f'Unknown power command: {name}')
+            
+            # Call HA service via /api/services/domain/service
             result = call_ha_service(domain, service, config, entity_id)
             
             self._stats['total_directives'] += 1
+            
             if result.get('success'):
                 self._stats['successful_directives'] += 1
+                return self._create_alexa_response(
+                    entity_id,
+                    'Alexa.PowerController',
+                    'powerState',
+                    power_state,
+                    header.get('messageId')
+                )
             else:
                 self._stats['failed_directives'] += 1
-            
-            close_operation_context(context, success=result.get('success', False), result=result)
-            
-            increment_counter('alexa_power_control')
-            
-            return self._create_alexa_response(
-                entity_id,
-                "Alexa.PowerController",
-                "powerState",
-                {"value": "ON" if service == "turn_on" else "OFF"}
-            )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', result.get('error', 'Service call failed'))
             
         except Exception as e:
             self._stats['failed_directives'] += 1
-            close_operation_context(context, success=False)
-            return handle_operation_error('alexa', 'power_control', e, context['correlation_id'])
+            log_error(f"Power control failed: {str(e)}")
+            return self._create_error_response(
+                directive.get('header', {}),
+                'INTERNAL_ERROR',
+                str(e)
+            )
     
     def handle_brightness_control(
         self,
         directive: Dict[str, Any],
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Handle Alexa brightness control with circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        endpoint = directive.get('endpoint', {})
-        entity_id = endpoint.get('endpointId', '')
-        payload = directive.get('payload', {})
-        brightness = payload.get('brightness', 100)
-        
-        context = create_operation_context('alexa', 'brightness_control',
-                                          entity_id=entity_id, brightness=brightness)
-        
+        """Handle Alexa brightness control directive."""
         try:
+            endpoint = directive.get('endpoint', {})
+            entity_id = endpoint.get('endpointId', '')
+            header = directive.get('header', {})
+            name = header.get('name', '')
+            payload = directive.get('payload', {})
+            
             if not is_ha_available():
-                close_operation_context(context, success=False)
-                return handle_operation_error(
-                    'alexa', 'brightness_control',
-                    Exception("Home Assistant circuit breaker open"),
-                    context['correlation_id']
-                )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', 'Home Assistant unavailable')
             
             config = ha_config or get_ha_config()
             
-            service_data = {"brightness_pct": brightness}
-            result = call_ha_service("light", "turn_on", config, entity_id, service_data)
+            if name == 'SetBrightness':
+                brightness = payload.get('brightness', 100)
+                service_data = {'brightness_pct': brightness}
+            elif name == 'AdjustBrightness':
+                brightness_delta = payload.get('brightnessDelta', 0)
+                # For adjust, we'd need current state first
+                service_data = {'brightness_step_pct': brightness_delta}
+            else:
+                return self._create_error_response(header, 'INVALID_DIRECTIVE', f'Unknown brightness command: {name}')
+            
+            result = call_ha_service('light', 'turn_on', config, entity_id, service_data)
             
             self._stats['total_directives'] += 1
+            
             if result.get('success'):
                 self._stats['successful_directives'] += 1
+                return self._create_alexa_response(
+                    entity_id,
+                    'Alexa.BrightnessController',
+                    'brightness',
+                    payload.get('brightness', 100),
+                    header.get('messageId')
+                )
             else:
                 self._stats['failed_directives'] += 1
-            
-            close_operation_context(context, success=result.get('success', False), result=result)
-            
-            increment_counter('alexa_brightness_control')
-            
-            return self._create_alexa_response(
-                entity_id,
-                "Alexa.BrightnessController",
-                "brightness",
-                {"value": brightness}
-            )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', result.get('error', 'Service call failed'))
             
         except Exception as e:
             self._stats['failed_directives'] += 1
-            close_operation_context(context, success=False)
-            return handle_operation_error('alexa', 'brightness_control', e, context['correlation_id'])
+            log_error(f"Brightness control failed: {str(e)}")
+            return self._create_error_response(
+                directive.get('header', {}),
+                'INTERNAL_ERROR',
+                str(e)
+            )
     
     def handle_thermostat_control(
         self,
         directive: Dict[str, Any],
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Handle Alexa thermostat control with circuit breaker."""
-        from .shared_utilities import (
-            create_operation_context, close_operation_context, handle_operation_error
-        )
-        
-        endpoint = directive.get('endpoint', {})
-        entity_id = endpoint.get('endpointId', '')
-        payload = directive.get('payload', {})
-        
-        context = create_operation_context('alexa', 'thermostat_control',
-                                          entity_id=entity_id)
-        
+        """Handle Alexa thermostat control directive."""
         try:
+            endpoint = directive.get('endpoint', {})
+            entity_id = endpoint.get('endpointId', '')
+            payload = directive.get('payload', {})
+            header = directive.get('header', {})
+            
             if not is_ha_available():
-                close_operation_context(context, success=False)
-                return handle_operation_error(
-                    'alexa', 'thermostat_control',
-                    Exception("Home Assistant circuit breaker open"),
-                    context['correlation_id']
-                )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', 'Home Assistant unavailable')
             
             config = ha_config or get_ha_config()
             
@@ -258,26 +229,28 @@ class AlexaSmartHomeManager(HABaseManager):
             result = call_ha_service("climate", "set_temperature", config, entity_id, service_data)
             
             self._stats['total_directives'] += 1
+            
             if result.get('success'):
                 self._stats['successful_directives'] += 1
+                return self._create_alexa_response(
+                    entity_id,
+                    'Alexa.ThermostatController',
+                    'targetSetpoint',
+                    {"value": target_temp, "scale": "CELSIUS"},
+                    header.get('messageId')
+                )
             else:
                 self._stats['failed_directives'] += 1
-            
-            close_operation_context(context, success=result.get('success', False), result=result)
-            
-            increment_counter('alexa_thermostat_control')
-            
-            return self._create_alexa_response(
-                entity_id,
-                "Alexa.ThermostatController",
-                "targetSetpoint",
-                {"value": target_temp, "scale": "CELSIUS"}
-            )
+                return self._create_error_response(header, 'ENDPOINT_UNREACHABLE', result.get('error', 'Service call failed'))
             
         except Exception as e:
             self._stats['failed_directives'] += 1
-            close_operation_context(context, success=False)
-            return handle_operation_error('alexa', 'thermostat_control', e, context['correlation_id'])
+            log_error(f"Thermostat control failed: {str(e)}")
+            return self._create_error_response(
+                directive.get('header', {}),
+                'INTERNAL_ERROR',
+                str(e)
+            )
     
     def _build_endpoint(self, state: Dict[str, Any], domain: str) -> Optional[Dict[str, Any]]:
         """Build Alexa endpoint from HA state."""
@@ -290,22 +263,34 @@ class AlexaSmartHomeManager(HABaseManager):
         if domain == 'light':
             capabilities.append(self._power_capability())
             capabilities.append(self._brightness_capability())
+            
+            # Add color if supported
+            if attributes.get('supported_color_modes'):
+                capabilities.append(self._color_capability())
+                capabilities.append(self._color_temperature_capability())
+            
             display_categories = ["LIGHT"]
+            
         elif domain == 'switch':
             capabilities.append(self._power_capability())
             display_categories = ["SWITCH"]
+            
         elif domain == 'fan':
             capabilities.append(self._power_capability())
             display_categories = ["FAN"]
+            
         elif domain == 'climate':
             capabilities.append(self._thermostat_capability())
             display_categories = ["THERMOSTAT"]
+            
         elif domain == 'cover':
             capabilities.append(self._power_capability())
             display_categories = ["DOOR"]
+            
         elif domain == 'lock':
             capabilities.append(self._lock_capability())
             display_categories = ["SMARTLOCK"]
+            
         elif domain == 'media_player':
             capabilities.append(self._power_capability())
             display_categories = ["SPEAKER"]
@@ -313,6 +298,19 @@ class AlexaSmartHomeManager(HABaseManager):
         if not capabilities:
             return None
         
+        # Add endpoint health capability
+        capabilities.append({
+            "type": "AlexaInterface",
+            "interface": "Alexa.EndpointHealth",
+            "version": "3",
+            "properties": {
+                "supported": [{"name": "connectivity"}],
+                "proactivelyReported": True,
+                "retrievable": True
+            }
+        })
+        
+        # Add Alexa interface
         capabilities.append({
             "type": "AlexaInterface",
             "interface": "Alexa",
@@ -322,10 +320,17 @@ class AlexaSmartHomeManager(HABaseManager):
         return {
             "endpointId": entity_id,
             "friendlyName": attributes.get('friendly_name', entity_id),
+            "description": f"{entity_id} via Home Assistant",
             "manufacturerName": "Home Assistant",
-            "description": f"HA {domain}",
             "displayCategories": display_categories,
-            "capabilities": capabilities
+            "cookie": {},
+            "capabilities": capabilities,
+            "additionalAttributes": {
+                "manufacturer": "Home Assistant",
+                "model": domain,
+                "softwareVersion": "2025.9.4",
+                "customIdentifier": f"-{entity_id}"
+            }
         }
     
     def _power_capability(self) -> Dict[str, Any]:
@@ -336,7 +341,7 @@ class AlexaSmartHomeManager(HABaseManager):
             "version": "3",
             "properties": {
                 "supported": [{"name": "powerState"}],
-                "proactivelyReported": False,
+                "proactivelyReported": True,
                 "retrievable": True
             }
         }
@@ -349,7 +354,33 @@ class AlexaSmartHomeManager(HABaseManager):
             "version": "3",
             "properties": {
                 "supported": [{"name": "brightness"}],
-                "proactivelyReported": False,
+                "proactivelyReported": True,
+                "retrievable": True
+            }
+        }
+    
+    def _color_capability(self) -> Dict[str, Any]:
+        """Build color controller capability."""
+        return {
+            "type": "AlexaInterface",
+            "interface": "Alexa.ColorController",
+            "version": "3",
+            "properties": {
+                "supported": [{"name": "color"}],
+                "proactivelyReported": True,
+                "retrievable": True
+            }
+        }
+    
+    def _color_temperature_capability(self) -> Dict[str, Any]:
+        """Build color temperature controller capability."""
+        return {
+            "type": "AlexaInterface",
+            "interface": "Alexa.ColorTemperatureController",
+            "version": "3",
+            "properties": {
+                "supported": [{"name": "colorTemperatureInKelvin"}],
+                "proactivelyReported": True,
                 "retrievable": True
             }
         }
@@ -365,7 +396,7 @@ class AlexaSmartHomeManager(HABaseManager):
                     {"name": "targetSetpoint"},
                     {"name": "thermostatMode"}
                 ],
-                "proactivelyReported": False,
+                "proactivelyReported": True,
                 "retrievable": True
             }
         }
@@ -378,7 +409,7 @@ class AlexaSmartHomeManager(HABaseManager):
             "version": "3",
             "properties": {
                 "supported": [{"name": "lockState"}],
-                "proactivelyReported": False,
+                "proactivelyReported": True,
                 "retrievable": True
             }
         }
@@ -386,18 +417,20 @@ class AlexaSmartHomeManager(HABaseManager):
     def _create_alexa_response(
         self,
         endpoint_id: str,
-        interface: str,
-        property_name: str,
-        property_value: Dict[str, Any]
+        namespace: str,
+        name: str,
+        value: Any,
+        correlation_token: str = None
     ) -> Dict[str, Any]:
-        """Create standardized Alexa response."""
+        """Create Alexa response."""
         return {
             "event": {
                 "header": {
-                    "namespace": interface,
+                    "namespace": "Alexa",
                     "name": "Response",
-                    "payloadVersion": "3",
-                    "messageId": generate_correlation_id()
+                    "messageId": correlation_token or generate_correlation_id(),
+                    "correlationToken": correlation_token,
+                    "payloadVersion": "3"
                 },
                 "endpoint": {
                     "endpointId": endpoint_id
@@ -405,98 +438,33 @@ class AlexaSmartHomeManager(HABaseManager):
                 "payload": {}
             },
             "context": {
-                "properties": [{
-                    "namespace": interface,
-                    "name": property_name,
-                    "value": property_value,
-                    "timeOfSample": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "uncertaintyInMilliseconds": 500
-                }]
+                "properties": [
+                    {
+                        "namespace": namespace,
+                        "name": name,
+                        "value": value,
+                        "timeOfSample": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "uncertaintyInMilliseconds": 500
+                    }
+                ]
             }
         }
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Get Alexa integration statistics."""
-        base_stats = super().get_stats()
-        base_stats.update(self._stats)
-        
-        if self._stats['total_directives'] > 0:
-            base_stats['success_rate'] = (
-                self._stats['successful_directives'] / self._stats['total_directives'] * 100
-            )
-        
-        return base_stats
+    def _create_error_response(self, header: Dict[str, Any], error_type: str, message: str) -> Dict[str, Any]:
+        """Create Alexa error response."""
+        return {
+            "event": {
+                "header": {
+                    "namespace": "Alexa",
+                    "name": "ErrorResponse",
+                    "messageId": header.get('messageId', generate_correlation_id()),
+                    "payloadVersion": "3"
+                },
+                "payload": {
+                    "type": error_type,
+                    "message": message
+                }
+            }
+        }
 
-
-_singleton_manager = SingletonManager()
-
-
-def get_alexa_manager() -> AlexaSmartHomeManager:
-    """Get or create Alexa manager singleton."""
-    return _singleton_manager.get_or_create(
-        'alexa_manager',
-        AlexaSmartHomeManager
-    )
-
-
-def handle_alexa_directive(
-    directive: Dict[str, Any],
-    ha_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Handle any Alexa directive with routing."""
-    from .shared_utilities import create_operation_context, close_operation_context
-    
-    context = create_operation_context('alexa', 'directive_router')
-    
-    try:
-        manager = get_alexa_manager()
-        
-        header = directive.get('header', {})
-        namespace = header.get('namespace', '')
-        name = header.get('name', '')
-        
-        if namespace == 'Alexa.Discovery' and name == 'Discover':
-            result = manager.handle_discovery(ha_config)
-        elif namespace == 'Alexa.PowerController':
-            result = manager.handle_power_control(directive, ha_config)
-        elif namespace == 'Alexa.BrightnessController':
-            result = manager.handle_brightness_control(directive, ha_config)
-        elif namespace == 'Alexa.ThermostatController':
-            result = manager.handle_thermostat_control(directive, ha_config)
-        else:
-            result = create_error_response(
-                f"Unsupported directive: {namespace}.{name}",
-                {'directive': directive}
-            )
-        
-        close_operation_context(context, success=result.get('success', False))
-        return result
-        
-    except Exception as e:
-        close_operation_context(context, success=False)
-        log_error(f"Alexa directive handling failed: {str(e)}")
-        return create_error_response("Directive handling failed", {"error": str(e)})
-
-
-def get_alexa_stats() -> Dict[str, Any]:
-    """Get Alexa integration statistics."""
-    manager = get_alexa_manager()
-    return manager.get_stats()
-
-
-def cleanup_alexa() -> Dict[str, Any]:
-    """Cleanup Alexa manager resources."""
-    try:
-        _singleton_manager.cleanup('alexa_manager')
-        return create_success_response("Alexa manager cleaned up successfully", {})
-    except Exception as e:
-        return create_error_response("Cleanup failed", {"error": str(e)})
-
-
-__all__ = [
-    'AlexaSmartHomeManager',
-    'get_alexa_manager',
-    'handle_alexa_directive',
-    'get_alexa_stats',
-    'cleanup_alexa'
-]
+# EOF
