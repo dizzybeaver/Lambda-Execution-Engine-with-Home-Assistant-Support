@@ -60,7 +60,7 @@ class HAAutomationManager:
         skip_condition: bool = False
     ) -> Dict[str, Any]:
         """Trigger automation with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -124,7 +124,7 @@ class HAAutomationManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List all automations with caching and circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
