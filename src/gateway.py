@@ -162,122 +162,63 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             raise ValueError(f"Unknown METRICS operation: {operation}")
     
     elif interface == GatewayInterface.CONFIG:
-    from config_core import (
-        _initialize_implementation,
-        _get_parameter_implementation,
-        _set_parameter_implementation,
-        _get_category_implementation,
-        _reload_implementation,
-        _switch_preset_implementation,
-        _get_state_implementation,
-        _load_environment_implementation,
-        _load_file_implementation,
-        _load_ha_config_implementation,
-        _validate_ha_config_implementation,
-        _validate_all_implementation
-    )
-    
-    if operation == 'initialize':
-        return _initialize_implementation()
-    elif operation == 'get_parameter':
-        return _get_parameter_implementation(
-            kwargs.get('key'),
-            kwargs.get('default')
+        from config_core import (
+            _initialize_implementation,
+            _get_parameter_implementation,
+            _set_parameter_implementation,
+            _get_category_implementation,
+            _reload_implementation,
+            _switch_preset_implementation,
+            _get_state_implementation,
+            _load_environment_implementation,
+            _load_file_implementation,
+            _load_ha_config_implementation,
+            _validate_ha_config_implementation,
+            _validate_all_implementation
         )
-    elif operation == 'set_parameter':
-        return _set_parameter_implementation(
-            kwargs.get('key'),
-            kwargs.get('value')
-        )
-    elif operation == 'get_category_config':
-        return _get_category_implementation(
-            kwargs.get('category')
-        )
-    elif operation == 'reload_config':
-        return _reload_implementation(
-            kwargs.get('validate', True)
-        )
-    elif operation == 'switch_preset':
-        return _switch_preset_implementation(
-            kwargs.get('preset_name')
-        )
-    elif operation == 'get_state':
-        return _get_state_implementation()
-    elif operation == 'load_from_environment':
-        return _load_environment_implementation()
-    elif operation == 'load_from_file':
-        return _load_file_implementation(
-            kwargs.get('filepath')
-        )
-    elif operation == 'load_ha_config':
-        return _load_ha_config_implementation()
-    elif operation == 'validate_ha_config':
-        return _validate_ha_config_implementation(
-            kwargs.get('ha_config')
-        )
-    elif operation == 'validate_all_sections':
-        return _validate_all_implementation()
-    else:
-        raise ValueError(f"Unknown CONFIG operation: {operation}")
-    
-    elif interface == GatewayInterface.HTTP_CLIENT:
-        from http_client_core import (
-            _make_request_implementation,
-            _make_get_request_implementation,
-            _make_post_request_implementation
-        )
-        
-        if operation == 'request':
-            return _make_request_implementation(
-                kwargs.get('method'),
-                kwargs.get('url'),
-                **{k: v for k, v in kwargs.items() if k not in ['method', 'url']}
+
+        if operation == 'initialize':
+            return _initialize_implementation()
+        elif operation == 'get_parameter':
+            return _get_parameter_implementation(
+                kwargs.get('key'),
+                kwargs.get('default')
             )
-        elif operation == 'get':
-            return _make_get_request_implementation(
-                kwargs.get('url'),
-                **{k: v for k, v in kwargs.items() if k != 'url'}
+        elif operation == 'set_parameter':
+            return _set_parameter_implementation(
+                kwargs.get('key'),
+                kwargs.get('value')
             )
-        elif operation == 'post':
-            return _make_post_request_implementation(
-                kwargs.get('url'),
-                kwargs.get('data'),
-                **{k: v for k, v in kwargs.items() if k not in ['url', 'data']}
+        elif operation == 'get_category_config':
+            return _get_category_implementation(
+                kwargs.get('category')
             )
+        elif operation == 'reload_config':
+            return _reload_implementation(
+                kwargs.get('validate', True)
+            )
+        elif operation == 'switch_preset':
+            return _switch_preset_implementation(
+                kwargs.get('preset_name')
+            )
+        elif operation == 'get_state':
+            return _get_state_implementation()
+        elif operation == 'load_from_environment':
+            return _load_environment_implementation()
+        elif operation == 'load_from_file':
+            return _load_file_implementation(
+                kwargs.get('filepath')
+            )
+        elif operation == 'load_ha_config':
+            return _load_ha_config_implementation()
+        elif operation == 'validate_ha_config':
+            return _validate_ha_config_implementation(
+                kwargs.get('ha_config')
+            )
+        elif operation == 'validate_all_sections':
+            return _validate_all_implementation()
         else:
-            raise ValueError(f"Unknown HTTP_CLIENT operation: {operation}")
-    
-    elif interface == GatewayInterface.SINGLETON:
-        from singleton_core import (
-            _get_singleton_implementation,
-            _register_singleton_implementation
-        )
-        
-        if operation == 'get':
-            return _get_singleton_implementation(kwargs.get('singleton_name'))
-        elif operation == 'register':
-            return _register_singleton_implementation(
-                kwargs.get('singleton_name'),
-                kwargs.get('instance')
-            )
-        else:
-            raise ValueError(f"Unknown SINGLETON operation: {operation}")
-    
-    elif interface == GatewayInterface.INITIALIZATION:
-        from initialization_core import (
-            _execute_initialization_implementation,
-            _record_stage_implementation
-        )
-        
-        if operation == 'execute':
-            return _execute_initialization_implementation(kwargs.get('init_type'))
-        elif operation == 'record_stage':
-            return _record_stage_implementation(
-                kwargs.get('stage'),
-                kwargs.get('status')
-            )
-        else:
-            raise ValueError(f"Unknown INITIALIZATION operation: {operation}")
+            raise ValueError(f"Unknown CONFIG operation: {operation}")
     
     elif interface == GatewayInterface.UTILITY:
         from utility_core import _UTILITY
