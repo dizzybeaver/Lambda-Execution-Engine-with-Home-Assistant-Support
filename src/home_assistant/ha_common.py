@@ -89,7 +89,7 @@ def invalidate_cache_section(section: str):
 def get_ha_config() -> Dict[str, Any]:
     """Get Home Assistant configuration from cache or parameters."""
     from gateway import get_parameter, cache_get, cache_set
-    from .shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
     
     context = create_operation_context('ha_common', 'get_config')
     
@@ -125,7 +125,7 @@ def call_ha_api(
 ) -> Dict[str, Any]:
     """Call Home Assistant API with circuit breaker protection."""
     from gateway import make_request, make_get_request, make_post_request, execute_with_circuit_breaker
-    from .shared_utilities import (
+    from shared_utilities import (
         create_operation_context, close_operation_context, 
         handle_operation_error, cache_operation_result
     )
@@ -166,7 +166,7 @@ def batch_get_states(
     cache_ttl: int = HA_CACHE_TTL_STATE
 ) -> Dict[str, Any]:
     """Batch retrieve entity states with circuit breaker."""
-    from .shared_utilities import (
+    from shared_utilities import (
         create_operation_context, close_operation_context, 
         handle_operation_error, cache_operation_result
     )
@@ -215,7 +215,7 @@ def call_ha_service(
     service_data: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """Call Home Assistant service with circuit breaker."""
-    from .shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
     
     context = create_operation_context('ha_common', 'call_service', 
                                       domain=domain, service=service, entity_id=entity_id)
@@ -249,7 +249,7 @@ def batch_call_service(
     ha_config: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """Batch call multiple services with circuit breaker."""
-    from .shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
     
     context = create_operation_context('ha_common', 'batch_call_service', count=len(operations))
     
@@ -280,7 +280,7 @@ def get_entity_state(
     use_cache: bool = True
 ) -> Dict[str, Any]:
     """Get entity state with circuit breaker and caching."""
-    from .shared_utilities import cache_operation_result
+    from shared_utilities import cache_operation_result
     
     if use_cache:
         cache_data = get_consolidated_cache()
@@ -311,7 +311,7 @@ def get_entity_state(
 
 def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
     """Check if Home Assistant is available using circuit breaker."""
-    from .shared_utilities import create_operation_context, close_operation_context
+    from shared_utilities import create_operation_context, close_operation_context
     
     context = create_operation_context('ha_common', 'availability_check')
     
