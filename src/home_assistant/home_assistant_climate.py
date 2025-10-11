@@ -1,7 +1,7 @@
 """
-Home Assistant Climate - Gateway-Optimized Climate Control
-Version: 2025.10.03.02
-Description: HVAC and climate device control with full gateway integration
+home_assistant_climate.py
+Version: 2025.10.11.01
+Description: Home Assistant HVAC and Climate Device Control
 
 Copyright 2025 Joseph Hersey
 
@@ -56,7 +56,7 @@ class HAClimateManager(HABaseManager):
         target_temp_low: Optional[float] = None
     ) -> Dict[str, Any]:
         """Set climate device temperature with circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -120,7 +120,7 @@ class HAClimateManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Set HVAC mode with circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -177,7 +177,7 @@ class HAClimateManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Set climate preset mode with circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -232,7 +232,7 @@ class HAClimateManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get current climate device state with caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -289,7 +289,7 @@ class HAClimateManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List all climate devices with caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
