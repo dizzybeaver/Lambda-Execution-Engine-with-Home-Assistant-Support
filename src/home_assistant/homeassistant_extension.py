@@ -63,7 +63,8 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
         elif namespace == 'Alexa.Authorization' and name == 'AcceptGrant':
             # Store OAuth grant code for account linking
             result = manager.handle_accept_grant(directive)
-            return _create_accept_grant_response(header)
+            result = manager.handle_accept_grant(directive)
+            return result
             
         else:
             log_error(f"Unsupported directive: {namespace}.{name}")
