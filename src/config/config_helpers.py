@@ -1,6 +1,6 @@
 """
-Configuration Helpers - Utility Functions for Configuration Access
-Version: 2025.10.03.01
+config_helpers.py
+Version: 2025.10.11.01
 Description: Helper functions for accessing configuration throughout the system
 
 Copyright 2025 Joseph Hersey
