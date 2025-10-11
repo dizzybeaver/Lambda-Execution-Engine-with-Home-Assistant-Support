@@ -1,7 +1,7 @@
 """
-Home Assistant Notifications - Gateway-Optimized Notification & TTS Management
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated notification management with zero custom error handling
+home_assistant_notifications.py
+Version: 2025.10.11.01
+Description: Home Assistant Notification & TTS Management
 
 Copyright 2025 Joseph Hersey
 
@@ -62,7 +62,7 @@ class HANotificationManager:
         language: str = "en-US"
     ) -> Dict[str, Any]:
         """Send TTS announcement with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -142,7 +142,7 @@ class HANotificationManager:
         notification_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Send persistent notification with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -201,7 +201,7 @@ class HANotificationManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Dismiss notification with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -275,7 +275,7 @@ class HANotificationManager:
     
     def _get_available_media_players(self, config: Dict[str, Any]) -> List[str]:
         """Get available media players with caching."""
-        from .shared_utilities import cache_operation_result
+        from shared_utilities import cache_operation_result
         
         def _get_players():
             response = batch_get_states(None, config, use_cache=True)

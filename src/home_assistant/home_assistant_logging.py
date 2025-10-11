@@ -1,52 +1,21 @@
 """
-home_assistant_logging.py - ULTRA-OPTIMIZED: Generic HA Logging with Maximum Gateway Utilization
-Version: 2025.09.25.03
-Description: Ultra-optimized HA logging using single generic function with operation type enum
+home_assistant_logging.py
+Version: 2025.10.11.01
+Description: Home Assistant Logging using single generic function with operation type enum
 
-ULTRA-OPTIMIZATIONS APPLIED:
-- ✅ ELIMINATED: All 12 thin wrapper functions (60% memory reduction)
-- ✅ CONSOLIDATED: Single generic HA logging operation function
-- ✅ MAXIMIZED: Gateway function utilization (logging.py, metrics.py, utility.py)
-- ✅ GENERICIZED: All logging operations use single function with operation enum
-- ✅ OPTIMIZED: Context-aware logging with correlation IDs
-- ✅ STREAMLINED: Direct gateway interface usage
+Copyright 2025 Joseph Hersey
 
-THIN WRAPPERS ELIMINATED:
-- record_ha_success() -> use generic_ha_logging_operation(RECORD_SUCCESS)
-- record_ha_failure() -> use generic_ha_logging_operation(RECORD_FAILURE)
-- is_ha_healthy() -> use generic_ha_logging_operation(CHECK_HEALTH)
-- get_ha_health_status() -> use generic_ha_logging_operation(GET_STATUS)
-- get_ha_health_trend() -> use generic_ha_logging_operation(GET_TREND)
-- get_ha_error_rate() -> use generic_ha_logging_operation(GET_ERROR_RATE)
-- get_ha_recommendations() -> use generic_ha_logging_operation(GET_RECOMMENDATIONS)
-- log_ha_operation() -> use generic_ha_logging_operation(LOG_OPERATION)
-- log_ha_connection_event() -> use generic_ha_logging_operation(LOG_CONNECTION)
-- setup_ha_logging() -> use generic_ha_logging_operation(SETUP_LOGGING)
-- cleanup_ha_logging() -> use generic_ha_logging_operation(CLEANUP_LOGGING)
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-ARCHITECTURE:
-- Uses logging.py primary interface functions for all operations
-- Maintains same external API with ultra-optimized internals
-- Lambda-optimized for 128MB memory constraint
-- Follows PROJECT_ARCHITECTURE_REFERENCE.md guidelines
-- 65% memory reduction through function consolidation
+       http://www.apache.org/licenses/LICENSE-2.0
 
-EXTERNAL API COMPATIBILITY:
-- All existing function signatures preserved through compatibility layer
-- Internal ultra-optimizations transparent to callers
-- Single generic function handles all HA logging operations
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import logging

@@ -1,7 +1,7 @@
 """
-Home Assistant Weather - Gateway-Optimized Weather Data Management
-Version: 2025.10.03.02
-Description: Weather entity data retrieval with full gateway integration
+home_assistant_weather.py
+Version: 2025.10.11.01
+Description: Home Assistant Weather entity Data Management
 
 Copyright 2025 Joseph Hersey
 
@@ -52,7 +52,7 @@ class HAWeatherManager(HABaseManager):
         use_cache: bool = True
     ) -> Dict[str, Any]:
         """Get weather data with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -122,7 +122,7 @@ class HAWeatherManager(HABaseManager):
         days: int = 5
     ) -> Dict[str, Any]:
         """Get weather forecast with circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -170,7 +170,7 @@ class HAWeatherManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get current weather conditions only (no forecast)."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -212,7 +212,7 @@ class HAWeatherManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List all weather entities with caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )

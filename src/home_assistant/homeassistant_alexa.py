@@ -1,6 +1,6 @@
 """
-homeassistant_alexa.py - Alexa Smart Home Integration
-Version: 2025.10.10.04
+homeassistant_alexa.py
+Version: 2025.10.11.01
 Description: Alexa Smart Home API integration using REST API
 
 Copyright 2025 Joseph Hersey

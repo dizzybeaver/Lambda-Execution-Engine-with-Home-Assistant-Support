@@ -1,7 +1,7 @@
 """
-Home Assistant Scripts - Gateway-Optimized Script Execution
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated script management with zero custom error handling
+home_assistant_scripts.py
+Version: 2025.10.11.01
+Description: Home Assistant Script Management
 
 Copyright 2025 Joseph Hersey
 
@@ -58,7 +58,7 @@ class HAScriptManager:
         variables: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Execute script with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -121,7 +121,7 @@ class HAScriptManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List all scripts with caching and circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )

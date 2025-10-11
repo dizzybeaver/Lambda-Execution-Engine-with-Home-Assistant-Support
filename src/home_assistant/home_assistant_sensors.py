@@ -1,7 +1,7 @@
 """
-Home Assistant Sensors - Gateway-Optimized Sensor Data Management
-Version: 2025.10.03.02
-Description: Sensor and binary sensor data retrieval with full gateway integration
+home_assistant_sensors.py
+Version: 2025.10.11.01
+Description: Home Assistant Sensor Data Management
 
 Copyright 2025 Joseph Hersey
 
@@ -52,7 +52,7 @@ class HASensorsManager(HABaseManager):
         use_cache: bool = True
     ) -> Dict[str, Any]:
         """Get sensor value with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -115,7 +115,7 @@ class HASensorsManager(HABaseManager):
         use_cache: bool = True
     ) -> Dict[str, Any]:
         """Get binary sensor state with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -178,7 +178,7 @@ class HASensorsManager(HABaseManager):
         device_class: Optional[str] = None
     ) -> Dict[str, Any]:
         """List all sensors with optional filtering."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
@@ -263,7 +263,7 @@ class HASensorsManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Get values for multiple sensors in one call."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         

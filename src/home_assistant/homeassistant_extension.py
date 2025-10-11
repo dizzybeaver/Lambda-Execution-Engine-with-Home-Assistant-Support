@@ -1,7 +1,7 @@
 """
-homeassistant_extension.py - Home Assistant Extension for Lambda Execution Engine
-Version: 2025.10.10.03
-Description: Alexa Smart Home integration using REST API
+homeassistant_extension.py
+Version: 2025.10.11.01
+Description: Home Assistant Alexa Smart Home integration using REST API
 
 Copyright 2025 Joseph Hersey
 

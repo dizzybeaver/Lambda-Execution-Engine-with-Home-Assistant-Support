@@ -1,7 +1,7 @@
 """
-Home Assistant Timers - Gateway-Optimized Timer Management
-Version: 2025.10.03.02
-Description: Revolutionary gateway-integrated timer management with zero custom error handling
+home_assistant_timers.py
+Version: 2025.10.11.01
+Description: Home Assistant Timer Management
 
 Copyright 2025 Joseph Hersey
 
@@ -64,7 +64,7 @@ class HATimerManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Start timer with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -132,7 +132,7 @@ class HATimerManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Cancel timer with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -191,7 +191,7 @@ class HATimerManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Pause timer with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -250,7 +250,7 @@ class HATimerManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Finish timer with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -308,7 +308,7 @@ class HATimerManager:
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List timers with circuit breaker and caching."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )

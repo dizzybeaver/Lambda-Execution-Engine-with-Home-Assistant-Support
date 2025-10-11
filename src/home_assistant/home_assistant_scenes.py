@@ -1,7 +1,7 @@
 """
-Home Assistant Scenes - Gateway-Optimized Scene Management
-Version: 2025.10.03.02
-Description: Scene activation and management with full gateway integration
+home_assistant_scenes.py
+Version: 2025.10.11.01
+Description: Home Assistant Scenes Management
 
 Copyright 2025 Joseph Hersey
 
@@ -52,7 +52,7 @@ class HAScenesManager(HABaseManager):
         transition: Optional[int] = None
     ) -> Dict[str, Any]:
         """Activate scene with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context, handle_operation_error
         )
         
@@ -115,7 +115,7 @@ class HAScenesManager(HABaseManager):
         ha_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """List all scenes with caching and circuit breaker."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
