@@ -1,7 +1,7 @@
 """
-Home Assistant Conversation - Gateway-Optimized Conversation Processing
-Version: 2025.10.03.02
-Description: Natural language processing through HA Conversation API with full gateway integration
+home_assistant_conversation.py
+Version: 2025.10.11.01
+Description: Home Assistant Natural Language processing through HA Conversation API
 
 Copyright 2025 Joseph Hersey
 
@@ -55,7 +55,7 @@ class HAConversationManager(HABaseManager):
         language: str = "en"
     ) -> Dict[str, Any]:
         """Process conversation with circuit breaker and operation context."""
-        from .shared_utilities import (
+        from shared_utilities import (
             create_operation_context, close_operation_context,
             handle_operation_error, cache_operation_result
         )
@@ -160,7 +160,7 @@ def process_alexa_conversation(
     session_attributes: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Process Alexa conversation with Alexa-specific formatting."""
-    from .shared_utilities import (
+    from shared_utilities import (
         create_operation_context, close_operation_context, handle_operation_error
     )
     
