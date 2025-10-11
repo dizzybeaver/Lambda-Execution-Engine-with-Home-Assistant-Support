@@ -479,6 +479,13 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
                 from homeassistant_extension import get_ha_diagnostic_info
                 ha_diagnostics = get_ha_diagnostic_info()
                 diagnostics["home_assistant"] = ha_diagnostics.get('data', {})
+               if event.get('show_config'):
+    diagnostics["environment"] = {
+        "HA_BASE_URL": os.getenv('HA_BASE_URL'),
+        "HA_TOKEN": os.getenv('HA_TOKEN', '')[0:20] + '...',  # Show first 20 chars
+        "HOME_ASSISTANT_ENABLED": os.getenv('HOME_ASSISTANT_ENABLED'),
+        "USE_PARAMETER_STORE": os.getenv('USE_PARAMETER_STORE')
+    }
             except Exception as e:
                 diagnostics["home_assistant_error"] = str(e)
 
