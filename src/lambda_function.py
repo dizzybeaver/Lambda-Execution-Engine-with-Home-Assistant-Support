@@ -50,8 +50,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         request_type = _determine_request_type(event)
         log_debug(f"Processing request type: {request_type}")
         
-        if not validate_request(event):
-            log_error("Request validation failed")
+        # Skip validation for Alexa directives
+if 'directive' not in event and not validate_request(event):
+    log_error("Request validation failed")
             increment_counter("validation_failures")
             return format_response(400, {"error": "Invalid request"})
         
