@@ -2,28 +2,22 @@
 gateway.py
 Version: 2025.10.11.01
 Description: Gateway Architecture Interface Module
-
 Copyright 2025 Joseph Hersey
-
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
-
        http://www.apache.org/licenses/LICENSE-2.0
-
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
 """
-
 import json
 from typing import Dict, Any, Optional
 from enum import Enum
 
 # ===== GATEWAY INTERFACE ENUMERATION =====
-
 class GatewayInterface(Enum):
     """Enumeration of all available gateway interfaces."""
     CACHE = "cache"
@@ -38,7 +32,6 @@ class GatewayInterface(Enum):
     CIRCUIT_BREAKER = "circuit_breaker"
 
 # ===== FAST PATH OPTIMIZATION =====
-
 _FAST_PATH_ENABLED = True
 _FAST_PATH_STATS = {
     'total_calls': 0,
@@ -47,7 +40,6 @@ _FAST_PATH_STATS = {
 }
 
 # ===== LAMBDA INITIALIZATION =====
-
 def initialize_lambda():
     """
     Initialize Lambda execution environment.
@@ -56,7 +48,6 @@ def initialize_lambda():
     pass
 
 # ===== CORE GATEWAY ROUTING =====
-
 def execute_operation(interface: GatewayInterface, operation: str, *args, **kwargs):
     """
     Universal gateway routing with lazy loading.
@@ -64,7 +55,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
     """
     global _FAST_PATH_STATS
     _FAST_PATH_STATS['total_calls'] += 1
-    
+
     if interface == GatewayInterface.CACHE:
         from cache_core import (
             _execute_get_implementation,
@@ -72,7 +63,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_delete_implementation,
             _execute_clear_implementation
         )
-        
+
         if operation == 'get':
             return _execute_get_implementation(kwargs.get('key'))
         elif operation == 'set':
@@ -87,7 +78,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _execute_clear_implementation()
         else:
             raise ValueError(f"Unknown CACHE operation: {operation}")
-    
+
     elif interface == GatewayInterface.LOGGING:
         from logging_core import (
             _execute_log_info_implementation,
@@ -95,7 +86,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_log_warning_implementation,
             _execute_log_debug_implementation
         )
-        
+
         if operation == 'log_info':
             return _execute_log_info_implementation(
                 kwargs.get('message'),
@@ -118,7 +109,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             )
         else:
             raise ValueError(f"Unknown LOGGING operation: {operation}")
-    
+
     elif interface == GatewayInterface.SECURITY:
         from security_core import (
             _execute_validate_request_implementation,
@@ -126,7 +117,7 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_encrypt_data_implementation,
             _execute_decrypt_data_implementation
         )
-        
+
         if operation == 'validate_request':
             return _execute_validate_request_implementation(kwargs.get('request_data'))
         elif operation == 'validate_token':
@@ -137,14 +128,14 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _execute_decrypt_data_implementation(kwargs.get('encrypted_data'))
         else:
             raise ValueError(f"Unknown SECURITY operation: {operation}")
-    
+
     elif interface == GatewayInterface.METRICS:
         from metrics_core import (
             _execute_record_metric_implementation,
             _execute_increment_counter_implementation,
             _execute_get_stats_implementation
         )
-        
+
         if operation == 'record':
             return _execute_record_metric_implementation(
                 kwargs.get('metric_name'),
@@ -160,20 +151,20 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _execute_get_stats_implementation()
         else:
             raise ValueError(f"Unknown METRICS operation: {operation}")
-    
+
     elif interface == GatewayInterface.CONFIG:
-           from config_core import (
-                _initialize_implementation,
-                _get_parameter_implementation,
-                _set_parameter_implementation,
-                _get_category_implementation,
-                _reload_implementation,
-                _switch_preset_implementation,
-                _get_state_implementation,
-                _load_environment_implementation,
-                _load_file_implementation,
-                _validate_all_implementation
-         )
+        from config_core import (
+            _initialize_implementation,
+            _get_parameter_implementation,
+            _set_parameter_implementation,
+            _get_category_implementation,
+            _reload_implementation,
+            _switch_preset_implementation,
+            _get_state_implementation,
+            _load_environment_implementation,
+            _load_file_implementation,
+            _validate_all_implementation
+        )
 
         if operation == 'initialize':
             return _initialize_implementation()
@@ -211,11 +202,11 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _validate_all_implementation()
         else:
             raise ValueError(f"Unknown CONFIG operation: {operation}")
-    
+
     elif interface == GatewayInterface.UTILITY:
         from utility_core import _UTILITY
         import uuid
-        
+
         if operation == 'success_response':
             message = kwargs.get('message', '')
             data = kwargs.get('data')
@@ -245,13 +236,13 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return data
         else:
             raise ValueError(f"Unknown UTILITY operation: {operation}")
-    
+
     elif interface == GatewayInterface.CIRCUIT_BREAKER:
         from circuit_breaker_core import (
             _execute_with_circuit_breaker_implementation,
             _get_circuit_state_implementation
         )
-        
+
         if operation == 'execute':
             return _execute_with_circuit_breaker_implementation(
                 kwargs.get('circuit_name'),
@@ -263,12 +254,11 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             return _get_circuit_state_implementation(kwargs.get('circuit_name'))
         else:
             raise ValueError(f"Unknown CIRCUIT_BREAKER operation: {operation}")
-    
+
     else:
         raise ValueError(f"Unknown interface: {interface}")
 
 # ===== CACHE INTERFACE FUNCTIONS =====
-
 def cache_get(key: str):
     """Get value from cache."""
     return execute_operation(GatewayInterface.CACHE, 'get', key=key)
@@ -286,7 +276,6 @@ def cache_clear():
     return execute_operation(GatewayInterface.CACHE, 'clear')
 
 # ===== LOGGING INTERFACE FUNCTIONS =====
-
 def log_info(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log info message."""
     if extra is None:
@@ -320,7 +309,6 @@ def log_debug(message: str, error: Optional[Exception] = None, extra: Optional[D
     return execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, error=error, extra=extra)
 
 # ===== SECURITY INTERFACE FUNCTIONS =====
-
 def validate_request(request_data: Dict[str, Any]) -> bool:
     """Validate request."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_request', request_data=request_data)
@@ -338,7 +326,6 @@ def decrypt_data(encrypted_data: str) -> str:
     return execute_operation(GatewayInterface.SECURITY, 'decrypt', encrypted_data=encrypted_data)
 
 # ===== METRICS INTERFACE FUNCTIONS =====
-
 def record_metric(metric_name: str, value: float = 1.0, dimensions: Optional[Dict[str, str]] = None):
     """Record metric."""
     return execute_operation(GatewayInterface.METRICS, 'record', metric_name=metric_name, value=value, dimensions=dimensions)
@@ -348,7 +335,6 @@ def increment_counter(counter_name: str, value: int = 1):
     return execute_operation(GatewayInterface.METRICS, 'increment', counter_name=counter_name, value=value)
 
 # ===== CONFIG INTERFACE FUNCTIONS =====
-
 def get_parameter(key: str, default: Any = None):
     """Get configuration parameter."""
     return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
@@ -370,7 +356,6 @@ def update_category_config(category: str, updates: Dict[str, Any]):
     return execute_operation(GatewayInterface.CONFIG, 'update_category_config', category=category, updates=updates)
 
 # ===== HTTP CLIENT INTERFACE FUNCTIONS =====
-
 def make_request(method: str, url: str, **kwargs):
     """Make HTTP request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'request', method=method, url=url, **kwargs)
@@ -384,7 +369,6 @@ def make_post_request(url: str, data: Dict[str, Any], **kwargs):
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, data=data, **kwargs)
 
 # ===== SINGLETON INTERFACE FUNCTIONS =====
-
 def get_singleton(singleton_name: str):
     """Get singleton instance."""
     return execute_operation(GatewayInterface.SINGLETON, 'get', singleton_name=singleton_name)
@@ -394,7 +378,6 @@ def register_singleton(singleton_name: str, instance):
     return execute_operation(GatewayInterface.SINGLETON, 'register', singleton_name=singleton_name, instance=instance)
 
 # ===== INITIALIZATION INTERFACE FUNCTIONS =====
-
 def execute_initialization_operation(init_type: str):
     """Execute initialization operation."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'execute', init_type=init_type)
@@ -404,7 +387,6 @@ def record_initialization_stage(stage: str, status: str):
     return execute_operation(GatewayInterface.INITIALIZATION, 'record_stage', stage=stage, status=status)
 
 # ===== UTILITY INTERFACE FUNCTIONS =====
-
 def create_success_response(message: str, data: Any = None) -> Dict[str, Any]:
     """Create success response."""
     return execute_operation(GatewayInterface.UTILITY, 'success_response', message=message, data=data)
@@ -426,18 +408,17 @@ def sanitize_response_data(data: Any) -> Any:
     return execute_operation(GatewayInterface.UTILITY, 'sanitize', data=data)
 
 # ===== LAMBDA RESPONSE FORMATTER =====
-
 def format_response(status_code: int, body: Any) -> Dict[str, Any]:
     """
     Format HTTP response for AWS Lambda/API Gateway.
-    
+
     Creates standard Lambda proxy integration response format.
     Used by lambda_function.py to format API Gateway responses.
-    
+
     Args:
         status_code: HTTP status code (200, 400, 500, etc.)
         body: Response body (will be JSON-encoded)
-    
+
     Returns:
         Dict with statusCode, body, and headers for API Gateway
     """
@@ -451,7 +432,6 @@ def format_response(status_code: int, body: Any) -> Dict[str, Any]:
     }
 
 # ===== GATEWAY STATS =====
-
 def get_gateway_stats() -> Dict[str, Any]:
     """Get gateway performance statistics."""
     return {
