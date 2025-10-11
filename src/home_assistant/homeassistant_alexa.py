@@ -263,7 +263,44 @@ class AlexaSmartHomeManager:
                 'INTERNAL_ERROR',
                 str(e)
             )
-    
+
+      def handle_accept_grant(
+             """Handle OAuth AcceptGrant directive."""
+            self, directive: Dict[str, Any]
+            ) -> Dict[str, Any]:
+
+         try:
+           from config_manager import store_parameter
+        
+           payload = directive.get('payload', {})
+           grant = payload.get('grant', {})
+           code = grant.get('code', '')
+        
+           # Store grant code in Parameter Store
+           store_parameter('alexa_grant_code', code)
+        
+           log_info("AcceptGrant processed successfully")
+        
+           return {
+            "event": {
+                "header": {
+                    "namespace": "Alexa.Authorization",
+                    "name": "AcceptGrant.Response",
+                    "payloadVersion": "3",
+                    "messageId": directive.get('header', {}).get('messageId')
+                },
+                "payload": {}
+            }
+        }
+        
+       except Exception as e:
+        log_error(f"AcceptGrant failed: {str(e)}")
+        return self._create_error_response(
+            directive.get('header', {}),
+            'ACCEPT_GRANT_FAILED',
+            str(e)
+        )
+   
     def _build_endpoint(self, state: Dict[str, Any], domain: str) -> Optional[Dict[str, Any]]:
         """Build Alexa endpoint from HA state."""
         entity_id = state.get('entity_id')
