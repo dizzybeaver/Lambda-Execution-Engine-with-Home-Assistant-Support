@@ -1,5 +1,5 @@
 """
-debug.py - Debug Gateway Interface (SUGA Compliant)
+debug.py
 Version: 2025.10.02.01
 Description: Debug gateway interface that delegates to debug_core.py
 
@@ -19,7 +19,7 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-from .debug_core import generic_debug_operation, DebugOperation
+from debug_core import generic_debug_operation, DebugOperation
 
 # ===== PRIMARY GATEWAY INTERFACE FUNCTIONS =====
 
