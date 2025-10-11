@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "session": {
+    "new": false,
+    "sessionId": "amzn1.echo-api.session.test-session-id",
+    "application": {
+      "applicationId": "amzn1.ask.skill.test-skill-id"
+    },
+    "user": {
+      "userId": "amzn1.ask.account.test-user-id"
+    }
+  },
+  "request": {
+    "type": "IntentRequest",
+    "requestId": "amzn1.echo-api.request.test-request-id",
+    "timestamp": "2025-10-11T21:46:53Z",
+    "locale": "en-US",
+    "intent": {
+      "name": "TalkToHomeAssistant",
+      "confirmationStatus": "NONE",
+      "slots": {
+        "Message": {
+          "name": "Message",
+          "value": "turn on the kitchen lights",
+          "confirmationStatus": "NONE"
+        }
+      }
+    }
+  }
+}
