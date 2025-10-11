@@ -1,6 +1,6 @@
 """
-Configuration Loader - Tiered Configuration System
-Version: 2025.10.03.01
+config_loader.py
+Version: 2025.10.11.01
 Description: Load configuration from environment variables and config files with preset support
 
 Copyright 2025 Joseph Hersey
