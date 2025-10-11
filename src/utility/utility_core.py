@@ -1,20 +1,7 @@
 """
-Utility Core - Common Utility Functions with Template Optimization
+utility_core.py
 Version: 2025.10.02.01
-Daily Revision: Template Optimization Phase 2
-
-ARCHITECTURE: UTILITY CORE IMPLEMENTATION
-- Template-based Lambda response generation (80% faster)
-- Pre-compiled response wrapper structures
-- Fast-path Lambda response formatting
-- Common utility functions
-
-OPTIMIZATION: Template Optimization Phase 2
-- ADDED: Pre-compiled Lambda response template
-- ADDED: Fast Lambda wrapper generation
-- ADDED: Default headers caching
-- Performance: 30-40µs savings per invocation
-- Memory: Reduced dict construction overhead
+Description: Common Utility Functions with Template Optimization
 
 Copyright 2025 Joseph Hersey
 

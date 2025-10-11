@@ -1,21 +1,21 @@
 """
-utility_cost.py - CONSOLIDATED: All Cost Protection Implementation
-Version: 2025.9.17-CONSOLIDATED
+utility_cost.py
+Version: 2025.9.17.01
 Description: Single implementation for ALL cost protection operations to eliminate duplicates
-Directed by: dizzybeaver
-Enhanced by: Claude 4 Sonnet
 
-CONSOLIDATES:
-- Cost protection state management (4+ different implementations)
-- Service usage tracking (scattered across modules)
-- Emergency mode detection (3+ different implementations)
-- Cost category checking (multiple try/except patterns)
-- AWS Free Tier limit enforcement
+Copyright 2025 Joseph Hersey
 
-PRIMARY FILE: utility.py (interface)
-SECONDARY FILE: utility_cost.py (implementation)
-LOGGING PRIMARY: logging.py (interface)  
-LOGGING SECONDARY: logging_cost_monitor.py (implementation)
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
@@ -904,7 +904,7 @@ def is_cost_protection_active() -> bool:
     
     REPLACES ALL:
     - try/except ImportError patterns across all modules
-    - from .logging import is_cost_protection_active (4+ locations)
+    - from logging import is_cost_protection_active (4+ locations)
     - Scattered cost protection checking
     """
     return get_cost_protection_manager().is_cost_protection_active()

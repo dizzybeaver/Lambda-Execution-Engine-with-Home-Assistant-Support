@@ -1,26 +1,7 @@
 """
-utility.py - Testing, Validation, and Debugging Primary Gateway Interface
+utility.py 
 Version: 2025.10.05.01
-Description: Ultra-pure gateway for utility operations - pure delegation only
-
-DEPLOYMENT FIX: Changed from relative import to absolute import
-
-ARCHITECTURE: PRIMARY GATEWAY INTERFACE
-- Function declarations ONLY - no implementation code
-- Pure delegation to utility_core.py
-- External access point for utility operations
-- Ultra-optimized for 128MB Lambda constraint
-
-PRIMARY GATEWAY FUNCTIONS:
-- validate_string_input() - String input validation and sanitization
-- create_success_response() - Success response formatting
-- create_error_response() - Error response formatting
-- sanitize_response_data() - Response data sanitization
-- get_current_timestamp() - Timestamp generation
-- detect_circular_imports() - Circular import pattern detection
-- validate_import_architecture() - Import architecture validation
-- monitor_imports_runtime() - Runtime import monitoring
-- apply_immediate_fixes() - Automatic import issue fixes
+Description: Testing, Validation, and Debugging Primary Gateway Interface
 
 Copyright 2025 Joseph Hersey
 
