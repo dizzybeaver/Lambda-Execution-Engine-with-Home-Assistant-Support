@@ -1,16 +1,7 @@
 """
-config_core.py - Enhanced Configuration Core with Complete Consolidation
-Version: 2025.10.04.01
+config_core.py
+Version: 2025.10.11.01
 Description: Unified configuration management with dynamic reload, multi-source loading, and validation
-
-ARCHITECTURE: CORE IMPLEMENTATION - INTERNAL ONLY
-- Lazy-loaded by gateway.py
-- Uses gateway for all operations (cache, logging, metrics)
-- Dynamic configuration reload without Lambda restart
-- Configuration versioning and validation
-- Multi-source loading: environment, files, Home Assistant, user overrides
-
-Gateway System: SUGA + LIGS + ZAFP + LUGS Compatible
 
 Copyright 2025 Joseph Hersey
 
