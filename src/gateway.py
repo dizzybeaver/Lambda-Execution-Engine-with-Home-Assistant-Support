@@ -63,7 +63,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_delete_implementation,
             _execute_clear_implementation
         )
-
         if operation == 'get':
             return _execute_get_implementation(kwargs.get('key'))
         elif operation == 'set':
@@ -86,7 +85,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_log_warning_implementation,
             _execute_log_debug_implementation
         )
-
         if operation == 'log_info':
             return _execute_log_info_implementation(
                 kwargs.get('message'),
@@ -117,7 +115,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_encrypt_data_implementation,
             _execute_decrypt_data_implementation
         )
-
         if operation == 'validate_request':
             return _execute_validate_request_implementation(kwargs.get('request_data'))
         elif operation == 'validate_token':
@@ -135,7 +132,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_increment_counter_implementation,
             _execute_get_stats_implementation
         )
-
         if operation == 'record':
             return _execute_record_metric_implementation(
                 kwargs.get('metric_name'),
@@ -165,7 +161,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _load_file_implementation,
             _validate_all_implementation
         )
-
         if operation == 'initialize':
             return _initialize_implementation()
         elif operation == 'get_parameter':
@@ -206,7 +201,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
     elif interface == GatewayInterface.UTILITY:
         from utility_core import _UTILITY
         import uuid
-
         if operation == 'success_response':
             message = kwargs.get('message', '')
             data = kwargs.get('data')
@@ -242,7 +236,6 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
             _execute_with_circuit_breaker_implementation,
             _get_circuit_state_implementation
         )
-
         if operation == 'execute':
             return _execute_with_circuit_breaker_implementation(
                 kwargs.get('circuit_name'),
@@ -411,14 +404,11 @@ def sanitize_response_data(data: Any) -> Any:
 def format_response(status_code: int, body: Any) -> Dict[str, Any]:
     """
     Format HTTP response for AWS Lambda/API Gateway.
-
     Creates standard Lambda proxy integration response format.
     Used by lambda_function.py to format API Gateway responses.
-
     Args:
         status_code: HTTP status code (200, 400, 500, etc.)
         body: Response body (will be JSON-encoded)
-
     Returns:
         Dict with statusCode, body, and headers for API Gateway
     """
