@@ -433,4 +433,60 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
                         "HA_BASE_URL": os.getenv('HA_BASE_URL'),
                         "HA_TOKEN": os.getenv('HA_TOKEN', '')[0:20] + '...',  # Show first 20 chars
                         "HOME_ASSISTANT_ENABLED": os.getenv('HOME_ASSISTANT_ENABLED'),
-                        "USE_PARAMETER_STORE": os.getenv('USE_PARAMETER_ST
+                        "USE_PARAMETER_STORE": os.getenv('USE_PARAMETER_STORE')
+                    }
+            except Exception as e:
+                diagnostics["home_assistant_error"] = str(e)
+
+        if test_type in ['full', 'configuration']:
+            try:
+                from homeassistant_extension import get_assistant_name_status
+                name_status = get_assistant_name_status()
+                diagnostics["assistant_name"] = name_status.get('data', {})
+            except Exception as e:
+                diagnostics["assistant_name_error"] = str(e)
+
+        return format_response(200, diagnostics)
+
+    except Exception as e:
+        log_error(f"Diagnostic request failed: {str(e)}")
+        return format_response(500, {"error": str(e)})
+
+def _handle_api_gateway_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Handle API Gateway requests."""
+    try:
+        method = event.get('httpMethod', 'GET')
+        path = event.get('path', '/')
+
+        if path == '/health' and method == 'GET':
+            return _handle_health_check(event, context)
+        elif path == '/diagnostics' and method in ['GET', 'POST']:
+            diagnostic_event = {
+                'test_type': event.get('queryStringParameters', {}).get('type', 'full') if method == 'GET' else 'full'
+            }
+            if event.get('queryStringParameters', {}).get('show_config'):
+                diagnostic_event['show_config'] = True
+            return _handle_diagnostic_request(diagnostic_event, context)
+        elif path == '/analytics' and method == 'GET':
+            return _handle_analytics_request(event, context)
+        else:
+            return format_response(404, {"error": "Not found"})
+
+    except Exception as e:
+        log_error(f"API Gateway request failed: {str(e)}")
+        return format_response(500, {"error": str(e)})
+
+def _create_alexa_response(speech_text: str, should_end_session: bool = True) -> Dict[str, Any]:
+    """Create standardized Alexa response."""
+    return {
+        "version": "1.0",
+        "response": {
+            "outputSpeech": {
+                "type": "PlainText",
+                "text": speech_text
+            },
+            "shouldEndSession": should_end_session
+        }
+    }
+
+# EOF
