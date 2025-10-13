@@ -1,5 +1,8 @@
 # This project is in developement Flux, Please expect it to be broke.
 
+# When trying out for yourself, move all .py files to the root directory of the zip file you make before deployment.
+## I only keep them seperated here for ease of finding them.
+
 ### 1. Consider this project in Alpha Stage, I will update with changes as I go. 
 ### 2. The instruction while ok and not complete but will worked on and simplified as I go.
 ### 3. I will do my best to address any breaking issues after it becomes fully functional.
