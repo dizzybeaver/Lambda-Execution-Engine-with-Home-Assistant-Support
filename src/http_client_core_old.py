@@ -1,23 +1,7 @@
 """
-HTTP Client Core - HTTP Request Handling with Advanced Features
+http_client_core.py
 Version: 2025.10.02.01
 Description: HTTP client with retry, connection pooling, and transformation support
-
-ARCHITECTURE: CORE IMPLEMENTATION - INTERNAL ONLY
-- Lazy-loaded by gateway.py
-- Uses shared_utilities for ALL error handling, caching, metrics, validation
-- Integrated circuit breaker protection for all external HTTP calls
-- Zero custom error handling - 100% shared_utilities.handle_operation_error()
-
-OPTIMIZATION: Phase 3 Complete
-- ADDED: Exponential backoff retry with configurable attempts
-- ADDED: Connection pooling with DNS caching and SSL session reuse
-- ADDED: Request/response transformation pipeline support
-- ADDED: Enhanced validation and error classification
-- Reliability improvement: 55% (retry + circuit breaker + pooling)
-- Performance improvement: 15-20% (connection pooling)
-
-Revolutionary Gateway Optimization: SUGA + LIGS + ZAFP + LUGS Compatible
 """
 
 import json
