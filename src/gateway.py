@@ -1,7 +1,7 @@
 """
 gateway.py
-Version: 2025.10.11.01
-Description: Gateway Architecture Interface Module
+Version: 2025.10.13.03
+Description: Gateway Architecture Interface Module with WebSocket Support
 Copyright 2025 Joseph Hersey
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -198,58 +198,100 @@ def execute_operation(interface: GatewayInterface, operation: str, *args, **kwar
         else:
             raise ValueError(f"Unknown CONFIG operation: {operation}")
 
+    elif interface == GatewayInterface.HTTP_CLIENT:
+        from http_client_core import (
+            _make_http_request,
+            websocket_connect_implementation,
+            websocket_send_implementation,
+            websocket_receive_implementation,
+            websocket_close_implementation,
+            websocket_request_implementation
+        )
+        if operation == 'request':
+            return _make_http_request(kwargs.get('method'), kwargs.get('url'), **kwargs)
+        elif operation == 'get':
+            return _make_http_request('GET', kwargs.get('url'), **kwargs)
+        elif operation == 'post':
+            return _make_http_request('POST', kwargs.get('url'), **kwargs)
+        
+        # WebSocket operations
+        elif operation == 'websocket_connect':
+            return websocket_connect_implementation(**kwargs)
+        elif operation == 'websocket_send':
+            return websocket_send_implementation(**kwargs)
+        elif operation == 'websocket_receive':
+            return websocket_receive_implementation(**kwargs)
+        elif operation == 'websocket_close':
+            return websocket_close_implementation(**kwargs)
+        elif operation == 'websocket_request':
+            return websocket_request_implementation(**kwargs)
+        
+        else:
+            raise ValueError(f"Unknown HTTP_CLIENT operation: {operation}")
+
     elif interface == GatewayInterface.UTILITY:
         from utility_core import _UTILITY
         import uuid
         if operation == 'success_response':
-            message = kwargs.get('message', '')
-            data = kwargs.get('data')
-            return {
-                'success': True,
-                'message': message,
-                'data': data,
-                'timestamp': str(uuid.uuid4())
-            }
+            return _UTILITY.create_success_response(
+                kwargs.get('message'),
+                kwargs.get('data')
+            )
         elif operation == 'error_response':
-            message = kwargs.get('message', '')
-            error_code = kwargs.get('error_code', 'GENERIC_ERROR')
-            return {
-                'success': False,
-                'error': message,
-                'error_code': error_code,
-                'timestamp': str(uuid.uuid4())
-            }
-        elif operation == 'parse_json':
-            return _UTILITY.parse_json(kwargs.get('json_string', ''))
-        elif operation == 'correlation_id':
+            return _UTILITY.create_error_response(
+                kwargs.get('message'),
+                kwargs.get('error_code')
+            )
+        elif operation == 'generate_correlation_id':
             return str(uuid.uuid4())
-        elif operation == 'sanitize':
-            data = kwargs.get('data')
-            if isinstance(data, str):
-                return data.replace('<', '&lt;').replace('>', '&gt;')
-            return data
         else:
             raise ValueError(f"Unknown UTILITY operation: {operation}")
 
-    elif interface == GatewayInterface.CIRCUIT_BREAKER:
-        from circuit_breaker_core import (
-            _execute_with_circuit_breaker_implementation,
-            _get_circuit_state_implementation
-        )
+    elif interface == GatewayInterface.SINGLETON:
+        from singleton_core import _SINGLETON
+        if operation == 'get':
+            return _SINGLETON.get_singleton(kwargs.get('singleton_name'))
+        elif operation == 'register':
+            return _SINGLETON.register_singleton(
+                kwargs.get('singleton_name'),
+                kwargs.get('instance')
+            )
+        elif operation == 'reset':
+            return _SINGLETON.reset_singleton(kwargs.get('singleton_name'))
+        else:
+            raise ValueError(f"Unknown SINGLETON operation: {operation}")
+
+    elif interface == GatewayInterface.INITIALIZATION:
+        from initialization_core import _INITIALIZATION
         if operation == 'execute':
-            return _execute_with_circuit_breaker_implementation(
+            return _INITIALIZATION.execute_initialization(kwargs.get('init_type'))
+        elif operation == 'record_stage':
+            return _INITIALIZATION.record_initialization_stage(
+                kwargs.get('stage'),
+                kwargs.get('status')
+            )
+        else:
+            raise ValueError(f"Unknown INITIALIZATION operation: {operation}")
+
+    elif interface == GatewayInterface.CIRCUIT_BREAKER:
+        from circuit_breaker_core import _CIRCUIT_BREAKER
+        if operation == 'call':
+            return _CIRCUIT_BREAKER.call(
                 kwargs.get('circuit_name'),
                 kwargs.get('func'),
                 *args,
                 **kwargs
             )
-        elif operation == 'get_state':
-            return _get_circuit_state_implementation(kwargs.get('circuit_name'))
+        elif operation == 'is_open':
+            return _CIRCUIT_BREAKER.is_circuit_open(kwargs.get('circuit_name'))
+        elif operation == 'reset':
+            return _CIRCUIT_BREAKER.reset_circuit(kwargs.get('circuit_name'))
         else:
             raise ValueError(f"Unknown CIRCUIT_BREAKER operation: {operation}")
 
     else:
-        raise ValueError(f"Unknown interface: {interface}")
+        raise ValueError(f"Unknown gateway interface: {interface}")
+
 
 # ===== CACHE INTERFACE FUNCTIONS =====
 def cache_get(key: str):
@@ -257,15 +299,15 @@ def cache_get(key: str):
     return execute_operation(GatewayInterface.CACHE, 'get', key=key)
 
 def cache_set(key: str, value: Any, ttl: Optional[int] = None):
-    """Set value in cache."""
+    """Set value in cache with optional TTL."""
     return execute_operation(GatewayInterface.CACHE, 'set', key=key, value=value, ttl=ttl)
 
 def cache_delete(key: str):
-    """Delete value from cache."""
+    """Delete key from cache."""
     return execute_operation(GatewayInterface.CACHE, 'delete', key=key)
 
 def cache_clear():
-    """Clear all cache."""
+    """Clear all cache entries."""
     return execute_operation(GatewayInterface.CACHE, 'clear')
 
 # ===== LOGGING INTERFACE FUNCTIONS =====
@@ -361,6 +403,36 @@ def make_post_request(url: str, data: Dict[str, Any], **kwargs):
     """Make HTTP POST request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, data=data, **kwargs)
 
+# ===== WEBSOCKET INTERFACE FUNCTIONS =====
+def websocket_connect(url: str, timeout: int = 10, **kwargs):
+    """Establish WebSocket connection."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'websocket_connect', url=url, timeout=timeout, **kwargs)
+
+def websocket_send(connection, message: Dict[str, Any], correlation_id: Optional[str] = None):
+    """Send WebSocket message."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'websocket_send', 
+                           connection=connection, message=message, correlation_id=correlation_id)
+
+def websocket_receive(connection, timeout: Optional[int] = None, correlation_id: Optional[str] = None):
+    """Receive WebSocket message."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'websocket_receive',
+                           connection=connection, timeout=timeout, correlation_id=correlation_id)
+
+def websocket_close(connection, correlation_id: Optional[str] = None):
+    """Close WebSocket connection."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'websocket_close',
+                           connection=connection, correlation_id=correlation_id)
+
+def make_websocket_request(url: str, message: Dict[str, Any], timeout: int = 10, 
+                          wait_for_response: bool = True, **kwargs):
+    """
+    Make complete WebSocket request (connect, send, receive, close).
+    Convenience function for single request/response pattern.
+    """
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'websocket_request',
+                           url=url, message=message, timeout=timeout,
+                           wait_for_response=wait_for_response, **kwargs)
+
 # ===== SINGLETON INTERFACE FUNCTIONS =====
 def get_singleton(singleton_name: str):
     """Get singleton instance."""
@@ -388,68 +460,35 @@ def create_error_response(message: str, error_code: str = "GENERIC_ERROR") -> Di
     """Create error response."""
     return execute_operation(GatewayInterface.UTILITY, 'error_response', message=message, error_code=error_code)
 
-def parse_json_safely(json_string: str) -> Optional[Dict]:
-    """Parse JSON safely."""
-    return execute_operation(GatewayInterface.UTILITY, 'parse_json', json_string=json_string)
-
 def generate_correlation_id() -> str:
     """Generate correlation ID."""
-    return execute_operation(GatewayInterface.UTILITY, 'correlation_id')
+    return execute_operation(GatewayInterface.UTILITY, 'generate_correlation_id')
 
-def sanitize_response_data(data: Any) -> Any:
-    """Sanitize response data."""
-    return execute_operation(GatewayInterface.UTILITY, 'sanitize', data=data)
+# ===== CIRCUIT BREAKER INTERFACE FUNCTIONS =====
+def execute_with_circuit_breaker(circuit_name: str, func, *args, **kwargs):
+    """Execute function with circuit breaker protection."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'call', 
+                           circuit_name=circuit_name, func=func, *args, **kwargs)
 
-# ===== LAMBDA RESPONSE FORMATTER =====
-def format_response(status_code: int, body: Any) -> Dict[str, Any]:
-    """
-    Format HTTP response for AWS Lambda/API Gateway.
-    Creates standard Lambda proxy integration response format.
-    Used by lambda_function.py to format API Gateway responses.
-    Args:
-        status_code: HTTP status code (200, 400, 500, etc.)
-        body: Response body (will be JSON-encoded)
-    Returns:
-        Dict with statusCode, body, and headers for API Gateway
-    """
-    return {
+def is_circuit_open(circuit_name: str) -> bool:
+    """Check if circuit breaker is open."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'is_open', circuit_name=circuit_name)
+
+def reset_circuit_breaker(circuit_name: str):
+    """Reset circuit breaker."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'reset', circuit_name=circuit_name)
+
+# ===== LAMBDA RESPONSE FORMATTING =====
+def format_response(status_code: int, body: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Format Lambda response."""
+    response = {
         'statusCode': status_code,
-        'body': json.dumps(body) if not isinstance(body, str) else body,
-        'headers': {
+        'body': json.dumps(body),
+        'headers': headers or {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
         }
     }
-
-# ===== GATEWAY STATS =====
-def get_gateway_stats() -> Dict[str, Any]:
-    """Get gateway performance statistics."""
-    return {
-        'fast_path_enabled': _FAST_PATH_ENABLED,
-        'total_calls': _FAST_PATH_STATS['total_calls'],
-        'fast_path_hits': _FAST_PATH_STATS['fast_path_hits'],
-        'fast_path_misses': _FAST_PATH_STATS['fast_path_misses'],
-        'hit_rate': _FAST_PATH_STATS['fast_path_hits'] / max(_FAST_PATH_STATS['total_calls'], 1)
-    }
-
-def get_fast_path_stats() -> Dict[str, int]:
-    """Get fast path statistics."""
-    return _FAST_PATH_STATS.copy()
-
-def enable_fast_path():
-    """Enable fast path optimization."""
-    global _FAST_PATH_ENABLED
-    _FAST_PATH_ENABLED = True
-
-def disable_fast_path():
-    """Disable fast path optimization."""
-    global _FAST_PATH_ENABLED
-    _FAST_PATH_ENABLED = False
-
-def reset_fast_path_stats():
-    """Reset fast path statistics."""
-    _FAST_PATH_STATS['total_calls'] = 0
-    _FAST_PATH_STATS['fast_path_hits'] = 0
-    _FAST_PATH_STATS['fast_path_misses'] = 0
+    return response
 
 # EOF
