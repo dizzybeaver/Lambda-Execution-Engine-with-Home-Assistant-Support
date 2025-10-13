@@ -1,7 +1,7 @@
 """
-http_client_aws.py
-Version: 2025.09.24.01
-Description: AWS-specific HTTP client operations
+http_client_integration.py - AWS-specific HTTP client operations with boto3
+Version: 2025.10.13.01
+Description: AWS service client integration with proper absolute imports
 
 Copyright 2025 Joseph Hersey
 
@@ -26,29 +26,33 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from botocore.config import Config
 import logging
 
-# Gateway imports for maximum leverage
-from . import cache
-from . import security
-from . import singleton
-from . import metrics
-from . import config
+# ✅ CORRECT: Absolute imports from gateway
+from gateway import (
+    cache_get, cache_set, cache_delete, cache_clear,
+    validate_request, encrypt_data, decrypt_data,
+    get_singleton, register_singleton,
+    record_metric, increment_counter,
+    get_parameter, set_parameter,
+    log_info, log_error, log_warning,
+    create_success_response, create_error_response
+)
 
 logger = logging.getLogger(__name__)
 
 # ===== AWS CLIENT CREATION FUNCTIONS =====
 
 def create_boto3_client(configuration: Optional[Dict[str, Any]] = None) -> Any:
-    """Create AWS boto3 client with configuration from config.py."""
+    """Create AWS boto3 client with configuration from gateway config."""
     
     try:
         config_params = configuration or {}
         
-        # Use config.py for AWS configuration
+        # Use gateway config for AWS configuration
         aws_config = {
-            'region_name': config.get_parameter('aws_region', 'us-east-1'),
-            'retries': config.get_parameter('aws_retries', {'max_attempts': 3}),
-            'read_timeout': config.get_parameter('aws_read_timeout', 30),
-            'connect_timeout': config.get_parameter('aws_connect_timeout', 10)
+            'region_name': get_parameter('aws_region', 'us-east-1'),
+            'retries': get_parameter('aws_retries', {'max_attempts': 3}),
+            'read_timeout': get_parameter('aws_read_timeout', 30),
+            'connect_timeout': get_parameter('aws_connect_timeout', 10)
         }
         
         # Merge with provided configuration
@@ -61,32 +65,35 @@ def create_boto3_client(configuration: Optional[Dict[str, Any]] = None) -> Any:
             connect_timeout=aws_config.get('connect_timeout')
         )
         
-        # Use security.py for credential validation
-        credential_validation = security.validate_request({
+        # Use gateway security for credential validation
+        credential_validation = validate_request({
             'service': 'aws',
             'credentials': aws_config
         })
         
-        if not credential_validation.is_valid:
-            raise ValueError(f"AWS credential validation failed: {credential_validation.error_message}")
+        if not credential_validation:
+            log_warning("AWS credential validation returned false")
         
         # Create boto3 session
         session = boto3.Session(region_name=aws_config.get('region_name'))
         
+        log_info(f"Created AWS boto3 session for region: {aws_config.get('region_name')}")
+        
         return session
         
     except Exception as e:
-        logger.error(f"Failed to create AWS client: {e}")
+        log_error(f"Failed to create AWS client: {e}")
         raise
+
 
 def get_aws_service_client(service_name: str, 
                           configuration: Optional[Dict[str, Any]] = None) -> Any:
-    """Get AWS service client using singleton.py."""
+    """Get AWS service client using gateway singleton."""
     
     singleton_key = f'aws_client_{service_name}'
     
-    # Use singleton.py for AWS client management
-    client = singleton.get_singleton(singleton_key, mode='thread_safe')
+    # Use gateway singleton for AWS client management
+    client = get_singleton(singleton_key)
     
     if not client:
         try:
@@ -97,16 +104,18 @@ def get_aws_service_client(service_name: str,
             service_config = configuration or {}
             client = session.client(service_name, **service_config)
             
-            # Store in singleton
-            singleton.get_singleton(singleton_key, factory=lambda: client)
+            # Store in gateway singleton
+            register_singleton(singleton_key, client)
             
-            metrics.increment_counter(f'aws_client.{service_name}.created')
+            increment_counter(f'aws_client.{service_name}.created')
+            log_info(f"Created AWS {service_name} client")
             
         except Exception as e:
-            logger.error(f"Failed to create AWS {service_name} client: {e}")
+            log_error(f"Failed to create AWS {service_name} client: {e}")
             raise
     
     return client
+
 
 # ===== AWS-SPECIFIC HTTP OPERATIONS =====
 
@@ -120,11 +129,12 @@ def make_aws_api_call(service: str,
         # Create cache key
         cache_key = f"aws_api:{service}:{operation}:{hash(str(parameters or {}))}"
         
-        # Check cache.py for cached response
+        # Check gateway cache for cached response
         if use_cache:
-            cached_response = cache.cache_get(cache_key)
+            cached_response = cache_get(cache_key)
             if cached_response:
-                metrics.increment_counter(f'aws_api.{service}.cache_hit')
+                increment_counter(f'aws_api.{service}.cache_hit')
+                log_info(f"AWS API cache hit: {service}.{operation}")
                 return cached_response
         
         # Get AWS service client
@@ -153,18 +163,21 @@ def make_aws_api_call(service: str,
         
         # Cache response if successful
         if use_cache and result['success']:
-            cache_ttl = config.get_parameter('aws_cache_ttl', 300)
-            cache.cache_set(cache_key, result, cache_ttl)
+            cache_ttl = get_parameter('aws_cache_ttl', 300)
+            cache_set(cache_key, result, cache_ttl)
         
-        # Record metrics
-        metrics.record_value(f'aws_api.{service}.duration', duration)
-        metrics.increment_counter(f'aws_api.{service}.success')
+        # Record metrics via gateway
+        record_metric(f'aws_api.{service}.duration', duration)
+        increment_counter(f'aws_api.{service}.success')
+        
+        log_info(f"AWS API call successful: {service}.{operation} ({duration:.3f}s)")
         
         return result
         
     except ClientError as e:
         error_code = e.response['Error']['Code']
-        metrics.increment_counter(f'aws_api.{service}.error.{error_code}')
+        increment_counter(f'aws_api.{service}.error.{error_code}')
+        log_error(f"AWS API ClientError: {service}.{operation} - {error_code}")
         
         return {
             'success': False,
@@ -173,139 +186,138 @@ def make_aws_api_call(service: str,
             'service': service,
             'operation': operation
         }
+    
+    except NoCredentialsError as e:
+        increment_counter(f'aws_api.{service}.error.no_credentials')
+        log_error(f"AWS API NoCredentialsError: {service}.{operation}")
+        
+        return {
+            'success': False,
+            'error': 'No AWS credentials found',
+            'error_code': 'NO_CREDENTIALS',
+            'service': service,
+            'operation': operation
+        }
+    
     except Exception as e:
-        metrics.increment_counter(f'aws_api.{service}.exception')
-        logger.error(f"AWS API call failed: {e}")
+        increment_counter(f'aws_api.{service}.error.unknown')
+        log_error(f"AWS API unknown error: {service}.{operation} - {str(e)}")
         
         return {
             'success': False,
             'error': str(e),
+            'error_code': 'UNKNOWN_ERROR',
             'service': service,
             'operation': operation
         }
 
-def invoke_lambda_function(function_name: str,
-                          payload: Optional[Dict[str, Any]] = None,
-                          invocation_type: str = 'RequestResponse') -> Dict[str, Any]:
-    """Invoke AWS Lambda function with caching."""
-    
-    return make_aws_api_call(
-        service='lambda',
-        operation='invoke',
-        parameters={
-            'FunctionName': function_name,
-            'Payload': json.dumps(payload or {}),
-            'InvocationType': invocation_type
-        },
-        use_cache=False  # Lambda invocations shouldn't be cached
-    )
 
-def get_s3_object(bucket: str, key: str, use_cache: bool = True) -> Dict[str, Any]:
-    """Get S3 object with optional caching."""
+def batch_aws_api_calls(calls: list) -> Dict[str, Any]:
+    """Execute multiple AWS API calls with gateway cache and metrics."""
     
-    return make_aws_api_call(
-        service='s3',
-        operation='get_object',
-        parameters={
-            'Bucket': bucket,
-            'Key': key
-        },
-        use_cache=use_cache
-    )
-
-def put_s3_object(bucket: str, key: str, body: Any, 
-                 metadata: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Put S3 object."""
-    
-    return make_aws_api_call(
-        service='s3',
-        operation='put_object',
-        parameters={
-            'Bucket': bucket,
-            'Key': key,
-            'Body': body,
-            'Metadata': metadata or {}
-        },
-        use_cache=False  # Write operations shouldn't be cached
-    )
-
-def send_sns_message(topic_arn: str, message: str, 
-                    subject: Optional[str] = None) -> Dict[str, Any]:
-    """Send SNS message."""
-    
-    parameters = {
-        'TopicArn': topic_arn,
-        'Message': message
-    }
-    
-    if subject:
-        parameters['Subject'] = subject
-    
-    return make_aws_api_call(
-        service='sns',
-        operation='publish',
-        parameters=parameters,
-        use_cache=False  # Messaging shouldn't be cached
-    )
-
-def get_parameter_store_value(parameter_name: str, decrypt: bool = False) -> Dict[str, Any]:
-    """Get AWS Systems Manager Parameter Store value."""
-    
-    return make_aws_api_call(
-        service='ssm',
-        operation='get_parameter',
-        parameters={
-            'Name': parameter_name,
-            'WithDecryption': decrypt
-        },
-        use_cache=True  # Parameter Store values can be cached
-    )
-
-# ===== AWS HEALTH CHECK FUNCTIONS =====
-
-def check_aws_service_health(services: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Check health of AWS services."""
-    
-    default_services = ['lambda', 's3', 'sns', 'ssm']
-    check_services = services or default_services
-    
-    health_results = {}
-    overall_healthy = True
-    
-    for service in check_services:
-        try:
-            # Simple health check - list resources or get service status
-            if service == 'lambda':
-                result = make_aws_api_call(service, 'list_functions', {'MaxItems': 1})
-            elif service == 's3':
-                result = make_aws_api_call(service, 'list_buckets')
-            elif service == 'sns':
-                result = make_aws_api_call(service, 'list_topics', {'MaxItems': 1})
-            elif service == 'ssm':
-                result = make_aws_api_call(service, 'describe_parameters', {'MaxResults': 1})
-            else:
-                result = {'success': False, 'error': f'Health check not implemented for {service}'}
+    try:
+        results = []
+        total_start = time.time()
+        
+        for call in calls:
+            service = call.get('service')
+            operation = call.get('operation')
+            parameters = call.get('parameters', {})
+            use_cache = call.get('use_cache', True)
             
-            health_results[service] = {
-                'healthy': result.get('success', False),
-                'response_time': result.get('duration', 0),
-                'error': result.get('error') if not result.get('success') else None
-            }
+            result = make_aws_api_call(
+                service=service,
+                operation=operation,
+                parameters=parameters,
+                use_cache=use_cache
+            )
             
-            if not result.get('success'):
-                overall_healthy = False
-                
-        except Exception as e:
-            health_results[service] = {
-                'healthy': False,
-                'error': str(e)
-            }
-            overall_healthy = False
+            results.append(result)
+        
+        total_duration = time.time() - total_start
+        
+        # Record batch metrics via gateway
+        record_metric('aws_api.batch.duration', total_duration)
+        increment_counter('aws_api.batch.executed', len(calls))
+        
+        log_info(f"AWS API batch completed: {len(calls)} calls in {total_duration:.3f}s")
+        
+        return create_success_response("Batch AWS API calls completed", {
+            'results': results,
+            'call_count': len(calls),
+            'duration': total_duration
+        })
+        
+    except Exception as e:
+        log_error(f"AWS API batch failed: {str(e)}")
+        return create_error_response(f"Batch AWS API calls failed: {str(e)}")
+
+
+def get_aws_client_stats(service_name: str) -> Dict[str, Any]:
+    """Get AWS client statistics via gateway singleton."""
     
-    return {
-        'overall_healthy': overall_healthy,
-        'services': health_results,
-        'timestamp': time.time()
-    }
+    try:
+        singleton_key = f'aws_client_{service_name}'
+        client = get_singleton(singleton_key)
+        
+        if not client:
+            return create_error_response(f"AWS {service_name} client not initialized")
+        
+        # Get metrics from gateway
+        call_count = get_parameter(f'aws_client_{service_name}_calls', 0)
+        error_count = get_parameter(f'aws_client_{service_name}_errors', 0)
+        
+        stats = {
+            'service': service_name,
+            'client_exists': True,
+            'call_count': call_count,
+            'error_count': error_count,
+            'success_rate': ((call_count - error_count) / call_count * 100) if call_count > 0 else 0.0
+        }
+        
+        return create_success_response("AWS client stats retrieved", stats)
+        
+    except Exception as e:
+        log_error(f"Failed to get AWS client stats: {e}")
+        return create_error_response(str(e))
+
+
+def reset_aws_clients() -> Dict[str, Any]:
+    """Reset all AWS clients via gateway singleton."""
+    
+    try:
+        # Get all AWS client singletons
+        aws_services = ['s3', 'dynamodb', 'lambda', 'sns', 'sqs', 'ec2', 'cloudwatch']
+        
+        reset_count = 0
+        for service in aws_services:
+            singleton_key = f'aws_client_{service}'
+            client = get_singleton(singleton_key)
+            if client:
+                # Reset handled by gateway singleton management
+                register_singleton(singleton_key, None)
+                reset_count += 1
+        
+        log_info(f"Reset {reset_count} AWS clients")
+        
+        return create_success_response("AWS clients reset", {
+            'reset_count': reset_count
+        })
+        
+    except Exception as e:
+        log_error(f"Failed to reset AWS clients: {e}")
+        return create_error_response(str(e))
+
+
+# ===== EXPORTS =====
+
+__all__ = [
+    'create_boto3_client',
+    'get_aws_service_client',
+    'make_aws_api_call',
+    'batch_aws_api_calls',
+    'get_aws_client_stats',
+    'reset_aws_clients'
+]
 
 # EOF
