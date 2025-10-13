@@ -1,7 +1,7 @@
 """
-http_client_core.py - Ultra-Optimized HTTP Client with Integrated State, Generic Patterns, and Extensions
-Version: 2025.10.13.01
-Description: Consolidated HTTP client combining core, state, generic patterns, and extensions into one optimized file
+http_client_core.py - Ultra-Optimized HTTP Client with Advanced Features
+Version: 2025.10.13.02
+Description: Complete HTTP client with transformers, response processing, state management, and AWS integration
 
 Copyright 2025 Joseph Hersey
 
@@ -21,7 +21,9 @@ Copyright 2025 Joseph Hersey
 import json
 import time
 import logging
-from typing import Dict, Any, Optional, Callable, List
+import os
+import xml.etree.ElementTree as ET
+from typing import Dict, Any, Optional, Callable, List, Union
 from enum import Enum
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -41,7 +43,7 @@ class HTTPMethod(Enum):
     OPTIONS = "OPTIONS"
 
 
-# ===== HTTP HEADER TEMPLATES (OPTIMIZATION) =====
+# ===== HTTP HEADER TEMPLATES =====
 
 _JSON_HEADERS = {
     "Content-Type": "application/json",
@@ -57,6 +59,253 @@ _PARSED_HEADERS_TEMPLATE = {
     'cache_control': '',
     'server': ''
 }
+
+# ===== RESPONSE TEMPLATES =====
+
+_HTTP_SUCCESS_TEMPLATE = '{"success":true,"status_code":%d,"data":%s,"headers":%s}'
+_HTTP_ERROR_TEMPLATE = '{"success":false,"status_code":%d,"error":"%s","headers":%s}'
+_HTTP_REDIRECT_TEMPLATE = '{"success":true,"status_code":%d,"redirect_url":"%s","headers":%s}'
+_HTTP_TIMEOUT_TEMPLATE = '{"success":false,"status_code":408,"error":"Request timeout","timeout_seconds":%d}'
+_HTTP_CONNECTION_ERROR_TEMPLATE = '{"success":false,"status_code":0,"error":"Connection failed","details":"%s"}'
+
+_DEFAULT_HEADERS_JSON = '{"Content-Type":"application/json","Cache-Control":"no-cache"}'
+_EMPTY_DATA_JSON = '{}'
+_USE_HTTP_TEMPLATES = os.environ.get('USE_HTTP_TEMPLATES', 'true').lower() == 'true'
+
+
+# ===== RESPONSE VALIDATOR CLASS =====
+
+class ResponseValidator:
+    """Validates response structure and content."""
+    
+    @staticmethod
+    def validate_structure(data: Any, schema: Dict[str, Any]) -> bool:
+        """Validate response data against schema."""
+        if not isinstance(data, dict):
+            return False
+        
+        for field, field_type in schema.get('required_fields', {}).items():
+            if field not in data:
+                return False
+            
+            if not isinstance(data[field], field_type):
+                return False
+        
+        return True
+    
+    @staticmethod
+    def validate_required_fields(data: Dict[str, Any], fields: List[str]) -> bool:
+        """Check if all required fields are present."""
+        return all(field in data for field in fields)
+    
+    @staticmethod
+    def validate_data_types(data: Dict[str, Any], type_map: Dict[str, type]) -> bool:
+        """Validate data types match expected types."""
+        for field, expected_type in type_map.items():
+            if field in data and not isinstance(data[field], expected_type):
+                return False
+        return True
+    
+    @staticmethod
+    def validate_value_ranges(data: Dict[str, Any], ranges: Dict[str, tuple]) -> bool:
+        """Validate numeric values are within specified ranges."""
+        for field, (min_val, max_val) in ranges.items():
+            if field in data:
+                value = data[field]
+                if not (min_val <= value <= max_val):
+                    return False
+        return True
+
+
+# ===== RESPONSE TRANSFORMER CLASS =====
+
+class ResponseTransformer:
+    """Transforms response data using various strategies."""
+    
+    @staticmethod
+    def flatten(data: Dict[str, Any], separator: str = '.') -> Dict[str, Any]:
+        """Flatten nested dictionary structure."""
+        def _flatten_recursive(obj, parent_key=''):
+            items = []
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    new_key = f"{parent_key}{separator}{k}" if parent_key else k
+                    if isinstance(v, dict):
+                        items.extend(_flatten_recursive(v, new_key).items())
+                    elif isinstance(v, list):
+                        for i, item in enumerate(v):
+                            items.extend(_flatten_recursive(item, f"{new_key}[{i}]").items())
+                    else:
+                        items.append((new_key, v))
+            return dict(items)
+        
+        return _flatten_recursive(data)
+    
+    @staticmethod
+    def extract(data: Dict[str, Any], paths: List[str]) -> Dict[str, Any]:
+        """Extract specific fields from nested structure."""
+        result = {}
+        
+        for path in paths:
+            parts = path.split('.')
+            current = data
+            
+            try:
+                for part in parts:
+                    if '[' in part:
+                        field, index = part.split('[')
+                        index = int(index.rstrip(']'))
+                        current = current[field][index]
+                    else:
+                        current = current[part]
+                
+                result[path] = current
+            except (KeyError, IndexError, TypeError):
+                result[path] = None
+        
+        return result
+    
+    @staticmethod
+    def map_fields(data: Dict[str, Any], field_map: Dict[str, str]) -> Dict[str, Any]:
+        """Rename fields according to mapping."""
+        result = {}
+        
+        for old_name, new_name in field_map.items():
+            if old_name in data:
+                result[new_name] = data[old_name]
+        
+        for key, value in data.items():
+            if key not in field_map:
+                result[key] = value
+        
+        return result
+    
+    @staticmethod
+    def filter_fields(data: Dict[str, Any], include: Optional[List[str]] = None,
+                     exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Filter fields by inclusion or exclusion list."""
+        if include is not None:
+            return {k: v for k, v in data.items() if k in include}
+        
+        if exclude is not None:
+            return {k: v for k, v in data.items() if k not in exclude}
+        
+        return data
+    
+    @staticmethod
+    def transform_values(data: Dict[str, Any], transformers: Dict[str, Callable]) -> Dict[str, Any]:
+        """Transform values using field-specific functions."""
+        result = data.copy()
+        
+        for field, transformer in transformers.items():
+            if field in result:
+                try:
+                    result[field] = transformer(result[field])
+                except Exception:
+                    pass
+        
+        return result
+    
+    @staticmethod
+    def normalize(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize data according to schema."""
+        result = {}
+        
+        for field, config in schema.items():
+            if field in data:
+                value = data[field]
+                
+                if 'type' in config:
+                    try:
+                        if config['type'] == 'int':
+                            value = int(value)
+                        elif config['type'] == 'float':
+                            value = float(value)
+                        elif config['type'] == 'str':
+                            value = str(value)
+                        elif config['type'] == 'bool':
+                            value = bool(value)
+                    except (ValueError, TypeError):
+                        value = config.get('default')
+                
+                if 'min' in config and value < config['min']:
+                    value = config['min']
+                if 'max' in config and value > config['max']:
+                    value = config['max']
+                
+                result[field] = value
+            elif 'default' in config:
+                result[field] = config['default']
+        
+        return result
+
+
+# ===== TRANSFORMATION PIPELINE CLASS =====
+
+class TransformationPipeline:
+    """Pipeline for chaining multiple transformations."""
+    
+    def __init__(self, cache_results: bool = False):
+        """Initialize transformation pipeline."""
+        self._transformations: List[tuple] = []
+        self._cache_results = cache_results
+    
+    def add_validation(self, validator: Callable, error_handler: Optional[Callable] = None):
+        """Add validation step."""
+        self._transformations.append(('validation', validator, {'error_handler': error_handler}))
+        return self
+    
+    def add_transformation(self, transformer: Callable, metadata: Optional[Dict] = None):
+        """Add transformation step."""
+        self._transformations.append(('transformation', transformer, metadata or {}))
+        return self
+    
+    def add_filter(self, filter_func: Callable):
+        """Add filter step."""
+        self._transformations.append(('filter', filter_func, {}))
+        return self
+    
+    def execute(self, data: Any) -> Dict[str, Any]:
+        """Execute pipeline on data."""
+        from gateway import create_success_response, create_error_response
+        
+        current_data = data
+        
+        for step_type, operation, metadata in self._transformations:
+            try:
+                if step_type == 'validation':
+                    is_valid = operation(current_data)
+                    if not is_valid:
+                        error_handler = metadata.get('error_handler')
+                        if error_handler:
+                            return error_handler(current_data)
+                        return create_error_response("Validation failed")
+                
+                elif step_type == 'transformation':
+                    current_data = operation(current_data)
+                
+                elif step_type == 'filter':
+                    current_data = operation(current_data)
+            
+            except Exception as e:
+                return create_error_response(f"Pipeline step failed: {str(e)}")
+        
+        return create_success_response("Pipeline executed successfully", current_data)
+    
+    def get_cache_key(self) -> Optional[str]:
+        """Generate cache key for pipeline."""
+        if not self._cache_results:
+            return None
+        
+        step_keys = []
+        for step_type, operation, metadata in self._transformations:
+            if hasattr(operation, '__name__'):
+                step_keys.append(operation.__name__)
+        
+        if step_keys:
+            return f"transform_pipeline_{'_'.join(step_keys)}"
+        
+        return None
 
 
 # ===== GENERIC HELPER FUNCTIONS =====
@@ -161,6 +410,383 @@ def parse_response_headers(headers: Dict[str, str]) -> Dict[str, Any]:
     except Exception as e:
         log_error(f"Header parsing failed: {e}")
         return {'all_headers': headers}
+
+
+# ===== RESPONSE PROCESSING FUNCTIONS =====
+
+def process_response(response_data: Dict[str, Any], expected_format: str = 'json',
+                    validation_rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Process and validate HTTP response using template optimization."""
+    from gateway import validate_request, sanitize_response_data, record_metric, log_error, create_success_response
+    
+    try:
+        if _USE_HTTP_TEMPLATES:
+            return _process_response_template(response_data, expected_format, validation_rules)
+        else:
+            return _process_response_legacy(response_data, expected_format, validation_rules)
+    except Exception as e:
+        log_error(f"Response processing failed: {e}")
+        from gateway import create_error_response
+        return create_error_response(f"Failed to process response: {str(e)}")
+
+
+def _process_response_template(response_data: Dict[str, Any], expected_format: str,
+                             validation_rules: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Process response using template optimization."""
+    from gateway import validate_request, sanitize_response_data, record_metric, log_error
+    
+    try:
+        parsed_data = _parse_response_format(response_data, expected_format)
+        
+        if validation_rules:
+            validation_result = validate_request(
+                parsed_data,
+                required_fields=validation_rules.get('required_fields', []),
+                field_types=validation_rules.get('field_types', {})
+            )
+            
+            if not validation_result.get('success'):
+                record_metric('response.validation_failed', 1.0)
+                return validation_result
+        
+        sanitized_data = sanitize_response_data(parsed_data)
+        status_code = response_data.get('status_code', 200)
+        headers = response_data.get('headers', {})
+        
+        if 200 <= status_code < 300:
+            data_json = json.dumps(sanitized_data)
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_SUCCESS_TEMPLATE % (
+                status_code, data_json, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'success'})
+            record_metric('response.processed', 1.0, {'format': expected_format})
+            
+            return json.loads(json_response)
+        
+        elif 300 <= status_code < 400:
+            redirect_url = response_data.get('location', '')
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_REDIRECT_TEMPLATE % (
+                status_code, redirect_url, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'redirect'})
+            
+            return json.loads(json_response)
+        
+        else:
+            error_message = response_data.get('error', f'HTTP {status_code}')
+            headers_json = json.dumps(headers) if headers else _DEFAULT_HEADERS_JSON
+            
+            json_response = _HTTP_ERROR_TEMPLATE % (
+                status_code, error_message, headers_json
+            )
+            
+            record_metric('response.template_used', 1.0, {'type': 'error'})
+            
+            return json.loads(json_response)
+            
+    except Exception as e:
+        log_error(f"Template response processing failed: {e}")
+        return _process_response_legacy(response_data, expected_format, validation_rules)
+
+
+def _process_response_legacy(response_data: Dict[str, Any], expected_format: str,
+                           validation_rules: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Legacy dict-based response processing."""
+    from gateway import validate_request, sanitize_response_data, record_metric, create_success_response
+    
+    parsed_data = _parse_response_format(response_data, expected_format)
+    
+    if validation_rules:
+        validation_result = validate_request(
+            parsed_data,
+            required_fields=validation_rules.get('required_fields', []),
+            field_types=validation_rules.get('field_types', {})
+        )
+        
+        if not validation_result.get('success'):
+            record_metric('response.validation_failed', 1.0)
+            return validation_result
+    
+    sanitized_data = sanitize_response_data(parsed_data)
+    
+    record_metric('response.processed', 1.0, {'format': expected_format})
+    
+    return create_success_response("Response processed successfully", {
+        'parsed_data': sanitized_data,
+        'format': expected_format,
+        'original_status': response_data.get('status_code')
+    })
+
+
+def _parse_response_format(response_data: Dict[str, Any], expected_format: str) -> Any:
+    """Parse response data based on expected format."""
+    from gateway import log_error
+    
+    try:
+        raw_data = response_data.get('data', response_data.get('body', ''))
+        
+        if expected_format.lower() == 'json':
+            if isinstance(raw_data, str):
+                return json.loads(raw_data)
+            elif isinstance(raw_data, dict):
+                return raw_data
+            else:
+                return {'raw_data': raw_data}
+        
+        elif expected_format.lower() == 'xml':
+            if isinstance(raw_data, str):
+                root = ET.fromstring(raw_data)
+                return _xml_to_dict(root)
+            else:
+                return {'raw_data': raw_data}
+        
+        elif expected_format.lower() == 'text':
+            return {'text': str(raw_data)}
+        
+        else:
+            return {'raw_data': raw_data}
+    
+    except json.JSONDecodeError as e:
+        log_error(f"JSON parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+    
+    except ET.ParseError as e:
+        log_error(f"XML parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+    
+    except Exception as e:
+        log_error(f"Format parsing failed: {e}")
+        return {'parse_error': str(e), 'raw_data': raw_data}
+
+
+def _xml_to_dict(element) -> Dict[str, Any]:
+    """Convert XML element to dictionary."""
+    result = {}
+    
+    if element.text and element.text.strip():
+        result['text'] = element.text.strip()
+    
+    for attr_name, attr_value in element.attrib.items():
+        result[f'@{attr_name}'] = attr_value
+    
+    for child in element:
+        child_data = _xml_to_dict(child)
+        if child.tag in result:
+            if not isinstance(result[child.tag], list):
+                result[child.tag] = [result[child.tag]]
+            result[child.tag].append(child_data)
+        else:
+            result[child.tag] = child_data
+    
+    return result
+
+
+def create_timeout_response(timeout_seconds: int) -> Dict[str, Any]:
+    """Create timeout response using template optimization."""
+    from gateway import record_metric, log_error, create_error_response
+    
+    try:
+        if _USE_HTTP_TEMPLATES:
+            json_response = _HTTP_TIMEOUT_TEMPLATE % timeout_seconds
+            record_metric('response.template_used', 1.0, {'type': 'timeout'})
+            return json.loads(json_response)
+        else:
+            return {
+                "success": False,
+                "status_code": 408,
+                "error": "Request timeout",
+                "timeout_seconds": timeout_seconds
+            }
+    except Exception as e:
+        log_error(f"Timeout response creation failed: {e}")
+        return create_error_response("Request timeout")
+
+
+def create_connection_error_response(error_details: str) -> Dict[str, Any]:
+    """Create connection error response using template optimization."""
+    from gateway import record_metric, log_error, create_error_response
+    
+    try:
+        if _USE_HTTP_TEMPLATES:
+            json_response = _HTTP_CONNECTION_ERROR_TEMPLATE % error_details
+            record_metric('response.template_used', 1.0, {'type': 'connection_error'})
+            return json.loads(json_response)
+        else:
+            return {
+                "success": False,
+                "status_code": 0,
+                "error": "Connection failed",
+                "details": error_details
+            }
+    except Exception as e:
+        log_error(f"Connection error response creation failed: {e}")
+        return create_error_response("Connection failed")
+
+
+def cache_response(cache_key: str, response: Dict[str, Any], ttl: int = 300) -> bool:
+    """Cache response data."""
+    from gateway import cache_set, record_metric, log_error
+    
+    try:
+        cache_set(cache_key, response, ttl)
+        record_metric('response.cached', 1.0)
+        return True
+    except Exception as e:
+        log_error(f"Response caching failed: {e}")
+        return False
+
+
+def get_cached_response(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Get cached response data."""
+    from gateway import cache_get, record_metric, log_error
+    
+    try:
+        cached_data = cache_get(cache_key)
+        if cached_data:
+            record_metric('response.cache_hit', 1.0)
+            return cached_data
+        else:
+            record_metric('response.cache_miss', 1.0)
+            return None
+    except Exception as e:
+        log_error(f"Cache retrieval failed: {e}")
+        record_metric('response.cache_error', 1.0)
+        return None
+
+
+def validate_response(response: Dict[str, Any], 
+                     validation_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate response against schema."""
+    from gateway import validate_request, record_metric, log_error, create_error_response
+    
+    try:
+        validation_result = validate_request(
+            response,
+            required_fields=validation_schema.get('required_fields', []),
+            field_types=validation_schema.get('field_types', {})
+        )
+        
+        record_metric('response.validation_attempted', 1.0)
+        
+        if validation_result.get('success'):
+            record_metric('response.validation_success', 1.0)
+        else:
+            record_metric('response.validation_failed', 1.0)
+        
+        return validation_result
+        
+    except Exception as e:
+        log_error(f"Response validation failed: {e}")
+        return create_error_response(f"Validation error: {str(e)}")
+
+
+def extract_response_data(response: Dict[str, Any], extraction_path: str) -> Any:
+    """Extract specific data from response using dot notation path."""
+    from gateway import record_metric, log_error
+    
+    try:
+        current_data = response
+        path_parts = extraction_path.split('.')
+        
+        for part in path_parts:
+            if isinstance(current_data, dict) and part in current_data:
+                current_data = current_data[part]
+            elif isinstance(current_data, list) and part.isdigit():
+                index = int(part)
+                if 0 <= index < len(current_data):
+                    current_data = current_data[index]
+                else:
+                    return None
+            else:
+                return None
+        
+        record_metric('response.data_extracted', 1.0)
+        return current_data
+        
+    except Exception as e:
+        log_error(f"Data extraction failed: {e}")
+        return None
+
+
+def transform_response(response: Dict[str, Any], 
+                      transformations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Apply transformations to response data."""
+    from gateway import record_metric, log_error, create_success_response, create_error_response
+    
+    try:
+        transformed_data = response.copy()
+        
+        for transformation in transformations:
+            transform_type = transformation.get('type')
+            
+            if transform_type == 'rename_field':
+                old_name = transformation.get('from')
+                new_name = transformation.get('to')
+                if old_name in transformed_data:
+                    transformed_data[new_name] = transformed_data.pop(old_name)
+            
+            elif transform_type == 'convert_type':
+                field_name = transformation.get('field')
+                target_type = transformation.get('target_type')
+                if field_name in transformed_data:
+                    try:
+                        if target_type == 'int':
+                            transformed_data[field_name] = int(transformed_data[field_name])
+                        elif target_type == 'float':
+                            transformed_data[field_name] = float(transformed_data[field_name])
+                        elif target_type == 'str':
+                            transformed_data[field_name] = str(transformed_data[field_name])
+                    except (ValueError, TypeError):
+                        log_error(f"Type conversion failed for field {field_name}")
+            
+            elif transform_type == 'add_field':
+                field_name = transformation.get('field')
+                field_value = transformation.get('value')
+                transformed_data[field_name] = field_value
+        
+        record_metric('response.transformed', 1.0, {'transform_count': len(transformations)})
+        return create_success_response("Response transformed", transformed_data)
+        
+    except Exception as e:
+        log_error(f"Response transformation failed: {e}")
+        return create_error_response(f"Transformation error: {str(e)}")
+
+
+# ===== HELPER FACTORY FUNCTIONS =====
+
+def create_common_transformers() -> Dict[str, Callable]:
+    """Create dictionary of common transformation functions."""
+    transformer = ResponseTransformer()
+    
+    return {
+        'flatten': transformer.flatten,
+        'extract': transformer.extract,
+        'map': transformer.map_fields,
+        'filter': transformer.filter_fields,
+        'transform_values': transformer.transform_values,
+        'normalize': transformer.normalize
+    }
+
+
+def create_validator() -> ResponseValidator:
+    """Create response validator instance."""
+    return ResponseValidator()
+
+
+def create_transformer() -> ResponseTransformer:
+    """Create response transformer instance."""
+    return ResponseTransformer()
+
+
+def create_pipeline() -> TransformationPipeline:
+    """Create transformation pipeline instance."""
+    return TransformationPipeline()
 
 
 # ===== HTTP CLIENT CORE CLASS =====
@@ -431,7 +1057,7 @@ def get_client_configuration(client_type: str) -> Dict[str, Any]:
 
 def update_client_configuration(client_type: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
     """Update client configuration via gateway config."""
-    from gateway import set_parameter, log_info, create_success_response, create_error_response, log_error, record_metric
+    from gateway import set_parameter, create_success_response, create_error_response, log_error, record_metric
     
     try:
         config_key = f'http_client_{client_type}'
@@ -638,23 +1264,49 @@ def _make_post_request_implementation(url: str, data: Dict[str, Any], **kwargs) 
 # ===== EXPORTS =====
 
 __all__ = [
+    # Enums
     'HTTPMethod',
+    # Core classes
     'HTTPClientCore',
+    'ResponseValidator',
+    'ResponseTransformer',
+    'TransformationPipeline',
+    # Singleton access
     'get_http_client',
+    # Gateway implementations
     '_make_request_implementation',
     '_make_get_request_implementation',
     '_make_post_request_implementation',
+    # Header helpers
     'get_standard_headers',
     'get_ha_headers',
+    # Query string helpers
     'build_query_string',
     'build_query_string_fast',
+    # Header parsing
     'parse_response_headers',
     'parse_response_headers_fast',
+    # Response processing
+    'process_response',
+    'create_timeout_response',
+    'create_connection_error_response',
+    'cache_response',
+    'get_cached_response',
+    'validate_response',
+    'extract_response_data',
+    'transform_response',
+    # Factory functions
+    'create_common_transformers',
+    'create_validator',
+    'create_transformer',
+    'create_pipeline',
+    # State management
     'get_client_state',
     'reset_client_state',
     'get_client_configuration',
     'update_client_configuration',
     'get_connection_statistics',
+    # Extension functions
     'configure_http_retry',
     'http_request_with_retry',
     'transform_http_response',
