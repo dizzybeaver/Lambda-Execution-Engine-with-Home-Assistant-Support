@@ -1,21 +1,26 @@
 """
 lambda_function.py
-Version: 2025.10.11.01
-Description: Main Entry Point
+Version: 2025.10.13.09
+Description: Main Entry Point - Updated with HA Features Integration
 Copyright 2025 Joseph Hersey
+
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
+
        http://www.apache.org/licenses/LICENSE-2.0
+
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+
 import json
 import os
 from typing import Dict, Any
+
 from gateway import (
     log_info, log_error, log_debug, log_warning,
     validate_request, validate_token,
@@ -26,6 +31,7 @@ from gateway import (
     initialize_lambda
 )
 from usage_analytics import record_request_usage, get_usage_summary
+
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -69,58 +75,91 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         increment_counter("lambda_errors")
         return format_response(500, {"error": "Internal server error"})
 
+
 def _determine_request_type(event: Dict[str, Any]) -> str:
     """Determine the type of request from event structure."""
     if 'directive' in event:
         return 'alexa_smart_home'
     elif 'request' in event and 'type' in event.get('request', {}):
         return 'alexa_custom_skill'
-    elif 'requestType' in event:
-        return event['requestType']
     elif 'httpMethod' in event:
         return 'api_gateway'
     elif 'test_type' in event:
         return 'diagnostic'
+    elif 'health_check' in event:
+        return 'health_check'
     else:
         return 'unknown'
 
+
 def process_request(event: Dict[str, Any], context: Any, request_type: str) -> Dict[str, Any]:
-    """Process the request based on type."""
+    """Route request to appropriate handler."""
     if request_type == 'alexa_smart_home':
         return _handle_alexa_smart_home(event, context)
     elif request_type == 'alexa_custom_skill':
         return _handle_alexa_custom_skill(event, context)
-    elif request_type == 'health_check':
-        return _handle_health_check(event, context)
-    elif request_type == 'analytics':
-        return _handle_analytics_request(event, context)
-    elif request_type == 'diagnostic':
-        return _handle_diagnostic_request(event, context)
     elif request_type == 'api_gateway':
         return _handle_api_gateway_request(event, context)
+    elif request_type == 'diagnostic':
+        return _handle_diagnostic_request(event, context)
+    elif request_type == 'health_check':
+        return _handle_health_check(event, context)
     else:
         log_warning(f"Unknown request type: {request_type}")
-        return format_response(400, {"error": f"Unknown request type: {request_type}"})
+        return format_response(400, {"error": "Unknown request type"})
+
 
 def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle Alexa Smart Home skill requests."""
+    """Handle Alexa Smart Home skill directives."""
     try:
-        from homeassistant_extension import process_alexa_ha_request, is_ha_extension_enabled
+        from homeassistant_extension import is_ha_extension_enabled, process_alexa_ha_request
+        
         if not is_ha_extension_enabled():
-            log_error("Home Assistant extension disabled")
-            return format_response(500, {"error": "Home Assistant integration disabled"})
+            log_error("Home Assistant extension is not enabled")
+            return {
+                "event": {
+                    "header": {
+                        "namespace": "Alexa",
+                        "name": "ErrorResponse",
+                        "messageId": event.get('directive', {}).get('header', {}).get('messageId', 'unknown'),
+                        "payloadVersion": "3"
+                    },
+                    "payload": {
+                        "type": "INTERNAL_ERROR",
+                        "message": "Home Assistant integration is not enabled"
+                    }
+                }
+            }
+        
+        log_info("Processing Alexa Smart Home directive")
         return process_alexa_ha_request(event)
+        
     except Exception as e:
         log_error(f"Alexa Smart Home processing failed: {str(e)}")
-        return format_response(500, {"error": "Smart Home request failed"})
+        return {
+            "event": {
+                "header": {
+                    "namespace": "Alexa",
+                    "name": "ErrorResponse",
+                    "messageId": "error",
+                    "payloadVersion": "3"
+                },
+                "payload": {
+                    "type": "INTERNAL_ERROR",
+                    "message": str(e)
+                }
+            }
+        }
+
 
 def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle Alexa Custom Skill requests with assistant name support."""
+    """Handle Alexa Custom Skill requests."""
     try:
         request = event.get('request', {})
         request_type = request.get('type', '')
+        
         log_info(f"Processing Alexa Custom Skill request: {request_type}")
-
+        
         if request_type == 'LaunchRequest':
             return _handle_launch_request(event, context)
         elif request_type == 'IntentRequest':
@@ -129,11 +168,12 @@ def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str,
             return _handle_session_ended_request(event, context)
         else:
             log_warning(f"Unknown Alexa request type: {request_type}")
-            return _create_alexa_response("I don't understand that request type.")
-
+            return _create_alexa_response("I don't know how to handle that type of request.")
+    
     except Exception as e:
         log_error(f"Alexa Custom Skill processing failed: {str(e)}")
         return _create_alexa_response("Sorry, there was an error processing your request.")
+
 
 def _handle_launch_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa LaunchRequest with personalized assistant name."""
@@ -148,6 +188,7 @@ def _handle_launch_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
     except Exception as e:
         log_error(f"Launch request failed: {str(e)}")
         return _create_alexa_response("Hello! I'm ready to help with your smart home.")
+
 
 def _handle_intent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa intent requests."""
@@ -185,10 +226,13 @@ def _handle_intent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
         log_error(f"Intent request failed: {str(e)}")
         return _create_alexa_response("Sorry, there was an error processing your request.")
 
+
 def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle conversation with Home Assistant."""
     try:
         from homeassistant_extension import is_ha_extension_enabled
+        from ha_features import process_conversation
+        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
 
@@ -201,15 +245,28 @@ def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str
             return _create_alexa_response("I didn't hear what you wanted me to tell Home Assistant.")
 
         log_info(f"Processing conversation query: {user_query}")
-        return _create_alexa_response(f"I would process the query '{user_query}' with Home Assistant, but conversation processing is not yet implemented.")
+        result = process_conversation(user_query)
+        
+        if result.get('success'):
+            response_text = result.get('data', {}).get('response', 'Done')
+            return _create_alexa_response(response_text)
+        else:
+            return _create_alexa_response(f"Sorry, I couldn't process that. {result.get('error', '')}")
 
     except Exception as e:
         log_error(f"Conversation intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't process your conversation request.")
 
+
 def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle automation triggering."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_features import trigger_automation
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
         automation_slot = slots.get('AutomationName', {})
@@ -219,15 +276,28 @@ def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Di
             return _create_alexa_response("I didn't hear which automation you want me to trigger.")
 
         log_info(f"Triggering automation: {automation_name}")
-        return _create_alexa_response(f"I would trigger the {automation_name} automation, but automation control is not yet implemented.")
+        result = trigger_automation(automation_name)
+        
+        if result.get('success'):
+            return _create_alexa_response(f"I've triggered the {automation_name} automation.")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't trigger that automation. {error}")
 
     except Exception as e:
         log_error(f"Trigger automation intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't trigger that automation.")
 
+
 def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle script execution."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_features import run_script
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
         script_slot = slots.get('ScriptName', {})
@@ -237,15 +307,28 @@ def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, 
             return _create_alexa_response("I didn't hear which script you want me to run.")
 
         log_info(f"Running script: {script_name}")
-        return _create_alexa_response(f"I would run the {script_name} script, but script execution is not yet implemented.")
+        result = run_script(script_name)
+        
+        if result.get('success'):
+            return _create_alexa_response(f"I've run the {script_name} script.")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't run that script. {error}")
 
     except Exception as e:
         log_error(f"Run script intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't run that script.")
 
+
 def _handle_set_input_helper_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle input helper modification."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_features import set_input_helper
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
         helper_slot = slots.get('HelperName', {})
@@ -257,15 +340,28 @@ def _handle_set_input_helper_intent(event: Dict[str, Any], context: Any) -> Dict
             return _create_alexa_response("I need both a helper name and value to set an input helper.")
 
         log_info(f"Setting input helper {helper_name} to {helper_value}")
-        return _create_alexa_response(f"I would set {helper_name} to {helper_value}, but input helper control is not yet implemented.")
+        result = set_input_helper(helper_name, helper_value)
+        
+        if result.get('success'):
+            return _create_alexa_response(f"I've set {helper_name} to {helper_value}.")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't set that input helper. {error}")
 
     except Exception as e:
         log_error(f"Set input helper intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't set that input helper.")
 
+
 def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle TTS announcements."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_features import send_notification
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
         message_slot = slots.get('Message', {})
@@ -275,43 +371,119 @@ def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dic
             return _create_alexa_response("I didn't hear what you want me to announce.")
 
         log_info(f"Making announcement: {message}")
-        return _create_alexa_response(f"I would announce '{message}' throughout your home, but announcement functionality is not yet implemented.")
+        result = send_notification(message, title="Announcement")
+        
+        if result.get('success'):
+            return _create_alexa_response(f"I've sent the announcement: {message}")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't make that announcement. {error}")
 
     except Exception as e:
         log_error(f"Make announcement intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't make that announcement.")
 
+
 def _handle_control_area_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle area-based device control."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_managers import get_area_devices, control_device
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
         area_slot = slots.get('AreaName', {})
         action_slot = slots.get('Action', {})
         area_name = area_slot.get('value', '')
-        action = action_slot.get('value', '')
+        action = action_slot.get('value', 'on')
 
-        if not area_name or not action:
-            return _create_alexa_response("I need both an area name and action to control area devices.")
+        if not area_name:
+            return _create_alexa_response("I didn't hear which area you want to control.")
 
         log_info(f"Controlling area {area_name}: {action}")
-        return _create_alexa_response(f"I would turn {action} all devices in the {area_name}, but area control is not yet implemented.")
+        
+        # Get devices in area
+        devices_result = get_area_devices(area_name)
+        if not devices_result.get('success'):
+            return _create_alexa_response(f"I couldn't find the {area_name} area.")
+        
+        devices = devices_result.get('data', {}).get('devices', {})
+        total_devices = devices_result.get('data', {}).get('total_count', 0)
+        
+        if total_devices == 0:
+            return _create_alexa_response(f"There are no controllable devices in {area_name}.")
+        
+        # Control all devices in area
+        success_count = 0
+        for domain, domain_devices in devices.items():
+            for device in domain_devices:
+                entity_id = device.get('entity_id')
+                result = control_device(entity_id, f'turn_{action}')
+                if result.get('success'):
+                    success_count += 1
+        
+        if success_count > 0:
+            return _create_alexa_response(f"I've turned {action} {success_count} devices in {area_name}.")
+        else:
+            return _create_alexa_response(f"I couldn't control any devices in {area_name}.")
 
     except Exception as e:
         log_error(f"Control area intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't control that area.")
 
+
 def _handle_manage_timer_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle timer management."""
     try:
+        from homeassistant_extension import is_ha_extension_enabled
+        from ha_managers import start_timer, cancel_timer, pause_timer
+        
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not enabled.")
+        
         intent = event.get('request', {}).get('intent', {})
         slots = intent.get('slots', {})
-        log_info("Managing timer")
-        return _create_alexa_response("Timer management functionality is not yet implemented.")
+        timer_slot = slots.get('TimerName', {})
+        action_slot = slots.get('TimerAction', {})
+        duration_slot = slots.get('Duration', {})
+        
+        timer_name = timer_slot.get('value', '')
+        action = action_slot.get('value', 'start')
+        duration = duration_slot.get('value', '10')
+
+        if not timer_name:
+            return _create_alexa_response("I didn't hear which timer you want me to manage.")
+
+        log_info(f"Managing timer {timer_name}: {action}")
+        
+        if action == 'start':
+            result = start_timer(timer_name, duration)
+            if result.get('success'):
+                return _create_alexa_response(f"I've started the {timer_name} timer for {duration}.")
+            else:
+                return _create_alexa_response(f"I couldn't start that timer. {result.get('error', '')}")
+        elif action == 'cancel':
+            result = cancel_timer(timer_name)
+            if result.get('success'):
+                return _create_alexa_response(f"I've cancelled the {timer_name} timer.")
+            else:
+                return _create_alexa_response(f"I couldn't cancel that timer. {result.get('error', '')}")
+        elif action == 'pause':
+            result = pause_timer(timer_name)
+            if result.get('success'):
+                return _create_alexa_response(f"I've paused the {timer_name} timer.")
+            else:
+                return _create_alexa_response(f"I couldn't pause that timer. {result.get('error', '')}")
+        else:
+            return _create_alexa_response(f"I don't know how to {action} a timer.")
 
     except Exception as e:
         log_error(f"Manage timer intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't manage that timer.")
+
 
 def _handle_get_diagnostics_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle diagnostics request via Alexa."""
@@ -340,13 +512,14 @@ def _handle_get_diagnostics_intent(event: Dict[str, Any], context: Any) -> Dict[
         log_error(f"Get diagnostics intent failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't get diagnostic information.")
 
+
 def _handle_help_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle help request."""
     try:
         from homeassistant_extension import get_ha_assistant_name, is_ha_extension_enabled
         if is_ha_extension_enabled():
             assistant_name = get_ha_assistant_name()
-            speech_text = f"I'm {assistant_name}, your smart home voice assistant. I can help you control devices, run automations, execute scripts, and manage your home. What would you like me to do?"
+            speech_text = f"I'm {assistant_name}, your smart home voice assistant. I can control devices, run automations, execute scripts, manage timers, and more. What would you like me to do?"
         else:
             speech_text = "I'm your smart home assistant, but Home Assistant integration is currently disabled. Please check your configuration."
         return _create_alexa_response(speech_text, should_end_session=False)
@@ -355,14 +528,17 @@ def _handle_help_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         log_error(f"Help intent failed: {str(e)}")
         return _create_alexa_response("I'm here to help with your smart home. What would you like me to do?")
 
+
 def _handle_stop_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle stop/cancel request."""
     return _create_alexa_response("Goodbye!", should_end_session=True)
+
 
 def _handle_session_ended_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle session ended request."""
     log_info("Alexa session ended")
     return {}
+
 
 def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle health check requests."""
@@ -370,7 +546,7 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         health_status = {
             "status": "healthy",
             "timestamp": context.aws_request_id,
-            "version": "2025.10.02.01",
+            "version": "2025.10.13.09",
             "gateway_loaded": True
         }
 
@@ -391,6 +567,7 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         log_error(f"Health check failed: {str(e)}")
         return format_response(500, {"status": "unhealthy", "error": str(e)})
 
+
 def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle analytics requests."""
     try:
@@ -406,6 +583,7 @@ def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, 
     except Exception as e:
         log_error(f"Analytics request failed: {str(e)}")
         return format_response(500, {"error": str(e)})
+
 
 def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle comprehensive diagnostic requests."""
@@ -431,7 +609,7 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
                 if event.get('show_config'):
                     diagnostics["environment"] = {
                         "HA_BASE_URL": os.getenv('HA_BASE_URL'),
-                        "HA_TOKEN": os.getenv('HA_TOKEN', '')[0:20] + '...',  # Show first 20 chars
+                        "HA_TOKEN": os.getenv('HA_TOKEN', '')[0:20] + '...',
                         "HOME_ASSISTANT_ENABLED": os.getenv('HOME_ASSISTANT_ENABLED'),
                         "USE_PARAMETER_STORE": os.getenv('USE_PARAMETER_STORE')
                     }
@@ -452,6 +630,7 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
         log_error(f"Diagnostic request failed: {str(e)}")
         return format_response(500, {"error": str(e)})
 
+
 def _handle_api_gateway_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle API Gateway requests."""
     try:
@@ -464,8 +643,6 @@ def _handle_api_gateway_request(event: Dict[str, Any], context: Any) -> Dict[str
             diagnostic_event = {
                 'test_type': event.get('queryStringParameters', {}).get('type', 'full') if method == 'GET' else 'full'
             }
-            if event.get('queryStringParameters', {}).get('show_config'):
-                diagnostic_event['show_config'] = True
             return _handle_diagnostic_request(diagnostic_event, context)
         elif path == '/analytics' and method == 'GET':
             return _handle_analytics_request(event, context)
@@ -475,6 +652,7 @@ def _handle_api_gateway_request(event: Dict[str, Any], context: Any) -> Dict[str
     except Exception as e:
         log_error(f"API Gateway request failed: {str(e)}")
         return format_response(500, {"error": str(e)})
+
 
 def _create_alexa_response(speech_text: str, should_end_session: bool = True) -> Dict[str, Any]:
     """Create standardized Alexa response."""
@@ -488,5 +666,6 @@ def _create_alexa_response(speech_text: str, should_end_session: bool = True) ->
             "shouldEndSession": should_end_session
         }
     }
+
 
 # EOF
