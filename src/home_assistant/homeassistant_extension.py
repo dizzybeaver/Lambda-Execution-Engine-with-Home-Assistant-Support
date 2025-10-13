@@ -1,15 +1,12 @@
 """
 homeassistant_extension.py
-Version: 2025.10.13.03
-Description: Home Assistant Alexa Smart Home integration with fixed imports
-
+Version: 2025.10.13.04
+Description: Home Assistant Alexa Smart Home integration - COMPLETE
 Copyright 2025 Joseph Hersey
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
-
        http://www.apache.org/licenses/LICENSE-2.0
-   
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -136,12 +133,22 @@ def get_ha_assistant_name() -> str:
 def get_ha_status() -> Dict[str, Any]:
     """Get Home Assistant connection status."""
     try:
-        available = is_ha_available()
+        from ha_core import call_ha_api
+        
+        if not is_ha_available():
+            return create_success_response("HA status retrieved", {
+                'enabled': is_ha_extension_enabled(),
+                'available': False,
+                'status': 'Circuit breaker open'
+            })
+        
         config = get_ha_config()
+        result = call_ha_api('/api/', config)
         
         return create_success_response("HA status retrieved", {
             'enabled': is_ha_extension_enabled(),
-            'available': available,
+            'available': result.get('success', False),
+            'status': 'connected' if result.get('success') else 'disconnected',
             'configured': bool(config),
             'assistant_name': get_ha_assistant_name()
         })
@@ -159,18 +166,33 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
         stats = manager.get_stats()
         
         config = get_ha_config()
+        status_info = get_ha_status()
         
         return create_success_response("Diagnostic info retrieved", {
             'enabled': is_ha_extension_enabled(),
             'available': is_ha_available(),
             'configured': bool(config),
             'config_keys': list(config.keys()) if config else [],
+            'connection_status': status_info.get('data', {}).get('status', 'unknown'),
             'alexa_stats': stats,
-            'assistant_name': get_ha_assistant_name()
+            'assistant_name': get_ha_assistant_name(),
+            'assistant_name_source': 'environment' if os.getenv('HA_ASSISTANT_NAME') else 'parameter_store'
         })
         
     except Exception as e:
         log_error(f"Failed to get diagnostic info: {str(e)}")
+        return create_error_response(str(e))
+
+def get_assistant_name_status() -> Dict[str, Any]:
+    """Get assistant name configuration status."""
+    try:
+        return create_success_response("Assistant name status retrieved", {
+            'assistant_name': get_ha_assistant_name(),
+            'source': 'environment' if os.getenv('HA_ASSISTANT_NAME') else 'parameter_store',
+            'cache_key': HA_ASSISTANT_NAME_CACHE_KEY
+        })
+    except Exception as e:
+        log_error(f"Failed to get assistant name status: {str(e)}")
         return create_error_response(str(e))
 
 # EOF
