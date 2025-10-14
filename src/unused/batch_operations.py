@@ -2,6 +2,7 @@
 batch_operations.py
 Version: 2025.10.13.01
 Description: Unified batch operation processing for optimized multi-operation execution
+dizzybeaver: Unused at the moment, but will be useful when multiple operations is needed for Non-Single threaded Lambdas.
 
 Copyright 2025 Joseph Hersey
 
