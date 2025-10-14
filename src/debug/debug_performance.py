@@ -18,7 +18,8 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from debug import Dict, Any, time
+from typing import Dict, Any
+import time
 
 
 def _run_performance_benchmark(**kwargs) -> Dict[str, Any]:
