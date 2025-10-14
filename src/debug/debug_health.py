@@ -18,7 +18,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from debug import Dict, Any
+from typing import Dict, Any
 
 
 def _check_component_health(**kwargs) -> Dict[str, Any]:
