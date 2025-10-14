@@ -1,5 +1,5 @@
 """
-config_core.py
+config/config_core.py
 Version: 2025.10.14.01
 Description: Configuration core implementation for Lambda Execution Engine - REFACTORED
 Split from monolithic file into: config_state.py, config_validator.py, config_loader.py, config_core.py
@@ -24,10 +24,10 @@ import time
 from typing import Dict, Any
 from threading import Lock
 
-# Import helper modules
-from config.config_state import ConfigurationState, ConfigurationVersion
-from config.config_validator import ConfigurationValidator
-from config.config_loader import (
+# Import helper modules from same directory
+from config_state import ConfigurationState, ConfigurationVersion
+from config_validator import ConfigurationValidator
+from config_loader import (
     load_from_environment,
     load_from_file,
     apply_user_overrides,
