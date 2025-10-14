@@ -1,6 +1,6 @@
 """
 logging_core.py
-Version: 2025.10.03.01
+Version: 2025.10.13.03
 Description: Structured logging with template-based message generation and generic operations
 
 Copyright 2025 Joseph Hersey
@@ -87,50 +87,6 @@ class LoggingCore:
     
     def log_template_fast(self, template: LogTemplate, *args, level: int = logging.INFO) -> None:
         """Log using template for ultra-fast performance."""
-        if not _USE_LOG_TEMPLATES:
-            self._log_template_legacy(template, *args, level=level)
-            return
-        
-        try:
-            if template == LogTemplate.CACHE_HIT:
-                message = _CACHE_HIT_LOG % (args[0], args[1]) if len(args) >= 2 else "Cache hit"
-            elif template == LogTemplate.CACHE_MISS:
-                message = _CACHE_MISS_LOG % args[0] if args else "Cache miss"
-            elif template == LogTemplate.HA_SUCCESS:
-                message = _HA_SUCCESS_LOG % (args[0], args[1]) if len(args) >= 2 else "HA success"
-            elif template == LogTemplate.HA_ERROR:
-                message = _HA_ERROR_LOG % (args[0], args[1]) if len(args) >= 2 else "HA error"
-            elif template == LogTemplate.HTTP_REQUEST:
-                message = _HTTP_REQUEST_LOG % (args[0], args[1]) if len(args) >= 2 else "HTTP request"
-            elif template == LogTemplate.HTTP_SUCCESS:
-                message = _HTTP_SUCCESS_LOG % (args[0], args[1]) if len(args) >= 2 else "HTTP success"
-            elif template == LogTemplate.OPERATION_START:
-                message = _OPERATION_START_LOG % (args[0], args[1]) if len(args) >= 2 else "Operation start"
-            elif template == LogTemplate.OPERATION_SUCCESS:
-                message = _OPERATION_SUCCESS_LOG % (args[0], args[1]) if len(args) >= 2 else "Operation success"
-            elif template == LogTemplate.LAMBDA_START:
-                message = _LAMBDA_START_LOG % args[0] if args else "Lambda start"
-            elif template == LogTemplate.METRIC_RECORD:
-                message = _METRIC_RECORD_LOG % (args[0], args[1]) if len(args) >= 2 else "Metric recorded"
-            elif template == LogTemplate.MODULE_LOAD:
-                message = _MODULE_LOAD_LOG % (args[0], args[1]) if len(args) >= 2 else "Module loaded"
-            elif template == LogTemplate.MODULE_UNLOAD:
-                message = _MODULE_UNLOAD_LOG % args[0] if args else "Module unloaded"
-            elif template == LogTemplate.CIRCUIT_OPEN:
-                message = _CIRCUIT_OPEN_LOG % args[0] if args else "Circuit opened"
-            elif template == LogTemplate.CIRCUIT_CLOSE:
-                message = _CIRCUIT_CLOSE_LOG % args[0] if args else "Circuit closed"
-            else:
-                message = " ".join(str(arg) for arg in args)
-            
-            self.logger.log(level, message)
-            self._stats['template_usage'] += 1
-            
-        except Exception:
-            self._log_template_legacy(template, *args, level=level)
-    
-    def _log_template_legacy(self, template: LogTemplate, *args, level: int = logging.INFO) -> None:
-        """Legacy template logging."""
         message = f"{template.value}: {' '.join(str(arg) for arg in args)}"
         self.logger.log(level, message)
     
@@ -244,6 +200,38 @@ def _execute_log_debug_implementation(message: str, extra: Optional[Dict[str, An
     _MANAGER.execute_log_operation(LogOperation.LOG_DEBUG, message, extra=extra)
 
 
+def _execute_log_operation_start_implementation(operation: str, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    """Execute log operation start."""
+    if not correlation_id:
+        from gateway import execute_operation, GatewayInterface
+        correlation_id = execute_operation(GatewayInterface.SECURITY, 'generate_correlation_id')
+    extra = {'correlation_id': correlation_id, 'operation': operation}
+    if context:
+        extra.update(context)
+    _MANAGER.log_info(f"Operation started: {operation}", extra=extra)
+    return correlation_id
+
+
+def _execute_log_operation_success_implementation(operation: str, duration_ms: float = 0, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
+    """Execute log operation success."""
+    extra = {'operation': operation, 'duration_ms': duration_ms, 'status': 'success'}
+    if correlation_id:
+        extra['correlation_id'] = correlation_id
+    if result:
+        extra['result_summary'] = str(result)[:100]
+    _MANAGER.log_info(f"Operation completed: {operation} ({duration_ms:.2f}ms)", extra=extra)
+
+
+def _execute_log_operation_failure_implementation(operation: str, error: Exception, duration_ms: float = 0, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+    """Execute log operation failure."""
+    extra = {'operation': operation, 'duration_ms': duration_ms, 'status': 'failure', 'error_type': type(error).__name__}
+    if correlation_id:
+        extra['correlation_id'] = correlation_id
+    if context:
+        extra.update(context)
+    _MANAGER.log_error(f"Operation failed: {operation} ({duration_ms:.2f}ms)", error=error, extra=extra)
+
+
 def log_template_fast(template: LogTemplate, *args, level: int = logging.INFO) -> None:
     """Public interface for fast template logging."""
     _MANAGER.log_template_fast(template, *args, level=level)
@@ -263,4 +251,9 @@ __all__ = [
     '_execute_log_error_implementation',
     '_execute_log_warning_implementation',
     '_execute_log_debug_implementation',
+    '_execute_log_operation_start_implementation',
+    '_execute_log_operation_success_implementation',
+    '_execute_log_operation_failure_implementation',
 ]
+
+# EOF
