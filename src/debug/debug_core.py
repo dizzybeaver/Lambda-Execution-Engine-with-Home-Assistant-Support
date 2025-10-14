@@ -1,5 +1,5 @@
 """
-debug_core.py - Debug Operation Dispatcher
+debug/debug_core.py - Debug Operation Dispatcher
 Version: 2025.10.14.01
 Description: Dispatcher for debug operations - delegates to internal debug modules
 
@@ -19,120 +19,108 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-from debug import DebugOperation
-
-# Import health operations
-from debug.debug_health import (
-    _check_component_health,
-    _check_gateway_health,
-    _generate_health_report
-)
-
-# Import diagnostic operations
-from debug.debug_diagnostics import (
-    _diagnose_system_health,
-    _diagnose_performance,
-    _diagnose_memory
-)
-
-# Import validation operations
-from debug.debug_validation import (
-    _validate_system_architecture,
-    _validate_imports,
-    _validate_gateway_routing,
-    _run_config_unit_tests,
-    _run_config_integration_tests,
-    _run_config_performance_tests,
-    _run_config_compatibility_tests,
-    _run_config_gateway_tests
-)
-
-# Import statistics operations
-from debug.debug_stats import (
-    _get_system_stats,
-    _get_optimization_stats,
-    _get_dispatcher_stats,
-    _get_operation_metrics
-)
-
-# Import performance operations
-from debug.debug_performance import (
-    _run_performance_benchmark,
-    _compare_dispatcher_modes,
-    _get_performance_report
-)
-
-# Import verification operations
-from debug.debug_verification import (
-    _verify_registry_operations,
-    _analyze_naming_patterns,
-    _generate_verification_report
-)
 
 
-def generic_debug_operation(operation: DebugOperation, **kwargs) -> Dict[str, Any]:
+def generic_debug_operation(operation, **kwargs) -> Dict[str, Any]:
     """
     Generic debug operation dispatcher.
     Routes operations to appropriate internal debug modules.
+    Lazy imports to avoid circular dependencies.
     """
+    # Import DebugOperation enum
+    from debug import DebugOperation
+    
     try:
+        # Health operations
         if operation == DebugOperation.CHECK_COMPONENT_HEALTH:
+            from debug.debug_health import _check_component_health
             return _check_component_health(**kwargs)
         elif operation == DebugOperation.CHECK_GATEWAY_HEALTH:
+            from debug.debug_health import _check_gateway_health
             return _check_gateway_health(**kwargs)
+        elif operation == DebugOperation.GENERATE_HEALTH_REPORT:
+            from debug.debug_health import _generate_health_report
+            return _generate_health_report(**kwargs)
+        
+        # Diagnostic operations
         elif operation == DebugOperation.DIAGNOSE_SYSTEM_HEALTH:
+            from debug.debug_diagnostics import _diagnose_system_health
             return _diagnose_system_health(**kwargs)
         elif operation == DebugOperation.DIAGNOSE_PERFORMANCE:
+            from debug.debug_diagnostics import _diagnose_performance
             return _diagnose_performance(**kwargs)
         elif operation == DebugOperation.DIAGNOSE_MEMORY:
+            from debug.debug_diagnostics import _diagnose_memory
             return _diagnose_memory(**kwargs)
+        
+        # Validation operations
         elif operation == DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE:
+            from debug.debug_validation import _validate_system_architecture
             return _validate_system_architecture(**kwargs)
         elif operation == DebugOperation.VALIDATE_IMPORTS:
+            from debug.debug_validation import _validate_imports
             return _validate_imports(**kwargs)
         elif operation == DebugOperation.VALIDATE_GATEWAY_ROUTING:
+            from debug.debug_validation import _validate_gateway_routing
             return _validate_gateway_routing(**kwargs)
-        elif operation == DebugOperation.GET_SYSTEM_STATS:
-            return _get_system_stats(**kwargs)
-        elif operation == DebugOperation.GET_OPTIMIZATION_STATS:
-            return _get_optimization_stats(**kwargs)
-        elif operation == DebugOperation.RUN_PERFORMANCE_BENCHMARK:
-            return _run_performance_benchmark(**kwargs)
-        elif operation == DebugOperation.GENERATE_HEALTH_REPORT:
-            return _generate_health_report(**kwargs)
-        elif operation == DebugOperation.VERIFY_REGISTRY_OPERATIONS:
-            return _verify_registry_operations(**kwargs)
-        elif operation == DebugOperation.ANALYZE_NAMING_PATTERNS:
-            return _analyze_naming_patterns(**kwargs)
-        elif operation == DebugOperation.GENERATE_VERIFICATION_REPORT:
-            return _generate_verification_report(**kwargs)
         elif operation == DebugOperation.RUN_CONFIG_UNIT_TESTS:
+            from debug.debug_validation import _run_config_unit_tests
             return _run_config_unit_tests(**kwargs)
         elif operation == DebugOperation.RUN_CONFIG_INTEGRATION_TESTS:
+            from debug.debug_validation import _run_config_integration_tests
             return _run_config_integration_tests(**kwargs)
         elif operation == DebugOperation.RUN_CONFIG_PERFORMANCE_TESTS:
+            from debug.debug_validation import _run_config_performance_tests
             return _run_config_performance_tests(**kwargs)
         elif operation == DebugOperation.RUN_CONFIG_COMPATIBILITY_TESTS:
+            from debug.debug_validation import _run_config_compatibility_tests
             return _run_config_compatibility_tests(**kwargs)
         elif operation == DebugOperation.RUN_CONFIG_GATEWAY_TESTS:
+            from debug.debug_validation import _run_config_gateway_tests
             return _run_config_gateway_tests(**kwargs)
+        
+        # Statistics operations
+        elif operation == DebugOperation.GET_SYSTEM_STATS:
+            from debug.debug_stats import _get_system_stats
+            return _get_system_stats(**kwargs)
+        elif operation == DebugOperation.GET_OPTIMIZATION_STATS:
+            from debug.debug_stats import _get_optimization_stats
+            return _get_optimization_stats(**kwargs)
         elif operation == DebugOperation.GET_DISPATCHER_STATS:
+            from debug.debug_stats import _get_dispatcher_stats
             return _get_dispatcher_stats(**kwargs)
         elif operation == DebugOperation.GET_OPERATION_METRICS:
+            from debug.debug_stats import _get_operation_metrics
             return _get_operation_metrics(**kwargs)
+        
+        # Performance operations
+        elif operation == DebugOperation.RUN_PERFORMANCE_BENCHMARK:
+            from debug.debug_performance import _run_performance_benchmark
+            return _run_performance_benchmark(**kwargs)
         elif operation == DebugOperation.COMPARE_DISPATCHER_MODES:
+            from debug.debug_performance import _compare_dispatcher_modes
             return _compare_dispatcher_modes(**kwargs)
         elif operation == DebugOperation.GET_PERFORMANCE_REPORT:
+            from debug.debug_performance import _get_performance_report
             return _get_performance_report(**kwargs)
+        
+        # Verification operations
+        elif operation == DebugOperation.VERIFY_REGISTRY_OPERATIONS:
+            from debug.debug_verification import _verify_registry_operations
+            return _verify_registry_operations(**kwargs)
+        elif operation == DebugOperation.ANALYZE_NAMING_PATTERNS:
+            from debug.debug_verification import _analyze_naming_patterns
+            return _analyze_naming_patterns(**kwargs)
+        elif operation == DebugOperation.GENERATE_VERIFICATION_REPORT:
+            from debug.debug_verification import _generate_verification_report
+            return _generate_verification_report(**kwargs)
+        
         else:
             return {'success': False, 'error': f'Unknown operation: {operation}'}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
-__all__ = [
-    'DebugOperation',
-    'generic_debug_operation'
-]
+__all__ = ['generic_debug_operation']
 
 # EOF
