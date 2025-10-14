@@ -1,9 +1,0 @@
-{
-  "version": "1.0",
-  "session": {
-    "new": true,
-    "sessionId": "test-session"
-  },
-  "requestType": "diagnostic",
-  "test_type": "homeassistant"
-}
