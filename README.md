@@ -8,15 +8,29 @@
 ### 3. I will do my best to address any breaking issues after it becomes fully functional.
 
 '''
+# Brief Informational Synopse:
+## The Lambda Execution Engine
+1. The Lambda Execution Engine is fully functional upon itself. It does not require any extension to work. But would have little to do if nothing used its services
+2. The LEE is designed to keep resource usage at minimum while decreasing latency of services.
+3. The LEE can be used to provide its functions and services to any extension added to it.
+4. The LEE is upgraded to add in additional services or functions that an extension requires as generic functions and services. This in turn adds to more functions and services available to extensions in general.
+
+## Extensions
+1. Any Extension must wholely contained within itself. All code, if something needs to be changed in the LEE as requirement for the extension see #4 above.
+2. It can use any services and functions provided by LEE. Think The Lambda Execution Engine is like the engine in the car, not the car. The extension is everything else but the engine.
+3. The LEE must not be modified to make a extension work except to add the extension interface into LEE to be able to use it. See #4 above.
+4. Extensions that are disabled must use almost zero memory and cpu. They should not be required for the LEE to work.
 
 # Work Log
 ## Date: 10-13-2025 
 1.  Import errors throughout project have been hunted and removed as much as I could find.
 2.  http_client gateway interface has been optimized and websocket support added in along with normal http requests
 3.  Home Assistant Extension has been optimized to reduce size and integrate in new websocket support thru the http_client gateway interface
+4.  Cache and Singleton gateway interfaces optimized and checked for any import errors or breaking changes by other modifications.
+5.  Metrics and Logging gateway interfaces optimized and checked for any import errors or breaking changes by other modifications.
 
 
-#Below is an easy to access MD of available AWS Lambda Test Tab JSONs to be used to get information about any problems.
+# Below is an easy to access MD of available AWS Lambda Test Tab JSONs to be used to get information about any problems.
 
 # Lambda Test Events Reference
 
