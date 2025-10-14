@@ -1,8 +1,6 @@
 """
-gateway.py - Universal Lambda Gateway with SUGA Architecture
-Version: 2025.10.14.04
-Description: COMPLETE ultra-optimized central routing hub - ALL functionality included
-
+gateway.py - Universal operation routing with registry-based dispatch
+Version: 2025.10.14.02
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +34,6 @@ class GatewayInterface(Enum):
     CIRCUIT_BREAKER = "circuit_breaker"
     UTILITY = "utility"
     WEBSOCKET = "websocket"
-    BATCH = "batch"
 
 # ===== OPERATION REGISTRY =====
 
@@ -80,36 +77,36 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.METRICS, 'record_cache'): ('metrics_core', '_execute_record_cache_metric_implementation'),
     (GatewayInterface.METRICS, 'record_api'): ('metrics_core', '_execute_record_api_metric_implementation'),
     
-    # CONFIG operations (COMPLETE)
+    # CONFIG operations
     (GatewayInterface.CONFIG, 'get_parameter'): ('config_core', '_get_parameter_implementation'),
     (GatewayInterface.CONFIG, 'set_parameter'): ('config_core', '_set_parameter_implementation'),
     (GatewayInterface.CONFIG, 'get_category'): ('config_core', '_get_category_implementation'),
-    (GatewayInterface.CONFIG, 'get_category_config'): ('config_core', '_get_category_implementation'),
     (GatewayInterface.CONFIG, 'reload'): ('config_core', '_reload_implementation'),
-    (GatewayInterface.CONFIG, 'reload_config'): ('config_core', '_reload_implementation'),
     (GatewayInterface.CONFIG, 'switch_preset'): ('config_core', '_switch_preset_implementation'),
     (GatewayInterface.CONFIG, 'get_state'): ('config_core', '_get_state_implementation'),
-    (GatewayInterface.CONFIG, 'load_from_environment'): ('config_core', '_load_environment_implementation'),
-    (GatewayInterface.CONFIG, 'load_from_file'): ('config_core', '_load_file_implementation'),
-    (GatewayInterface.CONFIG, 'validate_all_sections'): ('config_core', '_validate_all_implementation'),
-    (GatewayInterface.CONFIG, 'initialize'): ('config_core', '_initialize_implementation'),
+    (GatewayInterface.CONFIG, 'load_environment'): ('config_core', '_load_environment_implementation'),
+    (GatewayInterface.CONFIG, 'load_file'): ('config_core', '_load_file_implementation'),
+    (GatewayInterface.CONFIG, 'validate'): ('config_core', '_validate_all_implementation'),
     
     # SINGLETON operations
     (GatewayInterface.SINGLETON, 'get'): ('singleton_core', '_execute_get_implementation'),
-    (GatewayInterface.SINGLETON, 'set'): ('singleton_core', '_execute_set_implementation'),
-    (GatewayInterface.SINGLETON, 'reset'): ('singleton_core', '_execute_reset_implementation'),
-    (GatewayInterface.SINGLETON, 'reset_all'): ('singleton_core', '_execute_reset_all_implementation'),
-    (GatewayInterface.SINGLETON, 'exists'): ('singleton_core', '_execute_exists_implementation'),
+    (GatewayInterface.SINGLETON, 'has'): ('singleton_core', '_execute_has_implementation'),
+    (GatewayInterface.SINGLETON, 'delete'): ('singleton_core', '_execute_delete_implementation'),
+    (GatewayInterface.SINGLETON, 'clear'): ('singleton_core', '_execute_clear_implementation'),
+    (GatewayInterface.SINGLETON, 'get_stats'): ('singleton_core', '_execute_get_stats_implementation'),
     
     # INITIALIZATION operations
     (GatewayInterface.INITIALIZATION, 'initialize'): ('initialization_core', '_execute_initialize_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_config'): ('initialization_core', '_execute_get_config_implementation'),
-    (GatewayInterface.INITIALIZATION, 'is_initialized'): ('initialization_core', '_execute_is_initialized_implementation'),
-    (GatewayInterface.INITIALIZATION, 'reset'): ('initialization_core', '_execute_reset_implementation'),
+    (GatewayInterface.INITIALIZATION, 'get_status'): ('initialization_core', '_execute_get_status_implementation'),
+    (GatewayInterface.INITIALIZATION, 'set_flag'): ('initialization_core', '_execute_set_flag_implementation'),
+    (GatewayInterface.INITIALIZATION, 'get_flag'): ('initialization_core', '_execute_get_flag_implementation'),
     
     # HTTP_CLIENT operations
-    (GatewayInterface.HTTP_CLIENT, 'make_request'): ('http_client_core', '_make_http_request'),
-    (GatewayInterface.HTTP_CLIENT, 'get_client'): ('http_client_core', 'get_http_client'),
+    (GatewayInterface.HTTP_CLIENT, 'request'): ('http_client_core', 'http_request_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'get'): ('http_client_core', 'http_get_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'post'): ('http_client_core', 'http_post_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'put'): ('http_client_core', 'http_put_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'delete'): ('http_client_core', 'http_delete_implementation'),
     (GatewayInterface.HTTP_CLIENT, 'get_state'): ('http_client_core', 'get_client_state'),
     (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('http_client_core', 'reset_client_state'),
     
@@ -167,52 +164,45 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
                 from fast_path import register_fast_path
                 mod = __import__(module_name, fromlist=[func_name])
                 func = getattr(mod, func_name)
-                register_fast_path(f"{interface.value}.{operation}", func, module_name)
+                register_fast_path(f"{interface.value}.{operation}", func)
             except (ImportError, AttributeError):
                 pass
     
-    # Lazy import and execute
-    module = __import__(module_name, fromlist=[func_name])
-    func = getattr(module, func_name)
-    
-    return func(**kwargs)
+    # Lazy module import
+    try:
+        mod = __import__(module_name, fromlist=[func_name])
+        func = getattr(mod, func_name)
+        return func(**kwargs)
+    except (ImportError, AttributeError) as e:
+        raise RuntimeError(f"Failed to load {module_name}.{func_name}: {str(e)}")
 
-# ===== INITIALIZATION =====
 
-def initialize_lambda():
-    """Initialize Lambda execution environment."""
-    return execute_operation(GatewayInterface.INITIALIZATION, 'initialize')
+def get_gateway_stats() -> Dict[str, Any]:
+    """Get gateway operation statistics."""
+    return {
+        'total_operations': len(_OPERATION_REGISTRY),
+        'operation_call_counts': dict(_operation_call_counts),
+        'interfaces': {iface.value: sum(1 for k in _OPERATION_REGISTRY if k[0] == iface) 
+                      for iface in GatewayInterface},
+        'fast_path_enabled': _fast_path_enabled
+    }
 
-# ===== RESPONSE HELPERS =====
 
-def create_error_response(message: str, status_code: int = 500, **kwargs) -> Dict[str, Any]:
+def create_error_response(message: str, status_code: int = 500) -> Dict[str, Any]:
     """Create standardized error response."""
     return {
         'statusCode': status_code,
-        'body': {'error': message, 'success': False, **kwargs}
+        'body': {'error': message, 'success': False}
     }
 
-def create_success_response(data: Any, status_code: int = 200, message: str = None, **kwargs) -> Dict[str, Any]:
-    """Create standardized success response."""
-    response = {'data': data, 'success': True, 'statusCode': status_code}
-    if message:
-        response['message'] = message
-    response.update(kwargs)
-    return {'statusCode': status_code, 'body': response}
 
-def format_response(status_code: int, body: Any, headers: Optional[Dict] = None) -> Dict[str, Any]:
-    """Format Lambda response."""
-    if isinstance(body, dict):
-        import json
-        body_str = json.dumps(body)
-    else:
-        body_str = str(body)
-    
+def create_success_response(data: Any, status_code: int = 200) -> Dict[str, Any]:
+    """Create standardized success response."""
     return {
         'statusCode': status_code,
-        'body': body_str,
-        'headers': headers or {'Content-Type': 'application/json'}
+        'body': {'data': data, 'success': True}
     }
+
 
 # ===== CACHE WRAPPERS (6 functions) =====
 
@@ -220,25 +210,31 @@ def cache_get(key: str, default: Any = None):
     """Get cache value."""
     return execute_operation(GatewayInterface.CACHE, 'get', key=key, default=default)
 
+
 def cache_set(key: str, value: Any, ttl: Optional[int] = None):
     """Set cache value."""
     return execute_operation(GatewayInterface.CACHE, 'set', key=key, value=value, ttl=ttl)
+
 
 def cache_exists(key: str) -> bool:
     """Check if cache key exists."""
     return execute_operation(GatewayInterface.CACHE, 'exists', key=key)
 
+
 def cache_delete(key: str):
     """Delete cache key."""
     return execute_operation(GatewayInterface.CACHE, 'delete', key=key)
+
 
 def cache_clear():
     """Clear all cache."""
     return execute_operation(GatewayInterface.CACHE, 'clear')
 
+
 def cache_stats() -> Dict[str, Any]:
     """Get cache statistics."""
     return execute_operation(GatewayInterface.CACHE, 'get_stats')
+
 
 # ===== LOGGING WRAPPERS (7 functions) =====
 
@@ -246,29 +242,36 @@ def log_info(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log info message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_info', message=message, extra=extra or kwargs)
 
+
 def log_error(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log error message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_error', message=message, error=error, extra=extra or kwargs)
+
 
 def log_warning(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log warning message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_warning', message=message, extra=extra or kwargs)
 
+
 def log_debug(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
     """Log debug message."""
     return execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, extra=extra or kwargs)
+
 
 def log_operation_start(operation: str, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
     """Log operation start."""
     return execute_operation(GatewayInterface.LOGGING, 'log_operation_start', operation=operation, correlation_id=correlation_id, context=context)
 
+
 def log_operation_success(operation: str, duration_ms: float = 0, correlation_id: Optional[str] = None, result: Any = None):
     """Log operation success."""
     return execute_operation(GatewayInterface.LOGGING, 'log_operation_success', operation=operation, duration_ms=duration_ms, correlation_id=correlation_id, result=result)
 
+
 def log_operation_failure(operation: str, error: Exception, duration_ms: float = 0, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
     """Log operation failure."""
     return execute_operation(GatewayInterface.LOGGING, 'log_operation_failure', operation=operation, error=error, duration_ms=duration_ms, correlation_id=correlation_id, context=context)
+
 
 # ===== SECURITY WRAPPERS (11 functions) =====
 
@@ -276,271 +279,331 @@ def validate_request(request_data: Dict[str, Any]) -> bool:
     """Validate request data."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_request', request_data=request_data)
 
+
 def validate_token(token: str) -> bool:
     """Validate token."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_token', token=token)
+
 
 def encrypt_data(data: str, key: Optional[str] = None) -> str:
     """Encrypt data."""
     return execute_operation(GatewayInterface.SECURITY, 'encrypt', data=data, key=key)
 
-def decrypt_data(encrypted_data: str, key: Optional[str] = None) -> str:
+
+def decrypt_data(data: str, key: Optional[str] = None) -> str:
     """Decrypt data."""
-    return execute_operation(GatewayInterface.SECURITY, 'decrypt', encrypted_data=encrypted_data, key=key)
+    return execute_operation(GatewayInterface.SECURITY, 'decrypt', data=data, key=key)
+
 
 def generate_correlation_id() -> str:
     """Generate correlation ID."""
     return execute_operation(GatewayInterface.SECURITY, 'generate_correlation_id')
 
+
 def validate_string(value: str, min_length: int = 0, max_length: int = 1000) -> bool:
     """Validate string."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_string', value=value, min_length=min_length, max_length=max_length)
+
 
 def validate_email(email: str) -> bool:
     """Validate email."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_email', email=email)
 
+
 def validate_url(url: str) -> bool:
     """Validate URL."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_url', url=url)
+
 
 def hash_data(data: str) -> str:
     """Hash data."""
     return execute_operation(GatewayInterface.SECURITY, 'hash', data=data)
 
+
 def verify_hash(data: str, hash_value: str) -> bool:
     """Verify hash."""
     return execute_operation(GatewayInterface.SECURITY, 'verify_hash', data=data, hash_value=hash_value)
 
+
 def sanitize_input(data: Any) -> Any:
-    """Sanitize input data."""
+    """Sanitize input."""
     return execute_operation(GatewayInterface.SECURITY, 'sanitize', data=data)
+
 
 # ===== METRICS WRAPPERS (7 functions) =====
 
-def record_metric(metric_name: str, value: float = 1.0, dimensions: Optional[Dict[str, str]] = None, **kwargs):
+def record_metric(name: str, value: float, tags: Optional[Dict[str, str]] = None):
     """Record metric."""
-    return execute_operation(GatewayInterface.METRICS, 'record', metric_name=metric_name, value=value, dimensions=dimensions or kwargs.get('tags'))
+    return execute_operation(GatewayInterface.METRICS, 'record', name=name, value=value, tags=tags)
 
-def increment_counter(counter_name: str, value: int = 1):
+
+def increment_counter(name: str, tags: Optional[Dict[str, str]] = None):
     """Increment counter."""
-    return execute_operation(GatewayInterface.METRICS, 'increment', counter_name=counter_name, value=value)
+    return execute_operation(GatewayInterface.METRICS, 'increment', name=name, tags=tags)
+
 
 def get_metrics_stats() -> Dict[str, Any]:
     """Get metrics statistics."""
     return execute_operation(GatewayInterface.METRICS, 'get_stats')
 
+
 def record_operation_metric(operation: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None):
     """Record operation metric."""
     return execute_operation(GatewayInterface.METRICS, 'record_operation', operation=operation, success=success, duration_ms=duration_ms, error_type=error_type)
 
-def record_error_metric(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict] = None):
+
+def record_error_metric(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict[str, Any]] = None):
     """Record error metric."""
     return execute_operation(GatewayInterface.METRICS, 'record_error', error_type=error_type, severity=severity, category=category, context=context or {})
+
 
 def record_cache_metric(operation: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0):
     """Record cache metric."""
     return execute_operation(GatewayInterface.METRICS, 'record_cache', operation=operation, hit=hit, miss=miss, eviction=eviction, duration_ms=duration_ms)
 
+
 def record_api_metric(endpoint: str, method: str = 'GET', status_code: int = 200, duration_ms: float = 0):
     """Record API metric."""
     return execute_operation(GatewayInterface.METRICS, 'record_api', endpoint=endpoint, method=method, status_code=status_code, duration_ms=duration_ms)
 
+
 # ===== CONFIG WRAPPERS (12 functions) =====
 
-def get_parameter(key: str, default: Any = None):
+def get_config(key: str, default: Any = None) -> Any:
     """Get configuration parameter."""
     return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
 
-def set_parameter(key: str, value: Any):
+
+def set_config(key: str, value: Any) -> bool:
     """Set configuration parameter."""
     return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
+
 
 def get_config_category(category: str) -> Dict[str, Any]:
     """Get configuration category."""
     return execute_operation(GatewayInterface.CONFIG, 'get_category', category=category)
 
+
 def reload_config(validate: bool = True) -> Dict[str, Any]:
     """Reload configuration."""
     return execute_operation(GatewayInterface.CONFIG, 'reload', validate=validate)
+
 
 def switch_config_preset(preset_name: str) -> Dict[str, Any]:
     """Switch configuration preset."""
     return execute_operation(GatewayInterface.CONFIG, 'switch_preset', preset_name=preset_name)
 
+
 def get_config_state() -> Dict[str, Any]:
     """Get configuration state."""
     return execute_operation(GatewayInterface.CONFIG, 'get_state')
 
+
 def load_config_from_environment() -> Dict[str, Any]:
     """Load configuration from environment."""
-    return execute_operation(GatewayInterface.CONFIG, 'load_from_environment')
+    return execute_operation(GatewayInterface.CONFIG, 'load_environment')
+
 
 def load_config_from_file(filepath: str) -> Dict[str, Any]:
     """Load configuration from file."""
-    return execute_operation(GatewayInterface.CONFIG, 'load_from_file', filepath=filepath)
+    return execute_operation(GatewayInterface.CONFIG, 'load_file', filepath=filepath)
+
 
 def validate_all_config() -> Dict[str, Any]:
-    """Validate all configuration sections."""
-    return execute_operation(GatewayInterface.CONFIG, 'validate_all_sections')
+    """Validate all configuration."""
+    return execute_operation(GatewayInterface.CONFIG, 'validate')
+
 
 def initialize_config() -> Dict[str, Any]:
     """Initialize configuration system."""
-    return execute_operation(GatewayInterface.CONFIG, 'initialize')
+    return get_config_category('system')
+
 
 def get_cache_config() -> Dict[str, Any]:
-    """Get cache configuration category."""
+    """Get cache configuration."""
     return get_config_category('cache')
 
+
 def get_metrics_config() -> Dict[str, Any]:
-    """Get metrics configuration category."""
+    """Get metrics configuration."""
     return get_config_category('metrics')
+
 
 # ===== SINGLETON WRAPPERS (5 functions) =====
 
-def get_singleton(name: str, factory_func: Optional[Callable] = None, **kwargs):
+def singleton_get(name: str, factory_func: Optional[Callable] = None) -> Any:
     """Get singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'get', name=name, factory_func=factory_func, **kwargs)
+    return execute_operation(GatewayInterface.SINGLETON, 'get', name=name, factory_func=factory_func)
 
-def register_singleton(name: str, instance: Any):
-    """Register singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'set', name=name, instance=instance)
 
-def reset_singleton(name: str):
-    """Reset singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'reset', name=name)
-
-def reset_all_singletons():
-    """Reset all singleton instances."""
-    return execute_operation(GatewayInterface.SINGLETON, 'reset_all')
-
-def singleton_exists(name: str) -> bool:
+def singleton_has(name: str) -> bool:
     """Check if singleton exists."""
-    return execute_operation(GatewayInterface.SINGLETON, 'exists', name=name)
+    return execute_operation(GatewayInterface.SINGLETON, 'has', name=name)
 
-# ===== HTTP CLIENT WRAPPERS (5 functions) =====
 
-def make_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
+def singleton_delete(name: str) -> bool:
+    """Delete singleton instance."""
+    return execute_operation(GatewayInterface.SINGLETON, 'delete', name=name)
+
+
+def singleton_clear() -> int:
+    """Clear all singletons."""
+    return execute_operation(GatewayInterface.SINGLETON, 'clear')
+
+
+def singleton_stats() -> Dict[str, Any]:
+    """Get singleton statistics."""
+    return execute_operation(GatewayInterface.SINGLETON, 'get_stats')
+
+
+# ===== INITIALIZATION WRAPPERS (4 functions) =====
+
+def initialize_system() -> Dict[str, Any]:
+    """Initialize system."""
+    return execute_operation(GatewayInterface.INITIALIZATION, 'initialize')
+
+
+def get_initialization_status() -> Dict[str, Any]:
+    """Get initialization status."""
+    return execute_operation(GatewayInterface.INITIALIZATION, 'get_status')
+
+
+def set_initialization_flag(key: str, value: bool):
+    """Set initialization flag."""
+    return execute_operation(GatewayInterface.INITIALIZATION, 'set_flag', key=key, value=value)
+
+
+def get_initialization_flag(key: str) -> bool:
+    """Get initialization flag."""
+    return execute_operation(GatewayInterface.INITIALIZATION, 'get_flag', key=key)
+
+
+# ===== HTTP CLIENT WRAPPERS (7 functions) =====
+
+def http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'make_request', method=method, url=url, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'request', method=method, url=url, **kwargs)
 
-def make_get_request(url: str, **kwargs) -> Dict[str, Any]:
-    """Make GET request."""
-    return make_request('GET', url, **kwargs)
 
-def make_post_request(url: str, **kwargs) -> Dict[str, Any]:
-    """Make POST request."""
-    return make_request('POST', url, **kwargs)
+def http_get(url: str, **kwargs) -> Dict[str, Any]:
+    """Make HTTP GET request."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'get', url=url, **kwargs)
 
-def make_put_request(url: str, **kwargs) -> Dict[str, Any]:
-    """Make PUT request."""
-    return make_request('PUT', url, **kwargs)
 
-def make_delete_request(url: str, **kwargs) -> Dict[str, Any]:
-    """Make DELETE request."""
-    return make_request('DELETE', url, **kwargs)
+def http_post(url: str, **kwargs) -> Dict[str, Any]:
+    """Make HTTP POST request."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, **kwargs)
+
+
+def http_put(url: str, **kwargs) -> Dict[str, Any]:
+    """Make HTTP PUT request."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'put', url=url, **kwargs)
+
+
+def http_delete(url: str, **kwargs) -> Dict[str, Any]:
+    """Make HTTP DELETE request."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'delete', url=url, **kwargs)
+
+
+def get_http_client_state() -> Dict[str, Any]:
+    """Get HTTP client state."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'get_state')
+
+
+def reset_http_client_state():
+    """Reset HTTP client state."""
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'reset_state')
+
 
 # ===== WEBSOCKET WRAPPERS (5 functions) =====
 
-def websocket_connect(url: str, timeout: int = 10, **kwargs) -> Dict[str, Any]:
+def websocket_connect(url: str, **kwargs) -> Any:
     """Connect to WebSocket."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'connect', url=url, timeout=timeout, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'connect', url=url, **kwargs)
 
-def websocket_send(connection: Any, message: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+
+def websocket_send(connection: Any, message: str) -> bool:
     """Send WebSocket message."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'send', connection=connection, message=message, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'send', connection=connection, message=message)
 
-def websocket_receive(connection: Any, timeout: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+
+def websocket_receive(connection: Any, timeout: float = 30.0) -> str:
     """Receive WebSocket message."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'receive', connection=connection, timeout=timeout, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'receive', connection=connection, timeout=timeout)
 
-def websocket_close(connection: Any, **kwargs) -> Dict[str, Any]:
+
+def websocket_close(connection: Any) -> bool:
     """Close WebSocket connection."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection=connection, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection=connection)
 
-def make_websocket_request(url: str, message: Dict[str, Any], timeout: int = 10, wait_for_response: bool = True, **kwargs) -> Dict[str, Any]:
-    """Make complete WebSocket request."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, timeout=timeout, wait_for_response=wait_for_response, **kwargs)
+
+def websocket_request(url: str, message: str, **kwargs) -> Any:
+    """Make WebSocket request."""
+    return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, **kwargs)
+
 
 # ===== CIRCUIT BREAKER WRAPPERS (6 functions) =====
 
-def get_circuit_breaker(name: str, failure_threshold: int = 5, timeout: int = 60):
-    """Get circuit breaker instance."""
-    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name, failure_threshold=failure_threshold, timeout=timeout)
+def get_circuit_breaker(name: str) -> Any:
+    """Get circuit breaker."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name)
 
-def execute_with_circuit_breaker(breaker_name: str, func: Callable, *args, **kwargs):
-    """Execute function with circuit breaker protection."""
-    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'call', name=breaker_name, func=func, args=args, **kwargs)
+
+def execute_with_circuit_breaker(name: str, func: Callable, *args, **kwargs) -> Any:
+    """Execute function with circuit breaker."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'call', name=name, func=func, args=args, kwargs=kwargs)
+
 
 def get_all_circuit_breaker_states() -> Dict[str, Dict[str, Any]]:
     """Get all circuit breaker states."""
     return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get_all_states')
 
+
 def reset_all_circuit_breakers():
     """Reset all circuit breakers."""
     return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'reset_all')
+
 
 def is_circuit_breaker_open(name: str) -> bool:
     """Check if circuit breaker is open."""
     try:
         breaker = get_circuit_breaker(name)
-        state = breaker.get_state()
-        return state.get('state') == 'open'
+        return breaker.get('state') == 'open' if isinstance(breaker, dict) else False
     except:
         return False
+
 
 def circuit_breaker_call(name: str, func: Callable, *args, **kwargs):
     """Alias for execute_with_circuit_breaker."""
     return execute_with_circuit_breaker(name, func, *args, **kwargs)
 
-# ===== UTILITY WRAPPERS (3 functions) =====
 
-def parse_json_safely(data: str) -> Dict[str, Any]:
-    """Parse JSON safely."""
-    try:
-        import json
-        return json.loads(data)
-    except:
-        return {}
+# ===== UTILITY WRAPPERS (5 functions) =====
 
-def safe_get(dictionary: Dict, key_path: str, default: Any = None) -> Any:
-    """Safely get nested dictionary value."""
-    try:
-        return execute_operation(GatewayInterface.UTILITY, 'safe_get', dictionary=dictionary, key_path=key_path, default=default)
-    except:
-        return default
+def format_response(status_code: int, body: Any, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Format response."""
+    return execute_operation(GatewayInterface.UTILITY, 'format_response', status_code=status_code, body=body, headers=headers)
+
+
+def parse_json(json_string: str, default: Any = None) -> Any:
+    """Parse JSON string."""
+    return execute_operation(GatewayInterface.UTILITY, 'parse_json', json_string=json_string, default=default)
+
+
+def safe_get(data: Dict[str, Any], key: str, default: Any = None) -> Any:
+    """Safe dictionary get."""
+    return execute_operation(GatewayInterface.UTILITY, 'safe_get', data=data, key=key, default=default)
+
 
 def generate_uuid() -> str:
     """Generate UUID."""
-    try:
-        return execute_operation(GatewayInterface.UTILITY, 'generate_uuid')
-    except:
-        import uuid
-        return str(uuid.uuid4())
+    return execute_operation(GatewayInterface.UTILITY, 'generate_uuid')
 
-# ===== INITIALIZATION WRAPPERS (4 functions) =====
 
-def execute_initialization_operation(operation: str, **kwargs):
-    """Execute initialization operation."""
-    return execute_operation(GatewayInterface.INITIALIZATION, operation, **kwargs)
+def get_timestamp() -> str:
+    """Get current timestamp."""
+    return execute_operation(GatewayInterface.UTILITY, 'get_timestamp')
 
-def record_initialization_stage(stage: str, **kwargs):
-    """Record initialization stage."""
-    return log_info(f"Initialization stage: {stage}", extra=kwargs)
-
-def is_initialized() -> bool:
-    """Check if Lambda is initialized."""
-    try:
-        return execute_operation(GatewayInterface.INITIALIZATION, 'is_initialized')
-    except:
-        return False
-
-def get_initialization_config() -> Dict[str, Any]:
-    """Get initialization configuration."""
-    try:
-        return execute_operation(GatewayInterface.INITIALIZATION, 'get_config')
-    except:
-        return {}
 
 # ===== FAST PATH MANAGEMENT (5 functions) =====
 
@@ -550,11 +613,13 @@ def enable_fast_path():
     _fast_path_enabled = True
     return {'fast_path_enabled': True}
 
+
 def disable_fast_path():
     """Disable fast path optimization."""
     global _fast_path_enabled
     _fast_path_enabled = False
     return {'fast_path_enabled': False}
+
 
 def reset_fast_path_stats():
     """Reset fast path statistics."""
@@ -562,145 +627,34 @@ def reset_fast_path_stats():
     _operation_call_counts.clear()
     return {'stats_reset': True}
 
+
 def get_fast_path_stats() -> Dict[str, Any]:
     """Get fast path statistics."""
     return {
         'enabled': _fast_path_enabled,
-        'tracked_operations': len(_operation_call_counts),
-        'hot_operations': sum(1 for count in _operation_call_counts.values() if count >= 20),
-        'total_calls': sum(_operation_call_counts.values()),
-        'operation_counts': {f"{k[0].value}.{k[1]}": v for k, v in sorted(_operation_call_counts.items(), key=lambda x: x[1], reverse=True)[:20]}
+        'operation_counts': dict(_operation_call_counts),
+        'hot_operations': [k for k, v in _operation_call_counts.items() if v >= 20]
     }
+
 
 def mark_module_hot(module_name: str):
-    """Mark module as hot to prevent LUGS unloading."""
+    """Mark module as hot for LUGS."""
     try:
-        from fast_path import should_protect_module, register_fast_path
-        return should_protect_module(module_name)
+        from fast_path import mark_module_hot as fpm_mark_hot
+        fpm_mark_hot(module_name)
     except ImportError:
-        return False
+        pass
 
-# ===== GATEWAY STATS (2 functions) =====
 
-def get_gateway_stats() -> Dict[str, Any]:
-    """Get gateway statistics."""
-    interfaces = {}
-    for (iface, op), _ in _OPERATION_REGISTRY.items():
-        interfaces[iface.value] = interfaces.get(iface.value, 0) + 1
-    
+# ===== GATEWAY MANAGEMENT (2 functions) =====
+
+def get_loaded_modules() -> Dict[str, Any]:
+    """Get loaded module statistics."""
+    import sys
     return {
-        'registered_operations': len(_OPERATION_REGISTRY),
-        'interfaces': len(interfaces),
-        'operations_by_interface': interfaces,
-        'fast_path_stats': get_fast_path_stats()
+        'total_modules': len(sys.modules),
+        'gateway_modules': [m for m in sys.modules if m.endswith('_core') or m == 'gateway']
     }
 
-def get_loaded_modules() -> list:
-    """Get list of loaded modules."""
-    import sys
-    return list(sys.modules.keys())
-
-# ===== EXPORTS =====
-
-__all__ = [
-    # Core
-    'GatewayInterface',
-    'execute_operation',
-    'initialize_lambda',
-    'create_error_response',
-    'create_success_response',
-    'format_response',
-    # Cache (6)
-    'cache_get',
-    'cache_set',
-    'cache_exists',
-    'cache_delete',
-    'cache_clear',
-    'cache_stats',
-    # Logging (7)
-    'log_info',
-    'log_error',
-    'log_warning',
-    'log_debug',
-    'log_operation_start',
-    'log_operation_success',
-    'log_operation_failure',
-    # Security (11)
-    'validate_request',
-    'validate_token',
-    'encrypt_data',
-    'decrypt_data',
-    'generate_correlation_id',
-    'validate_string',
-    'validate_email',
-    'validate_url',
-    'hash_data',
-    'verify_hash',
-    'sanitize_input',
-    # Metrics (7)
-    'record_metric',
-    'increment_counter',
-    'get_metrics_stats',
-    'record_operation_metric',
-    'record_error_metric',
-    'record_cache_metric',
-    'record_api_metric',
-    # Config (12)
-    'get_parameter',
-    'set_parameter',
-    'get_config_category',
-    'reload_config',
-    'switch_config_preset',
-    'get_config_state',
-    'load_config_from_environment',
-    'load_config_from_file',
-    'validate_all_config',
-    'initialize_config',
-    'get_cache_config',
-    'get_metrics_config',
-    # Singleton (5)
-    'get_singleton',
-    'register_singleton',
-    'reset_singleton',
-    'reset_all_singletons',
-    'singleton_exists',
-    # HTTP Client (5)
-    'make_request',
-    'make_get_request',
-    'make_post_request',
-    'make_put_request',
-    'make_delete_request',
-    # WebSocket (5)
-    'websocket_connect',
-    'websocket_send',
-    'websocket_receive',
-    'websocket_close',
-    'make_websocket_request',
-    # Circuit Breaker (6)
-    'get_circuit_breaker',
-    'execute_with_circuit_breaker',
-    'get_all_circuit_breaker_states',
-    'reset_all_circuit_breakers',
-    'is_circuit_breaker_open',
-    'circuit_breaker_call',
-    # Utility (3)
-    'parse_json_safely',
-    'safe_get',
-    'generate_uuid',
-    # Initialization (4)
-    'execute_initialization_operation',
-    'record_initialization_stage',
-    'is_initialized',
-    'get_initialization_config',
-    # Fast Path (5)
-    'enable_fast_path',
-    'disable_fast_path',
-    'reset_fast_path_stats',
-    'get_fast_path_stats',
-    'mark_module_hot',
-    # Gateway Stats (2)
-    'get_gateway_stats',
-    'get_loaded_modules',
-]
 
 # EOF
