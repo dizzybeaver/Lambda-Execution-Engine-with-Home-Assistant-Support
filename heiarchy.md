@@ -16,7 +16,9 @@
 │   ├── logging_operations.py
 │   ├── logging_types.py
 │   ├── metrics_core.py
-│   └── usage_analytics.py
+│   ├── metrics_helper.py
+│   ├── metrics_operations.py
+│   └── metrics_types.py
 ├── build/
 │   ├── __init__.py
 │   ├── cloudformation_generator.py
@@ -76,6 +78,7 @@
     ├── __init__.py
     ├── security_core.py
 ```
+
 
 
 
