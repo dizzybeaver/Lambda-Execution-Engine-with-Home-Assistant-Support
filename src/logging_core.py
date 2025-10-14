@@ -1,6 +1,6 @@
 """
-logging_core.py - Unified logging with generic operation dispatch
-Version: 2025.10.14.03
+logging_core.py - Unified logging with generic operation dispatch and performance monitoring
+Version: 2025.10.15.01
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -193,31 +193,36 @@ class LoggingCore:
         entry_id = str(uuid.uuid4())
         current_time = time.time()
         
-        lambda_context_info = None
-        if lambda_context:
-            lambda_context_info = {
-                'request_id': getattr(lambda_context, 'aws_request_id', 'unknown'),
-                'function_name': getattr(lambda_context, 'function_name', 'unknown'),
-                'remaining_time_ms': getattr(lambda_context, 'get_remaining_time_in_millis', lambda: 0)()
-            }
+        if not correlation_id:
+            correlation_id = str(uuid.uuid4())
         
-        error_type = error_response.get('body', {}).get('error', 'Unknown')
+        error_type = error_response.get('body', {}).get('error', 'UnknownError')
         if isinstance(error_type, dict):
-            error_type = error_type.get('type', 'Unknown')
+            error_type = error_type.get('type', 'UnknownError')
         
+        status_code = error_response.get('statusCode', 500)
         severity = ErrorLogEntry.determine_severity(error_response)
+        
+        lambda_info = None
+        if lambda_context:
+            lambda_info = {
+                'request_id': getattr(lambda_context, 'aws_request_id', None),
+                'function_name': getattr(lambda_context, 'function_name', None),
+                'memory_limit': getattr(lambda_context, 'memory_limit_in_mb', None),
+                'remaining_time': getattr(lambda_context, 'get_remaining_time_in_millis', lambda: None)()
+            }
         
         entry = ErrorLogEntry(
             id=entry_id,
             timestamp=current_time,
-            datetime=datetime.fromtimestamp(current_time),
-            correlation_id=correlation_id or 'unknown',
+            datetime=datetime.now(),
+            correlation_id=correlation_id,
             source_module=source_module,
-            error_type=str(error_type),
+            error_type=error_type,
             severity=severity,
-            status_code=error_response.get('statusCode', 500),
+            status_code=status_code,
             error_response=error_response,
-            lambda_context_info=lambda_context_info,
+            lambda_context_info=lambda_info,
             additional_context=additional_context
         )
         
@@ -225,13 +230,14 @@ class LoggingCore:
             self.error_entries.append(entry)
             self.total_errors_logged += 1
         
-        self.log_error(
-            f"Error response logged: {error_type}",
+        self.logger.error(
+            f"Error Response Logged: {error_type} [ID: {entry_id}]",
             extra={
                 'entry_id': entry_id,
                 'correlation_id': correlation_id,
                 'severity': severity.value,
-                'status_code': entry.status_code
+                'status_code': status_code,
+                'source_module': source_module
             }
         )
         
@@ -302,7 +308,7 @@ class LoggingCore:
             return {'status': 'error', 'error': str(e), 'timestamp': time.time()}
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get comprehensive logging statistics."""
+        """Get logging statistics."""
         return {
             'info_count': self._stats['info_count'],
             'error_count': self._stats['error_count'],
@@ -317,17 +323,32 @@ class LoggingCore:
 _MANAGER = LoggingCore()
 
 
-# ===== GENERIC OPERATION EXECUTION =====
+# ===== GENERIC OPERATION EXECUTION WITH PERFORMANCE MONITORING =====
 
 def execute_logging_operation(operation: LogOperation, *args, **kwargs):
     """
-    Universal logging operation executor.
+    Universal logging operation executor with dispatcher performance monitoring.
     
     Single function that routes all logging operations to the LoggingCore instance.
     """
-    if not _USE_GENERIC_OPERATIONS:
-        return _execute_legacy_operation(operation, *args, **kwargs)
+    # Start timing
+    start_time = time.time()
     
+    # Execute operation
+    if not _USE_GENERIC_OPERATIONS:
+        result = _execute_legacy_operation(operation, *args, **kwargs)
+    else:
+        result = _execute_generic_operation(operation, *args, **kwargs)
+    
+    # Record dispatcher metrics
+    duration_ms = (time.time() - start_time) * 1000
+    _record_dispatcher_metric(operation, duration_ms)
+    
+    return result
+
+
+def _execute_generic_operation(operation: LogOperation, *args, **kwargs):
+    """Execute logging operation using generic dispatcher."""
     try:
         method_name = operation.value
         method = getattr(_MANAGER, method_name, None)
@@ -349,6 +370,26 @@ def _execute_legacy_operation(operation: LogOperation, *args, **kwargs):
     except Exception as e:
         logger.error(f"Legacy operation {operation.value} failed: {str(e)}")
         return None
+
+
+def _record_dispatcher_metric(operation: LogOperation, duration_ms: float):
+    """Record dispatcher performance metric using gateway to avoid circular dependency."""
+    try:
+        # Import gateway lazily to avoid circular dependency
+        from gateway import execute_operation, GatewayInterface
+        
+        # Record dispatcher timing metric
+        metric_name = f'dispatcher.LoggingCore.{operation.value}'
+        execute_operation(
+            GatewayInterface.METRICS,
+            'record',
+            name=metric_name,
+            value=duration_ms,
+            dimensions={'operation': operation.value}
+        )
+    except Exception:
+        # Silently fail to avoid breaking logging operations
+        pass
 
 
 # ===== COMPATIBILITY LAYER - ALL FUNCTIONS NOW ONE-LINERS =====
@@ -450,6 +491,7 @@ __all__ = [
     'LogTemplate',
     'ErrorLogLevel',
     'ErrorLogEntry',
+    'LoggingCore',
     'execute_logging_operation',
     'log_template_fast',
     'get_logging_stats',
