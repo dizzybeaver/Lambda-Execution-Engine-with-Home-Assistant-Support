@@ -1,6 +1,6 @@
 """
 performance_benchmark.py
-Version: 2025.10.13.01
+Version: 2025.10.14.01
 Description: Performance benchmarking utilities for optimization validation
 
 Copyright 2025 Joseph Hersey
@@ -26,17 +26,7 @@ from gateway import execute_operation, GatewayInterface
 # ===== BENCHMARK UTILITIES =====
 
 def benchmark_operation(func: Callable, iterations: int = 1000, warmup: int = 100) -> Dict[str, Any]:
-    """
-    Benchmark a function's performance.
-    
-    Args:
-        func: Function to benchmark
-        iterations: Number of iterations
-        warmup: Warmup iterations
-    
-    Returns:
-        Benchmark results
-    """
+    """Benchmark a function's performance."""
     # Warmup
     for _ in range(warmup):
         try:
@@ -58,10 +48,7 @@ def benchmark_operation(func: Callable, iterations: int = 1000, warmup: int = 10
             errors += 1
     
     if not times:
-        return {
-            'error': 'All iterations failed',
-            'errors': errors
-        }
+        return {'error': 'All iterations failed', 'errors': errors}
     
     times.sort()
     
@@ -82,7 +69,6 @@ def benchmark_operation(func: Callable, iterations: int = 1000, warmup: int = 10
 
 def benchmark_gateway_routing() -> Dict[str, Any]:
     """Benchmark gateway routing performance."""
-    
     def cache_get():
         execute_operation(GatewayInterface.CACHE, 'get', key='benchmark_key')
     
@@ -98,7 +84,6 @@ def benchmark_gateway_wrapper() -> Dict[str, Any]:
             execute_generic_operation(GatewayInterface.CACHE, 'get', key='benchmark_key')
         
         return benchmark_operation(wrapper_cache_get, iterations=1000)
-    
     except ImportError:
         return {'error': 'gateway_wrapper not available'}
 
@@ -106,7 +91,7 @@ def benchmark_gateway_wrapper() -> Dict[str, Any]:
 def benchmark_fast_path() -> Dict[str, Any]:
     """Benchmark fast-path optimizer performance."""
     try:
-        from fast_path_optimizer import execute_fast_path
+        from fast_path import execute_fast_path
         
         def test_func():
             return True
@@ -115,9 +100,8 @@ def benchmark_fast_path() -> Dict[str, Any]:
             execute_fast_path('benchmark_op', test_func)
         
         return benchmark_operation(fast_path_call, iterations=1000)
-    
     except ImportError:
-        return {'error': 'fast_path_optimizer not available'}
+        return {'error': 'fast_path not available'}
 
 
 # ===== BATCH BENCHMARKS =====
@@ -136,7 +120,6 @@ def benchmark_batch_operations() -> Dict[str, Any]:
             execute_batch(operations)
         
         return benchmark_operation(batch_exec, iterations=100)
-    
     except ImportError:
         return {'error': 'batch_operations not available'}
 
@@ -146,12 +129,10 @@ def benchmark_batch_vs_sequential() -> Dict[str, Any]:
     try:
         from batch_operations import execute_batch
         
-        # Sequential
         def sequential():
             for i in range(10):
                 execute_operation(GatewayInterface.CACHE, 'get', key=f'key{i}')
         
-        # Batch
         operations = [
             {'interface': GatewayInterface.CACHE, 'operation': 'get', 'params': {'key': f'key{i}'}}
             for i in range(10)
@@ -170,7 +151,6 @@ def benchmark_batch_vs_sequential() -> Dict[str, Any]:
             'batch': batch_results,
             'speedup': round(speedup, 2)
         }
-    
     except ImportError:
         return {'error': 'batch_operations not available'}
 
@@ -179,25 +159,18 @@ def benchmark_batch_vs_sequential() -> Dict[str, Any]:
 
 def benchmark_cache_operations() -> Dict[str, Any]:
     """Benchmark cache operations."""
-    
     results = {}
     
-    # GET
     def cache_get():
         execute_operation(GatewayInterface.CACHE, 'get', key='benchmark_key')
-    
     results['get'] = benchmark_operation(cache_get, iterations=1000)
     
-    # SET
     def cache_set():
         execute_operation(GatewayInterface.CACHE, 'set', key='benchmark_key', value='value', ttl=300)
-    
     results['set'] = benchmark_operation(cache_set, iterations=1000)
     
-    # DELETE
     def cache_delete():
         execute_operation(GatewayInterface.CACHE, 'delete', key='benchmark_key')
-    
     results['delete'] = benchmark_operation(cache_delete, iterations=1000)
     
     return results
@@ -207,19 +180,14 @@ def benchmark_cache_operations() -> Dict[str, Any]:
 
 def benchmark_metrics_operations() -> Dict[str, Any]:
     """Benchmark metrics operations."""
-    
     results = {}
     
-    # Record metric
     def record_metric():
         execute_operation(GatewayInterface.METRICS, 'record_metric', name='benchmark_metric', value=1.0)
-    
     results['record_metric'] = benchmark_operation(record_metric, iterations=1000)
     
-    # Increment counter
     def increment_counter():
         execute_operation(GatewayInterface.METRICS, 'increment_counter', name='benchmark_counter', value=1)
-    
     results['increment_counter'] = benchmark_operation(increment_counter, iterations=1000)
     
     return results
@@ -229,19 +197,14 @@ def benchmark_metrics_operations() -> Dict[str, Any]:
 
 def benchmark_logging_operations() -> Dict[str, Any]:
     """Benchmark logging operations."""
-    
     results = {}
     
-    # Log info
     def log_info():
         execute_operation(GatewayInterface.LOGGING, 'log_info', message='Benchmark message')
-    
     results['log_info'] = benchmark_operation(log_info, iterations=1000)
     
-    # Log error
     def log_error():
         execute_operation(GatewayInterface.LOGGING, 'log_error', message='Benchmark error')
-    
     results['log_error'] = benchmark_operation(log_error, iterations=1000)
     
     return results
@@ -251,14 +214,12 @@ def benchmark_logging_operations() -> Dict[str, Any]:
 
 def compare_optimizations() -> Dict[str, Any]:
     """Compare performance before and after optimizations."""
-    
     results = {
         'gateway_routing': {},
         'fast_path': {},
         'batch_operations': {}
     }
     
-    # Gateway routing
     results['gateway_routing']['standard'] = benchmark_gateway_routing()
     results['gateway_routing']['wrapper'] = benchmark_gateway_wrapper()
     
@@ -270,12 +231,8 @@ def compare_optimizations() -> Dict[str, Any]:
         )
         results['gateway_routing']['improvement_percent'] = round(improvement, 2)
     
-    # Fast-path
     results['fast_path']['benchmark'] = benchmark_fast_path()
-    
-    # Batch operations
-    batch_comparison = benchmark_batch_vs_sequential()
-    results['batch_operations'] = batch_comparison
+    results['batch_operations'] = benchmark_batch_vs_sequential()
     
     return results
 
@@ -284,27 +241,19 @@ def compare_optimizations() -> Dict[str, Any]:
 
 def run_comprehensive_benchmark() -> Dict[str, Any]:
     """Run comprehensive performance benchmark suite."""
-    
     results = {
         'timestamp': time.time(),
         'benchmarks': {}
     }
     
-    # Gateway benchmarks
     results['benchmarks']['gateway_routing'] = benchmark_gateway_routing()
     results['benchmarks']['gateway_wrapper'] = benchmark_gateway_wrapper()
     results['benchmarks']['fast_path'] = benchmark_fast_path()
-    
-    # Component benchmarks
     results['benchmarks']['cache'] = benchmark_cache_operations()
     results['benchmarks']['metrics'] = benchmark_metrics_operations()
     results['benchmarks']['logging'] = benchmark_logging_operations()
-    
-    # Batch benchmarks
     results['benchmarks']['batch'] = benchmark_batch_operations()
     results['benchmarks']['batch_vs_sequential'] = benchmark_batch_vs_sequential()
-    
-    # Optimization comparison
     results['optimization_comparison'] = compare_optimizations()
     
     return results
@@ -313,21 +262,8 @@ def run_comprehensive_benchmark() -> Dict[str, Any]:
 # ===== REPORT GENERATION =====
 
 def generate_benchmark_report(results: Dict[str, Any]) -> str:
-    """
-    Generate human-readable benchmark report.
-    
-    Args:
-        results: Benchmark results
-    
-    Returns:
-        Formatted report string
-    """
-    lines = [
-        "=" * 80,
-        "PERFORMANCE BENCHMARK REPORT",
-        "=" * 80,
-        ""
-    ]
+    """Generate human-readable benchmark report."""
+    lines = ["=" * 80, "PERFORMANCE BENCHMARK REPORT", "=" * 80, ""]
     
     if 'benchmarks' in results:
         lines.append("COMPONENT BENCHMARKS:")
@@ -357,11 +293,8 @@ def generate_benchmark_report(results: Dict[str, Any]) -> str:
             lines.append(f"Batch Operations: {speedup}x faster than sequential")
     
     lines.append("\n" + "=" * 80)
-    
     return "\n".join(lines)
 
-
-# ===== EXPORTED FUNCTIONS =====
 
 __all__ = [
     'benchmark_operation',
