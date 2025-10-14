@@ -1,12 +1,16 @@
 """
 http_client_core.py
-Version: 2025.10.13.04
-Description: Complete HTTP client with transformers, response processing, state management, and WebSocket support
+Version: 2025.10.14.01
+Description: Complete HTTP client with transformers, response processing, state management, and WebSocket support - PHASE 1 FIXED
+
 Copyright 2025 Joseph Hersey
+
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
+
        http://www.apache.org/licenses/LICENSE-2.0
+
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -132,49 +136,36 @@ class ResponseTransformer:
         return data
     
     @staticmethod
-    def transform_values(data: Dict[str, Any], transformers: Dict[str, Callable]) -> Dict[str, Any]:
+    def transform_values(data: Dict[str, Any], transforms: Dict[str, Callable]) -> Dict[str, Any]:
         """Apply transformation functions to specific fields."""
         result = data.copy()
-        for field, transformer in transformers.items():
+        for field, transform_func in transforms.items():
             if field in result:
-                try:
-                    result[field] = transformer(result[field])
-                except Exception:
-                    pass
+                result[field] = transform_func(result[field])
         return result
     
     @staticmethod
     def normalize(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize data according to schema."""
+        """Normalize data structure to match schema."""
         result = {}
-        for field, config in schema.items():
+        for field, field_type in schema.items():
             if field in data:
-                value = data[field]
-                if 'type' in config:
-                    try:
-                        if config['type'] == 'int':
-                            value = int(value)
-                        elif config['type'] == 'float':
-                            value = float(value)
-                        elif config['type'] == 'str':
-                            value = str(value)
-                        elif config['type'] == 'bool':
-                            value = bool(value)
-                    except (ValueError, TypeError):
-                        value = config.get('default')
-                if 'min' in config and value < config['min']:
-                    value = config['min']
-                if 'max' in config and value > config['max']:
-                    value = config['max']
-                result[field] = value
-            elif 'default' in config:
-                result[field] = config['default']
+                if field_type == 'string':
+                    result[field] = str(data[field])
+                elif field_type == 'integer':
+                    result[field] = int(data[field])
+                elif field_type == 'float':
+                    result[field] = float(data[field])
+                elif field_type == 'boolean':
+                    result[field] = bool(data[field])
+                else:
+                    result[field] = data[field]
         return result
 
 # ===== TRANSFORMATION PIPELINE CLASS =====
 
 class TransformationPipeline:
-    """Pipeline for chaining multiple transformations."""
+    """Chains multiple transformation and validation steps."""
     
     def __init__(self, cache_results: bool = False):
         """Initialize transformation pipeline."""
@@ -254,52 +245,42 @@ class HTTPClientCore:
     
     def _calculate_backoff(self, attempt: int) -> float:
         """Calculate exponential backoff delay."""
-        base = self._retry_config['backoff_base_ms'] / 1000.0
+        base_ms = self._retry_config['backoff_base_ms']
         multiplier = self._retry_config['backoff_multiplier']
-        return base * (multiplier ** attempt)
+        return (base_ms * (multiplier ** attempt)) / 1000.0
     
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
+        from gateway import create_success_response, create_error_response
+        
         try:
             headers = kwargs.get('headers', self.get_standard_headers())
-            data = kwargs.get('data')
-            timeout = kwargs.get('timeout', 30)
+            body = kwargs.get('data')
             
-            if method.upper() in ['POST', 'PUT', 'PATCH']:
-                body = json.dumps(data) if isinstance(data, dict) else data
-                response = self.http.request(
-                    method.upper(),
-                    url,
-                    body=body,
-                    headers=headers,
-                    timeout=timeout
-                )
-            else:
-                response = self.http.request(
-                    method.upper(),
-                    url,
-                    headers=headers,
-                    timeout=timeout
-                )
+            if body and isinstance(body, dict):
+                body = json.dumps(body).encode('utf-8')
+            
+            response = self.http.request(
+                method,
+                url,
+                body=body,
+                headers=headers,
+                timeout=kwargs.get('timeout', 30.0)
+            )
             
             try:
-                response_data = json.loads(response.data.decode('utf-8')) if response.data else None
+                data = json.loads(response.data.decode('utf-8'))
             except:
-                response_data = response.data.decode('utf-8') if response.data else None
+                data = response.data.decode('utf-8')
             
-            return {
-                'success': True,
+            return create_success_response("Request successful", {
                 'status_code': response.status,
-                'data': response_data,
+                'data': data,
                 'headers': dict(response.headers)
-            }
+            })
             
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'status_code': 0
-            }
+            return create_error_response(f"Request failed: {str(e)}", error_code='HTTP_ERROR')
     
     def _execute_with_retry(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute request with retry logic."""
@@ -314,7 +295,7 @@ class HTTPClientCore:
                 self._stats['successful'] += 1
                 return result
             
-            status_code = result.get('status_code', 0)
+            status_code = result.get('data', {}).get('status_code', 0)
             
             if not self._is_retriable_error(status_code):
                 self._stats['failed'] += 1
@@ -416,31 +397,46 @@ def process_response(response_data: Dict[str, Any], expected_format: str = 'json
     """Process and validate HTTP response."""
     return response_data
 
-# ===== SINGLETON AND STATE MANAGEMENT =====
+# ===== SINGLETON AND STATE MANAGEMENT - PHASE 1 FIXED =====
 
 def get_http_client() -> HTTPClientCore:
-    """Get singleton HTTP client instance via gateway."""
-    from gateway import get_singleton, register_singleton
+    """Get singleton HTTP client instance via gateway - PHASE 1 FIXED."""
+    from gateway import execute_operation, GatewayInterface
     
-    singleton_key = 'http_client_core'
-    client = get_singleton(singleton_key)
+    def factory():
+        return HTTPClientCore()
     
-    if not client:
-        client = HTTPClientCore()
-        register_singleton(singleton_key, client)
-    
-    return client
+    return execute_operation(
+        GatewayInterface.SINGLETON,
+        'get',
+        name='http_client_core',
+        factory_func=factory
+    )
 
 def get_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
-    """Get HTTP client state via gateway singleton."""
-    from gateway import get_singleton
+    """Get HTTP client state via gateway singleton - PHASE 1 FIXED."""
+    from gateway import execute_operation, GatewayInterface
     
     try:
         singleton_key = f'http_client_{client_type}'
-        client = get_singleton(singleton_key)
+        
+        # Try to get specific client type
+        client = execute_operation(
+            GatewayInterface.SINGLETON,
+            'get',
+            name=singleton_key,
+            factory_func=None
+        )
         
         if not client:
-            main_client = get_singleton('http_client_core')
+            # Fall back to main http_client_core
+            main_client = execute_operation(
+                GatewayInterface.SINGLETON,
+                'get',
+                name='http_client_core',
+                factory_func=None
+            )
+            
             if main_client:
                 return {
                     'exists': True,
@@ -466,72 +462,82 @@ def get_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
             state_info['stats'] = client.get_stats()
         
         return state_info
+        
     except Exception as e:
         from gateway import log_error
         log_error(f"Failed to get client state: {e}")
         return {'exists': False, 'error': str(e)}
 
 def reset_client_state(client_type: str = None) -> Dict[str, Any]:
-    """Reset HTTP client state via gateway singleton."""
+    """Reset HTTP client state via gateway singleton - PHASE 1 FIXED."""
     from gateway import execute_operation, GatewayInterface, create_success_response, create_error_response, record_metric
     
     try:
         if client_type:
             singleton_key = f'http_client_{client_type}'
+            
+            # Use 'delete' operation instead of 'reset'
             result = execute_operation(
                 GatewayInterface.SINGLETON,
-                'reset',
-                singleton_name=singleton_key
+                'delete',
+                name=singleton_key
             )
-            record_metric(f'http_client_state.{client_type}.reset', 1.0)
+            
+            record_metric(f'http_client_state.reset.{client_type}', 1.0)
+            
+            if result:
+                return create_success_response(
+                    f"HTTP client '{client_type}' reset successfully",
+                    {'client_type': client_type, 'reset': True}
+                )
+            else:
+                return create_error_response(
+                    f"HTTP client '{client_type}' not found",
+                    error_code='CLIENT_NOT_FOUND'
+                )
         else:
-            result = execute_operation(
+            # Clear all HTTP clients
+            cleared = execute_operation(
                 GatewayInterface.SINGLETON,
-                'reset',
-                singleton_name='http_client_core'
+                'clear'
             )
-            record_metric('http_client_state.reset_all', 1.0)
-        
-        return create_success_response("Client state reset", result)
+            
+            record_metric('http_client_state.reset.all', 1.0)
+            
+            return create_success_response(
+                f"Cleared {cleared} HTTP client singletons",
+                {'clients_cleared': cleared}
+            )
+            
     except Exception as e:
         from gateway import log_error
         log_error(f"Failed to reset client state: {e}")
-        return create_error_response(str(e))
+        return create_error_response(
+            f"Reset failed: {str(e)}",
+            error_code='RESET_ERROR'
+        )
 
-def get_client_configuration(client_type: str) -> Dict[str, Any]:
-    """Get client configuration via gateway config."""
-    from gateway import get_parameter
+# ===== STATE MANAGEMENT FUNCTIONS =====
+
+def get_client_configuration(client_type: str = 'urllib3') -> Dict[str, Any]:
+    """Get client configuration."""
+    from gateway import get_config, create_success_response
     
-    try:
-        config_key = f'http_client_{client_type}'
-        client_config = get_parameter(config_key, {})
-        
-        default_config = {
-            'timeout': get_parameter('http_timeout', 30),
-            'retries': get_parameter('http_retries', 3),
-            'pool_size': get_parameter('http_pool_size', 10)
-        }
-        
-        return {
-            'client_type': client_type,
-            'configuration': {**default_config, **client_config}
-        }
-    except Exception as e:
-        from gateway import log_error
-        log_error(f"Failed to get client configuration: {e}")
-        return {
-            'client_type': client_type,
-            'configuration': {},
-            'error': str(e)
-        }
+    config_key = f'http_client_{client_type}'
+    config = get_config(config_key, default={})
+    
+    return create_success_response("Configuration retrieved", {
+        'client_type': client_type,
+        'configuration': config
+    })
 
 def update_client_configuration(client_type: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Update client configuration via gateway config."""
-    from gateway import set_parameter, create_success_response, create_error_response, record_metric
+    """Update client configuration."""
+    from gateway import set_config, create_success_response, create_error_response, record_metric
     
     try:
         config_key = f'http_client_{client_type}'
-        success = set_parameter(config_key, new_config)
+        success = set_config(config_key, new_config)
         
         if success:
             reset_result = reset_client_state(client_type)
@@ -650,6 +656,42 @@ def _make_http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
     client = get_http_client()
     return client.make_request(method, url, **kwargs)
 
+def http_request_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for HTTP request."""
+    method = kwargs.get('method', 'GET')
+    url = kwargs.get('url', '')
+    return _make_http_request(method, url, **kwargs)
+
+def http_get_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for HTTP GET."""
+    url = kwargs.get('url', '')
+    return _make_http_request('GET', url, **kwargs)
+
+def http_post_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for HTTP POST."""
+    url = kwargs.get('url', '')
+    return _make_http_request('POST', url, **kwargs)
+
+def http_put_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for HTTP PUT."""
+    url = kwargs.get('url', '')
+    return _make_http_request('PUT', url, **kwargs)
+
+def http_delete_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for HTTP DELETE."""
+    url = kwargs.get('url', '')
+    return _make_http_request('DELETE', url, **kwargs)
+
+def get_state_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for get state."""
+    client_type = kwargs.get('client_type', 'urllib3')
+    return get_client_state(client_type)
+
+def reset_state_implementation(**kwargs) -> Dict[str, Any]:
+    """Gateway implementation for reset state."""
+    client_type = kwargs.get('client_type')
+    return reset_client_state(client_type)
+
 # ===== WEBSOCKET OPERATIONS =====
 
 def websocket_connect_implementation(url: str, timeout: int = 10, **kwargs) -> Dict[str, Any]:
@@ -715,16 +757,11 @@ def websocket_receive_implementation(connection, timeout: Optional[int] = None, 
         if timeout:
             connection.settimeout(timeout)
         
-        log_debug(f"[{correlation_id}] Waiting for WebSocket message")
-        message_str = connection.recv()
+        message_raw = connection.recv()
+        message = json.loads(message_raw)
         
-        try:
-            message = json.loads(message_str)
-        except:
-            message = message_str
-        
+        log_debug(f"[{correlation_id}] Received WebSocket message: {str(message)[:200]}")
         record_metric('websocket.messages_received', 1.0)
-        log_info(f"[{correlation_id}] WebSocket message received")
         
         return create_success_response("Message received", {
             'message': message,
@@ -738,14 +775,12 @@ def websocket_receive_implementation(connection, timeout: Optional[int] = None, 
 
 def websocket_close_implementation(connection, correlation_id: Optional[str] = None) -> Dict[str, Any]:
     """Close WebSocket connection using gateway services."""
-    from gateway import log_info, log_error, create_success_response, create_error_response, generate_correlation_id, record_metric
+    from gateway import log_info, create_success_response, create_error_response, generate_correlation_id
     
     correlation_id = correlation_id or generate_correlation_id()
     
     try:
         connection.close()
-        
-        record_metric('websocket.disconnections', 1.0)
         log_info(f"[{correlation_id}] WebSocket connection closed")
         
         return create_success_response("Connection closed", {
@@ -753,12 +788,12 @@ def websocket_close_implementation(connection, correlation_id: Optional[str] = N
         })
         
     except Exception as e:
-        log_error(f"[{correlation_id}] WebSocket close failed: {str(e)}")
         return create_error_response(f'Close failed: {str(e)}')
 
-def websocket_request_implementation(url: str, message: Dict[str, Any], timeout: int = 10, 
-                                    wait_for_response: bool = True, **kwargs) -> Dict[str, Any]:
-    """Complete WebSocket request (connect, send, receive, close)."""
+def websocket_request_implementation(url: str, message: Dict[str, Any], 
+                                    wait_for_response: bool = True, 
+                                    timeout: int = 10, **kwargs) -> Dict[str, Any]:
+    """Execute complete WebSocket request cycle using gateway services."""
     from gateway import log_info, log_error, create_error_response, generate_correlation_id
     
     correlation_id = kwargs.get('correlation_id') or generate_correlation_id()
@@ -822,6 +857,13 @@ __all__ = [
     'configure_http_retry',
     'transform_http_response',
     'validate_http_response',
+    'http_request_implementation',
+    'http_get_implementation',
+    'http_post_implementation',
+    'http_put_implementation',
+    'http_delete_implementation',
+    'get_state_implementation',
+    'reset_state_implementation',
     'websocket_connect_implementation',
     'websocket_send_implementation',
     'websocket_receive_implementation',
