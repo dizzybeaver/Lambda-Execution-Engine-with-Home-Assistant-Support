@@ -1,6 +1,6 @@
 """
 metrics_core.py
-Version: 2025.10.03.01
+Version: 2025.10.13.03
 Description: Metrics collection with generic operation pattern
 
 Copyright 2025 Joseph Hersey
@@ -141,43 +141,26 @@ class MetricsCore:
             return False
     
     def get_metric(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get metric statistics."""
+        """Get metric value."""
         with self._lock:
             if name in self._counters:
-                return {
-                    'type': 'counter',
-                    'name': name,
-                    'value': self._counters[name]
-                }
+                return {'type': MetricType.COUNTER.value, 'value': self._counters[name]}
             elif name in self._gauges:
-                return {
-                    'type': 'gauge',
-                    'name': name,
-                    'value': self._gauges[name]
-                }
+                return {'type': MetricType.GAUGE.value, 'value': self._gauges[name]}
             elif name in self._histograms:
                 values = list(self._histograms[name])
                 return {
-                    'type': 'histogram',
-                    'name': name,
+                    'type': MetricType.HISTOGRAM.value,
                     'count': len(values),
-                    'mean': sum(values) / len(values) if values else 0,
-                    'min': min(values) if values else 0,
-                    'max': max(values) if values else 0
+                    'values': values
                 }
-            else:
-                matching_keys = [k for k in self._metrics if k.startswith(name)]
-                if matching_keys:
-                    all_values = []
-                    for key in matching_keys:
-                        all_values.extend(self._metrics[key])
-                    return {
-                        'type': 'metric',
-                        'name': name,
-                        'count': len(all_values),
-                        'sum': sum(all_values),
-                        'mean': sum(all_values) / len(all_values) if all_values else 0
-                    }
+            elif name in self._metrics:
+                values = self._metrics[name]
+                return {
+                    'type': 'metric',
+                    'count': len(values),
+                    'values': values
+                }
             return None
     
     def get_stats(self) -> Dict[str, Any]:
@@ -237,6 +220,47 @@ def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
     return _MANAGER.execute_metric_operation(MetricOperation.GET_STATS)
 
 
+def _execute_record_operation_metric_implementation(operation: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
+    """Execute record operation metric."""
+    dimensions = {'operation': operation, 'success': str(success)}
+    if error_type:
+        dimensions['error_type'] = error_type
+    _MANAGER.record_metric(f'operation.{operation}.count', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric(f'operation.{operation}.duration_ms', duration_ms, dimensions)
+    return True
+
+
+def _execute_record_error_response_metric_implementation(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict] = None, **kwargs) -> bool:
+    """Execute record error response metric."""
+    dimensions = {'error_type': error_type, 'severity': severity, 'category': category}
+    _MANAGER.record_metric('error.response.count', 1.0, dimensions)
+    return True
+
+
+def _execute_record_cache_metric_implementation(operation: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
+    """Execute record cache metric."""
+    dimensions = {'operation': operation}
+    if hit:
+        _MANAGER.record_metric('cache.hit', 1.0, dimensions)
+    if miss:
+        _MANAGER.record_metric('cache.miss', 1.0, dimensions)
+    if eviction:
+        _MANAGER.record_metric('cache.eviction', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric('cache.operation.duration_ms', duration_ms, dimensions)
+    return True
+
+
+def _execute_record_api_metric_implementation(endpoint: str, method: str, status_code: int, duration_ms: float, success: bool = True, **kwargs) -> bool:
+    """Execute record API metric."""
+    dimensions = {'endpoint': endpoint, 'method': method, 'status_code': str(status_code), 'success': str(success)}
+    _MANAGER.record_metric('api.request.count', 1.0, dimensions)
+    _MANAGER.record_metric('api.request.duration_ms', duration_ms, dimensions)
+    _MANAGER.record_metric(f'api.status.{status_code}', 1.0, dimensions)
+    return True
+
+
 def get_metric_value(name: str) -> Optional[Dict[str, Any]]:
     """Public interface for getting metric value."""
     return _MANAGER.get_metric(name)
@@ -249,4 +273,10 @@ __all__ = [
     '_execute_record_metric_implementation',
     '_execute_increment_counter_implementation',
     '_execute_get_stats_implementation',
+    '_execute_record_operation_metric_implementation',
+    '_execute_record_error_response_metric_implementation',
+    '_execute_record_cache_metric_implementation',
+    '_execute_record_api_metric_implementation',
 ]
+
+# EOF
