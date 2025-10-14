@@ -1,7 +1,7 @@
 """
 singleton_convenience.py
-Version: 2025.09.30.01
-Description: Singleton access with generic pattern
+Version: 2025.10.14.01
+Description: Singleton convenience wrappers using SUGA gateway pattern - PHASE 1 FIXED
 
 Copyright 2025 Joseph Hersey
 
@@ -23,23 +23,27 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from singleton_core import get_singleton_registry
 
-
-def get_named_singleton(name: str, create_if_missing: bool = True) -> Optional[Any]:
+def get_named_singleton(name: str, factory_func: Optional[Any] = None) -> Optional[Any]:
     """
-    Universal singleton accessor with consistent error handling.
+    Universal singleton accessor with SUGA gateway pattern.
     
     Args:
         name: Singleton instance name
-        create_if_missing: Create instance if it doesn't exist
+        factory_func: Optional factory function to create singleton if it doesn't exist
         
     Returns:
-        Singleton instance or None on error
+        Singleton instance or None if not found and no factory provided
     """
+    from gateway import execute_operation, GatewayInterface
+    
     try:
-        registry = get_singleton_registry()
-        return registry.get_singleton_instance(name, create_if_missing=create_if_missing)
+        return execute_operation(
+            GatewayInterface.SINGLETON,
+            'get',
+            name=name,
+            factory_func=factory_func
+        )
     except Exception as e:
         logger.error(f"Failed to get singleton '{name}': {e}")
         return None
@@ -105,6 +109,66 @@ def get_response_metrics_manager() -> Optional[Any]:
     return get_named_singleton('response_metrics_manager')
 
 
+# ===== ADDITIONAL HELPER FUNCTIONS =====
+
+def has_singleton(name: str) -> bool:
+    """Check if a singleton exists."""
+    from gateway import execute_operation, GatewayInterface
+    
+    try:
+        return execute_operation(
+            GatewayInterface.SINGLETON,
+            'has',
+            name=name
+        )
+    except Exception as e:
+        logger.error(f"Failed to check singleton '{name}': {e}")
+        return False
+
+
+def delete_singleton(name: str) -> bool:
+    """Delete a specific singleton."""
+    from gateway import execute_operation, GatewayInterface
+    
+    try:
+        return execute_operation(
+            GatewayInterface.SINGLETON,
+            'delete',
+            name=name
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete singleton '{name}': {e}")
+        return False
+
+
+def clear_all_singletons() -> int:
+    """Clear all singletons. Returns count cleared."""
+    from gateway import execute_operation, GatewayInterface
+    
+    try:
+        return execute_operation(
+            GatewayInterface.SINGLETON,
+            'clear'
+        )
+    except Exception as e:
+        logger.error(f"Failed to clear singletons: {e}")
+        return 0
+
+
+def get_singleton_stats() -> dict:
+    """Get singleton statistics."""
+    from gateway import execute_operation, GatewayInterface
+    
+    try:
+        return execute_operation(
+            GatewayInterface.SINGLETON,
+            'get_stats'
+        )
+    except Exception as e:
+        logger.error(f"Failed to get singleton stats: {e}")
+        return {}
+
+
 __all__ = [
     'get_named_singleton',
     'get_cost_protection',
@@ -119,6 +183,10 @@ __all__ = [
     'get_response_processor',
     'get_lambda_optimizer',
     'get_response_metrics_manager',
+    'has_singleton',
+    'delete_singleton',
+    'clear_all_singletons',
+    'get_singleton_stats',
 ]
 
 # EOF
