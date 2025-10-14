@@ -1,7 +1,7 @@
 """
 utility_error_handling.py
-Version: 2025.10.13.01
-Description: Unified error handling utilities with FIXED AWS Lambda imports
+Version: 2025.10.13.02
+Description: Unified error handling with salvaged validation and batch helpers
 
 Copyright 2025 Joseph Hersey
 
@@ -18,38 +18,37 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from typing import Dict, Any, Optional, Callable
-import traceback
+from typing import Dict, Any, Optional, Callable, List
 import functools
+import time
 
-# FIXED: AWS Lambda compatible imports - NO relative imports
-from gateway import execute_operation, GatewayInterface, create_error_response, create_success_response
-from logging_unified import log_error, log_warning, log_info
+from gateway import (
+    execute_operation, GatewayInterface,
+    create_error_response, create_success_response
+)
+from logging_unified import log_error, log_info, log_warning
 from metrics_unified import record_error_response_metric, record_operation_metric
 
 
-# ===== ERROR CATEGORIZATION =====
-
-class ErrorCategory:
-    """Standard error categories for unified handling."""
-    VALIDATION = "validation"
-    AUTHENTICATION = "authentication"
-    AUTHORIZATION = "authorization"
-    NOT_FOUND = "not_found"
-    RATE_LIMIT = "rate_limit"
-    TIMEOUT = "timeout"
-    EXTERNAL_SERVICE = "external_service"
-    DATABASE = "database"
-    INTERNAL = "internal"
-    CONFIGURATION = "configuration"
-
+# ===== ERROR SEVERITY AND CATEGORIES =====
 
 class ErrorSeverity:
-    """Standard error severity levels."""
+    """Error severity levels."""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class ErrorCategory:
+    """Error category types."""
+    VALIDATION = "validation"
+    AUTHENTICATION = "authentication"
+    AUTHORIZATION = "authorization"
+    NOT_FOUND = "not_found"
+    INTERNAL = "internal"
+    EXTERNAL = "external"
+    TIMEOUT = "timeout"
 
 
 # ===== UNIFIED ERROR HANDLER =====
@@ -59,12 +58,11 @@ def handle_error(error: Exception, operation: str, context: Optional[Dict[str, A
                 correlation_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Unified error handling with logging and metrics.
-    FIXED: Uses unified logging and metrics gateways.
+    Uses unified logging and metrics gateways.
     """
     error_type = type(error).__name__
     error_message = str(error)
     
-    # Prepare context
     error_context = {
         'operation': operation,
         'error_type': error_type,
@@ -78,7 +76,6 @@ def handle_error(error: Exception, operation: str, context: Optional[Dict[str, A
     if correlation_id:
         error_context['correlation_id'] = correlation_id
     
-    # FIXED: Log error through unified logging
     log_error(
         f"Error in {operation}: {error_message}",
         error=error,
@@ -86,7 +83,6 @@ def handle_error(error: Exception, operation: str, context: Optional[Dict[str, A
         correlation_id=correlation_id
     )
     
-    # FIXED: Record error metrics through unified metrics
     record_error_response_metric(
         error_type=error_type,
         severity=severity,
@@ -94,14 +90,12 @@ def handle_error(error: Exception, operation: str, context: Optional[Dict[str, A
         context=error_context
     )
     
-    # FIXED: Record operation failure through unified metrics
     record_operation_metric(
         operation=operation,
         success=False,
         error_type=error_type
     )
     
-    # Return error response
     return create_error_response(
         message=f"{operation} failed: {error_message}",
         error_code=f"{category.upper()}_{error_type.upper()}"
@@ -115,28 +109,22 @@ def with_error_handling(operation: str, severity: str = ErrorSeverity.MEDIUM,
                        reraise: bool = False):
     """
     Decorator for automatic error handling with unified logging and metrics.
-    FIXED: Uses unified gateways for all operations.
     """
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                # Log operation start
                 log_info(f"Starting {operation}", extra={'function': func.__name__})
                 
-                # Execute function
                 result = func(*args, **kwargs)
                 
-                # Log success
                 log_info(f"Completed {operation}", extra={'function': func.__name__})
                 
-                # Record success metric
                 record_operation_metric(operation=operation, success=True)
                 
                 return result
             
             except Exception as e:
-                # Handle error
                 error_response = handle_error(
                     error=e,
                     operation=operation,
@@ -158,10 +146,7 @@ def with_error_handling(operation: str, severity: str = ErrorSeverity.MEDIUM,
 
 def handle_validation_error(field: str, message: str, operation: str,
                            correlation_id: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Handle validation errors with standard formatting.
-    FIXED: Uses unified error handling.
-    """
+    """Handle validation errors with standard formatting."""
     validation_error = ValueError(f"Validation failed for {field}: {message}")
     
     return handle_error(
@@ -175,10 +160,7 @@ def handle_validation_error(field: str, message: str, operation: str,
 
 
 def validate_required_fields(data: Dict[str, Any], required_fields: list, operation: str) -> Optional[Dict[str, Any]]:
-    """
-    Validate required fields are present.
-    FIXED: Uses unified validation error handling.
-    """
+    """Validate required fields are present."""
     for field in required_fields:
         if field not in data or data[field] is None:
             return handle_validation_error(
@@ -187,165 +169,171 @@ def validate_required_fields(data: Dict[str, Any], required_fields: list, operat
                 operation=operation
             )
     
-    return None  # No errors
+    return None
 
 
 # ===== RETRY HELPERS =====
 
 def with_retry(operation: str, max_attempts: int = 3, delay_seconds: float = 1.0,
               backoff_multiplier: float = 2.0):
-    """
-    Decorator for automatic retry with exponential backoff.
-    FIXED: Uses unified logging and metrics.
-    """
+    """Decorator for automatic retry with exponential backoff."""
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            import time
-            
-            last_exception = None
+            attempt = 0
             current_delay = delay_seconds
             
-            for attempt in range(1, max_attempts + 1):
+            while attempt < max_attempts:
                 try:
-                    result = func(*args, **kwargs)
-                    
-                    # Log successful retry if not first attempt
-                    if attempt > 1:
-                        log_info(
-                            f"Operation {operation} succeeded on attempt {attempt}/{max_attempts}",
-                            extra={'attempts': attempt}
-                        )
-                    
-                    return result
-                
+                    return func(*args, **kwargs)
                 except Exception as e:
-                    last_exception = e
+                    attempt += 1
                     
-                    if attempt < max_attempts:
-                        # Log retry attempt
-                        log_warning(
-                            f"Operation {operation} failed on attempt {attempt}/{max_attempts}, retrying in {current_delay}s",
-                            extra={
-                                'attempt': attempt,
-                                'max_attempts': max_attempts,
-                                'delay_seconds': current_delay,
-                                'error': str(e)
-                            }
-                        )
-                        
-                        # Wait before retry
-                        time.sleep(current_delay)
-                        current_delay *= backoff_multiplier
-                    else:
-                        # Final attempt failed
+                    if attempt >= max_attempts:
                         log_error(
-                            f"Operation {operation} failed after {max_attempts} attempts",
-                            error=e,
-                            extra={'attempts': max_attempts}
+                            f"Retry failed after {max_attempts} attempts: {operation}",
+                            error=e
                         )
-            
-            # All attempts failed
-            if last_exception:
-                return handle_error(
-                    error=last_exception,
-                    operation=operation,
-                    context={'attempts': max_attempts, 'retry_exhausted': True},
-                    severity=ErrorSeverity.HIGH
-                )
-            
-            return create_error_response(
-                message=f"{operation} failed after {max_attempts} attempts",
-                error_code="RETRY_EXHAUSTED"
-            )
+                        raise
+                    
+                    log_warning(
+                        f"Retry attempt {attempt}/{max_attempts} for {operation}",
+                        extra={'delay_seconds': current_delay}
+                    )
+                    
+                    time.sleep(current_delay)
+                    current_delay *= backoff_multiplier
         
         return wrapper
     return decorator
 
 
-# ===== SAFE EXECUTION =====
+# ===== SALVAGED VALIDATION HELPERS FROM PHASE 2 =====
 
-def safe_execute(func: Callable, operation: str, default_return: Any = None,
-                suppress_errors: bool = True, **kwargs) -> Any:
+def validate_required(value: Any, field_name: str) -> None:
     """
-    Safely execute function with unified error handling.
-    FIXED: Uses unified logging and metrics.
+    Validate field is present and not None.
+    Salvaged from validation_wrapper.py
+    """
+    if value is None:
+        raise ValueError(f"{field_name} is required")
+
+
+def validate_type(value: Any, expected_type: type, field_name: str) -> None:
+    """
+    Validate value is of expected type.
+    Salvaged from validation_wrapper.py
+    """
+    if not isinstance(value, expected_type):
+        raise TypeError(f"{field_name} must be {expected_type.__name__}, got {type(value).__name__}")
+
+
+def validate_range(value: float, min_val: Optional[float], max_val: Optional[float], field_name: str) -> None:
+    """
+    Validate value is within range.
+    Salvaged from validation_wrapper.py
+    """
+    if min_val is not None and value < min_val:
+        raise ValueError(f"{field_name} value {value} below minimum {min_val}")
+    
+    if max_val is not None and value > max_val:
+        raise ValueError(f"{field_name} value {value} above maximum {max_val}")
+
+
+def safe_validate(validator_func: Callable, *args, **kwargs) -> Dict[str, Any]:
+    """
+    Run validator and return structured result instead of raising.
+    Salvaged from validation_wrapper.py
     """
     try:
-        return func(**kwargs)
-    
+        validator_func(*args, **kwargs)
+        return {'valid': True, 'error': None}
     except Exception as e:
-        # Handle error
-        handle_error(
-            error=e,
-            operation=operation,
-            context={'function': func.__name__},
-            severity=ErrorSeverity.MEDIUM
-        )
-        
-        if not suppress_errors:
-            raise
-        
-        return default_return
+        return {
+            'valid': False,
+            'error': str(e),
+            'error_type': type(e).__name__
+        }
 
 
-# ===== CONTEXT MANAGER =====
+# ===== SALVAGED BATCH OPERATIONS FROM PHASE 2 =====
 
-class ErrorContext:
+def execute_operations_batch(operations: List[Dict[str, Any]], fail_fast: bool = False) -> List[Dict[str, Any]]:
     """
-    Context manager for unified error handling.
-    FIXED: Uses unified logging and metrics.
+    Execute multiple operations sequentially with unified error handling.
+    Salvaged from batch_operations.py - simplified for single-threaded Lambda.
+    
+    Args:
+        operations: List of dicts with 'interface', 'operation', 'params'
+        fail_fast: If True, stop on first error
+    
+    Returns:
+        List of result dicts with 'success', 'result', 'error'
     """
+    results = []
     
-    def __init__(self, operation: str, severity: str = ErrorSeverity.MEDIUM,
-                category: str = ErrorCategory.INTERNAL, reraise: bool = True,
-                correlation_id: Optional[str] = None):
-        self.operation = operation
-        self.severity = severity
-        self.category = category
-        self.reraise = reraise
-        self.correlation_id = correlation_id
-        self.error = None
-    
-    def __enter__(self):
-        log_info(f"Entering {self.operation}", correlation_id=self.correlation_id)
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            self.error = exc_val
+    for op in operations:
+        try:
+            interface = op.get('interface')
+            operation = op.get('operation')
+            params = op.get('params', {})
             
-            # Handle error
-            handle_error(
-                error=exc_val,
-                operation=self.operation,
-                severity=self.severity,
-                category=self.category,
-                correlation_id=self.correlation_id
-            )
+            result = execute_operation(interface, operation, **params)
             
-            if self.reraise:
-                return False  # Re-raise exception
-            else:
-                return True  # Suppress exception
+            results.append({
+                'success': True,
+                'result': result,
+                'error': None,
+                'operation': operation
+            })
         
-        # No error
-        log_info(f"Completed {self.operation}", correlation_id=self.correlation_id)
-        return False
+        except Exception as e:
+            results.append({
+                'success': False,
+                'result': None,
+                'error': str(e),
+                'operation': op.get('operation', 'unknown')
+            })
+            
+            if fail_fast:
+                break
+    
+    return results
 
 
-# ===== EXPORTED FUNCTIONS =====
+def analyze_batch_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Analyze batch execution results.
+    Salvaged from batch_operations.py
+    """
+    total = len(results)
+    success = sum(1 for r in results if r.get('success'))
+    failed = total - success
+    
+    success_rate = (success / total * 100) if total > 0 else 0
+    
+    return {
+        'total_operations': total,
+        'successful': success,
+        'failed': failed,
+        'success_rate_percent': round(success_rate, 2)
+    }
+
 
 __all__ = [
-    'ErrorCategory',
     'ErrorSeverity',
+    'ErrorCategory',
     'handle_error',
     'with_error_handling',
     'handle_validation_error',
     'validate_required_fields',
     'with_retry',
-    'safe_execute',
-    'ErrorContext'
+    'validate_required',
+    'validate_type',
+    'validate_range',
+    'safe_validate',
+    'execute_operations_batch',
+    'analyze_batch_results'
 ]
 
 # EOF
