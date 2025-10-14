@@ -18,7 +18,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from debug import Dict, Any
+from typing import Dict, Any
 
 
 def _validate_system_architecture(**kwargs) -> Dict[str, Any]:
