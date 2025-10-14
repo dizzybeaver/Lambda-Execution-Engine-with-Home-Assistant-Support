@@ -12,6 +12,9 @@
 ├── aws/
 │   ├── __init__.py
 │   ├── logging_core.py
+│   ├── logging_manager.py
+│   ├── logging_operations.py
+│   ├── logging_types.py
 │   ├── metrics_core.py
 │   └── usage_analytics.py
 ├── build/
@@ -73,6 +76,7 @@
     ├── __init__.py
     ├── security_core.py
 ```
+
 
 
 
