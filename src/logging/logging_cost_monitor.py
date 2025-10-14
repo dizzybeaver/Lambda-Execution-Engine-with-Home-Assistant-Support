@@ -1,7 +1,7 @@
 """
-logging_cost_monitor.py
-Version: 2025.9.18.1-METRICS_GATEWAY_COMPLIANCE
-Description: Updated to use metrics.py gateway for all metrics access
+utility_error_handling.py
+Version: 2025.10.13.01
+Description: Unified error handling utilities with FIXED AWS Lambda imports
 
 Copyright 2025 Joseph Hersey
 
@@ -18,308 +18,334 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-import time
-import logging
-import threading
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
-from datetime import datetime
+from typing import Dict, Any, Optional, Callable
+import traceback
+import functools
 
-# FIXED: Import metrics through gateway
-from metrics import record_error_response_metric, get_all_metrics
+# FIXED: AWS Lambda compatible imports - NO relative imports
+from gateway import execute_operation, GatewayInterface, create_error_response, create_success_response
+from logging_unified import log_error, log_warning, log_info
+from metrics_unified import record_error_response_metric, record_operation_metric
 
-# Import from consolidated cost protection
-from utility_cost import (
-    get_cost_protection_manager,
-    CostCategory,
-    CostProtectionLevel,
-    ServiceType,
-    EmergencyTrigger,
-    register_protection_callback
-)
 
-logger = logging.getLogger(__name__)
+# ===== ERROR CATEGORIZATION =====
 
-# ===== SECTION 1: LOGGING-FOCUSED COST MONITOR =====
+class ErrorCategory:
+    """Standard error categories for unified handling."""
+    VALIDATION = "validation"
+    AUTHENTICATION = "authentication"
+    AUTHORIZATION = "authorization"
+    NOT_FOUND = "not_found"
+    RATE_LIMIT = "rate_limit"
+    TIMEOUT = "timeout"
+    EXTERNAL_SERVICE = "external_service"
+    DATABASE = "database"
+    INTERNAL = "internal"
+    CONFIGURATION = "configuration"
 
-@dataclass
-class CostMonitoringMetrics:
-    """Metrics specific to cost monitoring and logging."""
-    log_entries_written: int = 0
-    alert_notifications_sent: int = 0
-    reports_generated: int = 0
-    last_alert_timestamp: float = 0.0
-    monitoring_start_time: float = 0.0
 
-class LoggingCostMonitor:
+class ErrorSeverity:
+    """Standard error severity levels."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+# ===== UNIFIED ERROR HANDLER =====
+
+def handle_error(error: Exception, operation: str, context: Optional[Dict[str, Any]] = None,
+                severity: str = ErrorSeverity.MEDIUM, category: str = ErrorCategory.INTERNAL,
+                correlation_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Cost monitor focused on logging and reporting.
-    FIXED: Uses metrics gateway for all metrics operations.
+    Unified error handling with logging and metrics.
+    FIXED: Uses unified logging and metrics gateways.
+    """
+    error_type = type(error).__name__
+    error_message = str(error)
+    
+    # Prepare context
+    error_context = {
+        'operation': operation,
+        'error_type': error_type,
+        'severity': severity,
+        'category': category
+    }
+    
+    if context:
+        error_context.update(context)
+    
+    if correlation_id:
+        error_context['correlation_id'] = correlation_id
+    
+    # FIXED: Log error through unified logging
+    log_error(
+        f"Error in {operation}: {error_message}",
+        error=error,
+        extra=error_context,
+        correlation_id=correlation_id
+    )
+    
+    # FIXED: Record error metrics through unified metrics
+    record_error_response_metric(
+        error_type=error_type,
+        severity=severity,
+        category=category,
+        context=error_context
+    )
+    
+    # FIXED: Record operation failure through unified metrics
+    record_operation_metric(
+        operation=operation,
+        success=False,
+        error_type=error_type
+    )
+    
+    # Return error response
+    return create_error_response(
+        message=f"{operation} failed: {error_message}",
+        error_code=f"{category.upper()}_{error_type.upper()}"
+    )
+
+
+# ===== ERROR DECORATOR =====
+
+def with_error_handling(operation: str, severity: str = ErrorSeverity.MEDIUM,
+                       category: str = ErrorCategory.INTERNAL,
+                       reraise: bool = False):
+    """
+    Decorator for automatic error handling with unified logging and metrics.
+    FIXED: Uses unified gateways for all operations.
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                # Log operation start
+                log_info(f"Starting {operation}", extra={'function': func.__name__})
+                
+                # Execute function
+                result = func(*args, **kwargs)
+                
+                # Log success
+                log_info(f"Completed {operation}", extra={'function': func.__name__})
+                
+                # Record success metric
+                record_operation_metric(operation=operation, success=True)
+                
+                return result
+            
+            except Exception as e:
+                # Handle error
+                error_response = handle_error(
+                    error=e,
+                    operation=operation,
+                    context={'function': func.__name__},
+                    severity=severity,
+                    category=category
+                )
+                
+                if reraise:
+                    raise
+                
+                return error_response
+        
+        return wrapper
+    return decorator
+
+
+# ===== VALIDATION ERROR HELPERS =====
+
+def handle_validation_error(field: str, message: str, operation: str,
+                           correlation_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Handle validation errors with standard formatting.
+    FIXED: Uses unified error handling.
+    """
+    validation_error = ValueError(f"Validation failed for {field}: {message}")
+    
+    return handle_error(
+        error=validation_error,
+        operation=operation,
+        context={'field': field, 'validation_message': message},
+        severity=ErrorSeverity.LOW,
+        category=ErrorCategory.VALIDATION,
+        correlation_id=correlation_id
+    )
+
+
+def validate_required_fields(data: Dict[str, Any], required_fields: list, operation: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate required fields are present.
+    FIXED: Uses unified validation error handling.
+    """
+    for field in required_fields:
+        if field not in data or data[field] is None:
+            return handle_validation_error(
+                field=field,
+                message="Required field is missing or null",
+                operation=operation
+            )
+    
+    return None  # No errors
+
+
+# ===== RETRY HELPERS =====
+
+def with_retry(operation: str, max_attempts: int = 3, delay_seconds: float = 1.0,
+              backoff_multiplier: float = 2.0):
+    """
+    Decorator for automatic retry with exponential backoff.
+    FIXED: Uses unified logging and metrics.
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            import time
+            
+            last_exception = None
+            current_delay = delay_seconds
+            
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = func(*args, **kwargs)
+                    
+                    # Log successful retry if not first attempt
+                    if attempt > 1:
+                        log_info(
+                            f"Operation {operation} succeeded on attempt {attempt}/{max_attempts}",
+                            extra={'attempts': attempt}
+                        )
+                    
+                    return result
+                
+                except Exception as e:
+                    last_exception = e
+                    
+                    if attempt < max_attempts:
+                        # Log retry attempt
+                        log_warning(
+                            f"Operation {operation} failed on attempt {attempt}/{max_attempts}, retrying in {current_delay}s",
+                            extra={
+                                'attempt': attempt,
+                                'max_attempts': max_attempts,
+                                'delay_seconds': current_delay,
+                                'error': str(e)
+                            }
+                        )
+                        
+                        # Wait before retry
+                        time.sleep(current_delay)
+                        current_delay *= backoff_multiplier
+                    else:
+                        # Final attempt failed
+                        log_error(
+                            f"Operation {operation} failed after {max_attempts} attempts",
+                            error=e,
+                            extra={'attempts': max_attempts}
+                        )
+            
+            # All attempts failed
+            if last_exception:
+                return handle_error(
+                    error=last_exception,
+                    operation=operation,
+                    context={'attempts': max_attempts, 'retry_exhausted': True},
+                    severity=ErrorSeverity.HIGH
+                )
+            
+            return create_error_response(
+                message=f"{operation} failed after {max_attempts} attempts",
+                error_code="RETRY_EXHAUSTED"
+            )
+        
+        return wrapper
+    return decorator
+
+
+# ===== SAFE EXECUTION =====
+
+def safe_execute(func: Callable, operation: str, default_return: Any = None,
+                suppress_errors: bool = True, **kwargs) -> Any:
+    """
+    Safely execute function with unified error handling.
+    FIXED: Uses unified logging and metrics.
+    """
+    try:
+        return func(**kwargs)
+    
+    except Exception as e:
+        # Handle error
+        handle_error(
+            error=e,
+            operation=operation,
+            context={'function': func.__name__},
+            severity=ErrorSeverity.MEDIUM
+        )
+        
+        if not suppress_errors:
+            raise
+        
+        return default_return
+
+
+# ===== CONTEXT MANAGER =====
+
+class ErrorContext:
+    """
+    Context manager for unified error handling.
+    FIXED: Uses unified logging and metrics.
     """
     
-    def __init__(self):
-        self._metrics = CostMonitoringMetrics()
-        self._metrics.monitoring_start_time = time.time()
-        self._lock = threading.Lock()
-        
-        # Alert configuration
-        self._alert_interval = 300.0  # 5 minutes between alerts
-        self._last_alert_levels = {}  # Track last alert for each level
-        
-        # Register for cost protection callbacks
-        self._register_cost_protection_callbacks()
-        
-        logger.debug("Logging cost monitor initialized")
+    def __init__(self, operation: str, severity: str = ErrorSeverity.MEDIUM,
+                category: str = ErrorCategory.INTERNAL, reraise: bool = True,
+                correlation_id: Optional[str] = None):
+        self.operation = operation
+        self.severity = severity
+        self.category = category
+        self.reraise = reraise
+        self.correlation_id = correlation_id
+        self.error = None
     
-    def _register_cost_protection_callbacks(self) -> None:
-        """Register callbacks to receive cost protection events."""
-        try:
-            cost_manager = get_cost_protection_manager()
-            
-            # Register callback for cost events
-            register_protection_callback('cost_threshold_reached', self._handle_cost_threshold)
-            register_protection_callback('emergency_mode_activated', self._handle_emergency_mode)
-            register_protection_callback('cost_limit_exceeded', self._handle_cost_limit)
-            
-            logger.debug("Cost protection callbacks registered")
-            
-        except Exception as e:
-            logger.warning(f"Failed to register cost protection callbacks: {e}")
+    def __enter__(self):
+        log_info(f"Entering {self.operation}", correlation_id=self.correlation_id)
+        return self
     
-    def _handle_cost_threshold(self, event_data: Dict[str, Any]) -> None:
-        """Handle cost threshold reached event."""
-        with self._lock:
-            self._metrics.log_entries_written += 1
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.error = exc_val
             
-            # FIXED: Record through metrics gateway
-            record_error_response_metric(
-                error_type='cost_threshold_reached',
-                severity='medium',
-                category='cost_protection',
-                context=event_data
+            # Handle error
+            handle_error(
+                error=exc_val,
+                operation=self.operation,
+                severity=self.severity,
+                category=self.category,
+                correlation_id=self.correlation_id
             )
             
-            # Check if alert should be sent
-            threshold = event_data.get('threshold', 'unknown')
-            if self._should_send_alert(threshold):
-                self._send_cost_alert(event_data)
-    
-    def _handle_emergency_mode(self, event_data: Dict[str, Any]) -> None:
-        """Handle emergency mode activation."""
-        with self._lock:
-            self._metrics.log_entries_written += 1
-            
-            # FIXED: Record through metrics gateway
-            record_error_response_metric(
-                error_type='emergency_mode_activated',
-                severity='critical',
-                category='cost_protection',
-                context=event_data
-            )
-            
-            # Always send alert for emergency mode
-            self._send_emergency_alert(event_data)
-    
-    def _handle_cost_limit(self, event_data: Dict[str, Any]) -> None:
-        """Handle cost limit exceeded event."""
-        with self._lock:
-            self._metrics.log_entries_written += 1
-            
-            # FIXED: Record through metrics gateway
-            record_error_response_metric(
-                error_type='cost_limit_exceeded',
-                severity='high',
-                category='cost_protection',
-                context=event_data
-            )
-            
-            # Send limit exceeded alert
-            self._send_limit_alert(event_data)
-    
-    def _should_send_alert(self, alert_level: str) -> bool:
-        """Check if alert should be sent based on interval."""
-        current_time = time.time()
-        last_alert = self._last_alert_levels.get(alert_level, 0)
+            if self.reraise:
+                return False  # Re-raise exception
+            else:
+                return True  # Suppress exception
         
-        return (current_time - last_alert) >= self._alert_interval
-    
-    def _send_cost_alert(self, event_data: Dict[str, Any]) -> None:
-        """Send cost threshold alert."""
-        alert_data = {
-            'alert_type': 'cost_threshold',
-            'timestamp': time.time(),
-            'event_data': event_data,
-            'monitoring_duration': time.time() - self._metrics.monitoring_start_time
-        }
-        
-        logger.warning(f"Cost threshold alert: {alert_data}")
-        
-        with self._lock:
-            self._metrics.alert_notifications_sent += 1
-            self._metrics.last_alert_timestamp = time.time()
-            self._last_alert_levels[event_data.get('threshold', 'unknown')] = time.time()
-    
-    def _send_emergency_alert(self, event_data: Dict[str, Any]) -> None:
-        """Send emergency mode alert."""
-        alert_data = {
-            'alert_type': 'emergency_mode',
-            'timestamp': time.time(),
-            'event_data': event_data,
-            'trigger': event_data.get('trigger', 'unknown')
-        }
-        
-        logger.critical(f"EMERGENCY MODE ACTIVATED: {alert_data}")
-        
-        with self._lock:
-            self._metrics.alert_notifications_sent += 1
-            self._metrics.last_alert_timestamp = time.time()
-    
-    def _send_limit_alert(self, event_data: Dict[str, Any]) -> None:
-        """Send cost limit exceeded alert."""
-        alert_data = {
-            'alert_type': 'cost_limit_exceeded',
-            'timestamp': time.time(),
-            'event_data': event_data,
-            'limit': event_data.get('limit', 'unknown')
-        }
-        
-        logger.error(f"Cost limit exceeded: {alert_data}")
-        
-        with self._lock:
-            self._metrics.alert_notifications_sent += 1
-            self._metrics.last_alert_timestamp = time.time()
-    
-    def generate_cost_report(self) -> Dict[str, Any]:
-        """
-        Generate comprehensive cost monitoring report.
-        FIXED: Uses metrics gateway for system metrics.
-        """
-        try:
-            # FIXED: Get system metrics through gateway
-            system_metrics = get_all_metrics()
-            
-            # Get cost protection status
-            cost_manager = get_cost_protection_manager()
-            cost_status = cost_manager.get_protection_status() if cost_manager else {}
-            
-            # Generate report
-            report = {
-                'report_type': 'cost_monitoring',
-                'generated_at': time.time(),
-                'monitoring_duration': time.time() - self._metrics.monitoring_start_time,
-                'monitoring_metrics': {
-                    'log_entries_written': self._metrics.log_entries_written,
-                    'alert_notifications_sent': self._metrics.alert_notifications_sent,
-                    'reports_generated': self._metrics.reports_generated,
-                    'last_alert_timestamp': self._metrics.last_alert_timestamp
-                },
-                'cost_protection_status': cost_status,
-                'system_metrics': system_metrics,
-                'recommendations': self._generate_recommendations(cost_status, system_metrics)
-            }
-            
-            with self._lock:
-                self._metrics.reports_generated += 1
-            
-            # FIXED: Record report generation through gateway
-            record_error_response_metric(
-                error_type='cost_report_generated',
-                severity='low',
-                category='reporting',
-                context={'report_size': len(str(report))}
-            )
-            
-            logger.info(f"Cost monitoring report generated (report #{self._metrics.reports_generated})")
-            return report
-            
-        except Exception as e:
-            logger.error(f"Failed to generate cost report: {e}")
-            
-            # FIXED: Record failure through gateway
-            record_error_response_metric(
-                error_type='cost_report_failed',
-                severity='medium',
-                category='reporting',
-                context={'error': str(e)}
-            )
-            
-            return {
-                'report_type': 'cost_monitoring',
-                'generated_at': time.time(),
-                'error': str(e),
-                'status': 'failed'
-            }
-    
-    def _generate_recommendations(self, cost_status: Dict[str, Any], 
-                                system_metrics: Dict[str, Any]) -> List[str]:
-        """Generate cost optimization recommendations."""
-        recommendations = []
-        
-        # Check if emergency mode is active
-        if cost_status.get('emergency_mode_active', False):
-            recommendations.append("Emergency mode active - review cost patterns immediately")
-        
-        # Check alert frequency
-        if self._metrics.alert_notifications_sent > 10:
-            recommendations.append("High alert frequency - consider adjusting thresholds")
-        
-        # Check monitoring duration
-        monitoring_hours = (time.time() - self._metrics.monitoring_start_time) / 3600
-        if monitoring_hours > 24 and self._metrics.log_entries_written > 100:
-            recommendations.append("High cost event frequency - investigate cost drivers")
-        
-        # Default recommendation
-        if not recommendations:
-            recommendations.append("Cost monitoring operating normally")
-        
-        return recommendations
-    
-    def get_monitoring_metrics(self) -> Dict[str, Any]:
-        """Get current monitoring metrics."""
-        with self._lock:
-            return {
-                'log_entries_written': self._metrics.log_entries_written,
-                'alert_notifications_sent': self._metrics.alert_notifications_sent,
-                'reports_generated': self._metrics.reports_generated,
-                'last_alert_timestamp': self._metrics.last_alert_timestamp,
-                'monitoring_start_time': self._metrics.monitoring_start_time,
-                'monitoring_duration': time.time() - self._metrics.monitoring_start_time,
-                'alert_levels_tracked': len(self._last_alert_levels)
-            }
+        # No error
+        log_info(f"Completed {self.operation}", correlation_id=self.correlation_id)
+        return False
 
-# EOS
 
-# ===== SECTION 2: GLOBAL INSTANCE =====
-
-_cost_monitor = None
-_monitor_lock = threading.Lock()
-
-def get_cost_monitor() -> LoggingCostMonitor:
-    """Get or create the global cost monitor."""
-    global _cost_monitor
-    
-    if _cost_monitor is None:
-        with _monitor_lock:
-            if _cost_monitor is None:
-                _cost_monitor = LoggingCostMonitor()
-    
-    return _cost_monitor
-
-def reset_cost_monitor() -> None:
-    """Reset the global cost monitor."""
-    global _cost_monitor
-    with _monitor_lock:
-        _cost_monitor = None
-
-# EOS
-
-# ===== MODULE EXPORTS =====
+# ===== EXPORTED FUNCTIONS =====
 
 __all__ = [
-    'LoggingCostMonitor',
-    'CostMonitoringMetrics',
-    'get_cost_monitor',
-    'reset_cost_monitor'
+    'ErrorCategory',
+    'ErrorSeverity',
+    'handle_error',
+    'with_error_handling',
+    'handle_validation_error',
+    'validate_required_fields',
+    'with_retry',
+    'safe_execute',
+    'ErrorContext'
 ]
 
 # EOF
