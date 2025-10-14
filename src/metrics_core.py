@@ -1,13 +1,13 @@
 """
-metrics_core.py
-Version: 2025.10.15.01
-Description: Unified metrics collection with generic operations and dispatcher performance monitoring
+metrics_core.py - Unified metrics collection with dispatcher timing operations
+Version: 2025.10.15.02
+Description: Unified metrics collection with dispatcher timing operations (Phase 4 Task #7)
 
-PHASE 4 TASK #6 - Dispatcher Performance Monitoring:
-- Added timing wrapper to execute_metric_operation()
-- Records dispatcher execution time to track overhead
-- Uses gateway.execute_operation() to avoid circular dependencies
-- Maintains 100% backward compatibility
+PHASE 4 TASK #7 - Ultra-Integration:
+- Added RECORD_DISPATCHER_TIMING operation for centralized dispatcher metrics
+- Added GET_DISPATCHER_STATS operation for querying dispatcher performance
+- Added GET_OPERATION_METRICS operation for operation-level metrics
+- Eliminates duplicate _record_dispatcher_metric implementations across cores
 
 Copyright 2025 Joseph Hersey
 
@@ -35,7 +35,6 @@ from dataclasses import dataclass, field
 
 # ===== CONFIGURATION =====
 
-# Environment flag to enable/disable generic operations (matches singleton_core pattern)
 _USE_GENERIC_OPERATIONS = os.getenv('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
 
 
@@ -51,6 +50,10 @@ class MetricOperation(Enum):
     GET_METRIC = "get_metric"
     GET_STATS = "get_stats"
     CLEAR = "clear"
+    # Phase 4 Task #7: Dispatcher timing operations
+    RECORD_DISPATCHER_TIMING = "record_dispatcher_timing"
+    GET_DISPATCHER_STATS = "get_dispatcher_stats"
+    GET_OPERATION_METRICS = "get_operation_metrics"
 
 
 class MetricType(Enum):
@@ -99,52 +102,31 @@ class HTTPClientMetrics:
     failed_requests: int = 0
     avg_response_time_ms: float = 0.0
     total_response_time_ms: float = 0.0
-    requests_by_method: Dict[str, int] = field(default_factory=dict)
-    requests_by_status: Dict[int, int] = field(default_factory=dict)
-    
-    def success_rate(self) -> float:
-        """Calculate success rate percentage."""
-        return (self.successful_requests / self.total_requests * 100) if self.total_requests > 0 else 0.0
+    requests_by_method: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    requests_by_status: Dict[int, int] = field(default_factory=lambda: defaultdict(int))
 
 
 @dataclass
 class CircuitBreakerMetrics:
     """Circuit breaker metrics data structure."""
-    total_calls: int = 0
-    successful_calls: int = 0
-    failed_calls: int = 0
-    circuit_opens: int = 0
-    circuit_closes: int = 0
-    half_open_attempts: int = 0
-    current_state: str = "closed"
-    failure_rate: float = 0.0
-    
-    def calculate_failure_rate(self) -> float:
-        """Calculate current failure rate."""
-        return (self.failed_calls / self.total_calls * 100) if self.total_calls > 0 else 0.0
+    state: str = "closed"
+    failure_count: int = 0
+    success_count: int = 0
+    last_failure_time: Optional[float] = None
+    total_requests: int = 0
 
 
-# ===== UNIFIED METRICS CORE =====
+# ===== METRICS CORE IMPLEMENTATION =====
 
 class MetricsCore:
-    """Unified metrics manager with generic operations and specialized tracking."""
+    """Singleton metrics manager with unified operations."""
     
     def __init__(self):
-        # Core metrics storage
+        self._lock = threading.Lock()
         self._metrics: Dict[str, List[float]] = defaultdict(list)
         self._counters: Dict[str, int] = defaultdict(int)
         self._gauges: Dict[str, float] = {}
-        self._histograms: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
-        
-        # Specialized metrics
-        self._response_metrics = ResponseMetrics()
-        self._http_metrics = HTTPClientMetrics()
-        self._circuit_breaker_metrics: Dict[str, CircuitBreakerMetrics] = {}
-        
-        # Thread safety
-        self._lock = threading.RLock()
-        
-        # Statistics
+        self._histograms: Dict[str, List[float]] = defaultdict(list)
         self._stats = {
             'total_metrics': 0,
             'unique_metrics': 0,
@@ -152,24 +134,22 @@ class MetricsCore:
             'gauges': 0,
             'histograms': 0
         }
-        
-        # Response time tracking
-        self._response_times = deque(maxlen=1000)
-    
-    # ===== GENERIC OPERATIONS WITH PERFORMANCE MONITORING =====
+        self._response_metrics = ResponseMetrics()
+        self._http_metrics = HTTPClientMetrics()
+        self._circuit_breaker_metrics: Dict[str, CircuitBreakerMetrics] = {}
+        # Phase 4 Task #7: Dispatcher timing storage
+        self._dispatcher_timings: Dict[str, List[float]] = defaultdict(list)
+        self._dispatcher_call_counts: Dict[str, int] = defaultdict(int)
     
     def execute_metric_operation(self, operation: MetricOperation, *args, **kwargs) -> Any:
-        """Generic metric operation executor with dispatcher performance monitoring."""
-        # Start timing
+        """Universal metric operation executor."""
         start_time = time.time()
         
-        # Execute operation based on environment flag
         if _USE_GENERIC_OPERATIONS:
             result = self._execute_generic_operation(operation, *args, **kwargs)
         else:
             result = self._execute_direct_operation(operation, *args, **kwargs)
         
-        # Record dispatcher metrics
         duration_ms = (time.time() - start_time) * 1000
         self._record_dispatcher_metric(operation, duration_ms)
         
@@ -179,154 +159,245 @@ class MetricsCore:
         """Execute operation using generic dispatcher."""
         if operation == MetricOperation.RECORD:
             name = args[0] if args else kwargs.get('name')
-            value = args[1] if len(args) > 1 else kwargs.get('value', 1.0)
+            value = args[1] if len(args) > 1 else kwargs.get('value')
             dimensions = args[2] if len(args) > 2 else kwargs.get('dimensions')
             return self.record_metric(name, value, dimensions)
-        
         elif operation == MetricOperation.INCREMENT:
             name = args[0] if args else kwargs.get('name')
             value = args[1] if len(args) > 1 else kwargs.get('value', 1)
             return self.increment_counter(name, value)
-        
         elif operation == MetricOperation.DECREMENT:
             name = args[0] if args else kwargs.get('name')
             value = args[1] if len(args) > 1 else kwargs.get('value', 1)
-            return self.decrement_counter(name, value)
-        
+            return self.increment_counter(name, -value)
         elif operation == MetricOperation.GAUGE:
             name = args[0] if args else kwargs.get('name')
             value = args[1] if len(args) > 1 else kwargs.get('value')
             return self.set_gauge(name, value)
-        
         elif operation == MetricOperation.HISTOGRAM:
             name = args[0] if args else kwargs.get('name')
             value = args[1] if len(args) > 1 else kwargs.get('value')
-            return self.add_histogram_value(name, value)
-        
+            return self.record_histogram(name, value)
         elif operation == MetricOperation.GET_METRIC:
             name = args[0] if args else kwargs.get('name')
             return self.get_metric(name)
-        
         elif operation == MetricOperation.GET_STATS:
             return self.get_stats()
-        
         elif operation == MetricOperation.CLEAR:
             return self.clear_metrics()
+        # Phase 4 Task #7: New dispatcher operations
+        elif operation == MetricOperation.RECORD_DISPATCHER_TIMING:
+            interface_name = args[0] if args else kwargs.get('interface_name')
+            operation_name = args[1] if len(args) > 1 else kwargs.get('operation_name')
+            duration_ms = args[2] if len(args) > 2 else kwargs.get('duration_ms')
+            return self.record_dispatcher_timing(interface_name, operation_name, duration_ms)
+        elif operation == MetricOperation.GET_DISPATCHER_STATS:
+            return self.get_dispatcher_stats()
+        elif operation == MetricOperation.GET_OPERATION_METRICS:
+            return self.get_operation_metrics()
         
         return None
     
     def _execute_direct_operation(self, operation: MetricOperation, *args, **kwargs) -> Any:
-        """Execute operation directly (for comparison/fallback)."""
+        """Execute operation using direct method calls."""
         return self._execute_generic_operation(operation, *args, **kwargs)
     
-    def _record_dispatcher_metric(self, operation: MetricOperation, duration_ms: float):
-        """Record dispatcher performance metric using gateway to avoid circular dependency."""
-        try:
-            # Import gateway lazily to avoid circular dependency
-            from gateway import execute_operation, GatewayInterface
-            
-            # Record dispatcher timing metric
-            metric_name = f'dispatcher.MetricsCore.{operation.value}'
-            execute_operation(
-                GatewayInterface.METRICS,
-                'record',
-                name=metric_name,
-                value=duration_ms,
-                dimensions={'operation': operation.value}
-            )
-        except Exception:
-            # Silently fail to avoid breaking metrics collection
-            pass
-    
-    # ===== CORE METRIC OPERATIONS =====
-    
-    def record_metric(self, name: str, value: float = 1.0, dimensions: Optional[Dict[str, str]] = None) -> bool:
+    def record_metric(self, name: str, value: float, dimensions: Optional[Dict[str, str]] = None) -> bool:
         """Record a metric value."""
-        try:
-            with self._lock:
-                key = self._build_metric_key(name, dimensions)
-                self._metrics[key].append(value)
-                self._stats['total_metrics'] += 1
-                if key not in self._counters:
-                    self._stats['unique_metrics'] += 1
-                return True
-        except Exception:
-            return False
+        with self._lock:
+            key = self._build_metric_key(name, dimensions)
+            self._metrics[key].append(value)
+            self._stats['total_metrics'] += 1
+            self._stats['unique_metrics'] = len(self._metrics)
+        return True
     
     def increment_counter(self, name: str, value: int = 1) -> int:
-        """Increment a counter."""
+        """Increment a counter metric."""
         with self._lock:
             self._counters[name] += value
             self._stats['counters'] = len(self._counters)
             return self._counters[name]
     
-    def decrement_counter(self, name: str, value: int = 1) -> int:
-        """Decrement a counter."""
+    def set_gauge(self, name: str, value: float) -> float:
+        """Set a gauge metric."""
         with self._lock:
-            self._counters[name] -= value
-            self._stats['counters'] = len(self._counters)
-            return self._counters[name]
+            self._gauges[name] = value
+            self._stats['gauges'] = len(self._gauges)
+            return value
     
-    def set_gauge(self, name: str, value: float) -> bool:
-        """Set a gauge value."""
-        try:
-            with self._lock:
-                self._gauges[name] = value
-                self._stats['gauges'] = len(self._gauges)
-                return True
-        except Exception:
-            return False
-    
-    def add_histogram_value(self, name: str, value: float) -> bool:
-        """Add value to histogram."""
-        try:
-            with self._lock:
-                self._histograms[name].append(value)
-                self._stats['histograms'] = len(self._histograms)
-                return True
-        except Exception:
-            return False
+    def record_histogram(self, name: str, value: float) -> None:
+        """Record a histogram value."""
+        with self._lock:
+            self._histograms[name].append(value)
+            self._stats['histograms'] = len(self._histograms)
     
     def get_metric(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get metric value and statistics."""
+        """Get metric by name."""
         with self._lock:
-            if name in self._metrics:
-                values = self._metrics[name]
-                return {
-                    'name': name,
-                    'count': len(values),
-                    'sum': sum(values),
-                    'avg': sum(values) / len(values) if values else 0,
-                    'min': min(values) if values else 0,
-                    'max': max(values) if values else 0
-                }
-            elif name in self._counters:
-                return {'name': name, 'value': self._counters[name], 'type': 'counter'}
-            elif name in self._gauges:
-                return {'name': name, 'value': self._gauges[name], 'type': 'gauge'}
-            return None
+            result = {}
+            
+            if name in self._counters:
+                result['counter'] = self._counters[name]
+            
+            if name in self._gauges:
+                result['gauge'] = self._gauges[name]
+            
+            if name in self._histograms:
+                values = self._histograms[name]
+                if values:
+                    result['histogram'] = {
+                        'count': len(values),
+                        'sum': sum(values),
+                        'avg': sum(values) / len(values),
+                        'min': min(values),
+                        'max': max(values)
+                    }
+            
+            # Check metrics with any dimensions
+            for key in self._metrics:
+                if key.startswith(name):
+                    values = self._metrics[key]
+                    if values:
+                        result[key] = {
+                            'count': len(values),
+                            'sum': sum(values),
+                            'avg': sum(values) / len(values),
+                            'min': min(values),
+                            'max': max(values)
+                        }
+            
+            return result if result else None
     
     def get_stats(self) -> Dict[str, Any]:
         """Get overall metrics statistics."""
         with self._lock:
             return {
-                **self._stats,
+                'total_metrics': self._stats['total_metrics'],
+                'unique_metrics': self._stats['unique_metrics'],
+                'counters': self._stats['counters'],
+                'gauges': self._stats['gauges'],
+                'histograms': self._stats['histograms'],
                 'response_metrics': {
                     'total_responses': self._response_metrics.total_responses,
-                    'success_rate': self._response_metrics.success_rate(),
-                    'cache_hit_rate': self._response_metrics.cache_hit_rate
+                    'success_rate': self._response_metrics.success_rate()
                 },
                 'http_metrics': {
                     'total_requests': self._http_metrics.total_requests,
-                    'success_rate': self._http_metrics.success_rate(),
-                    'avg_response_time_ms': self._http_metrics.avg_response_time_ms
-                }
+                    'successful_requests': self._http_metrics.successful_requests
+                },
+                'circuit_breakers': len(self._circuit_breaker_metrics)
             }
     
-    # ===== SPECIALIZED METRICS =====
+    def clear_metrics(self) -> Dict[str, int]:
+        """Clear all metrics."""
+        with self._lock:
+            counts = {
+                'metrics_cleared': len(self._metrics),
+                'counters_cleared': len(self._counters),
+                'gauges_cleared': len(self._gauges),
+                'histograms_cleared': len(self._histograms)
+            }
+            
+            self._metrics.clear()
+            self._counters.clear()
+            self._gauges.clear()
+            self._histograms.clear()
+            self._stats = {
+                'total_metrics': 0,
+                'unique_metrics': 0,
+                'counters': 0,
+                'gauges': 0,
+                'histograms': 0
+            }
+            
+            return counts
     
-    def record_response_metric(self, response_type: ResponseType, response_time_ms: float = 0.0):
-        """Record response metric."""
+    # Phase 4 Task #7: New dispatcher methods
+    def record_dispatcher_timing(self, interface_name: str, operation_name: str, duration_ms: float) -> bool:
+        """Record dispatcher timing metric (Phase 4 Task #7)."""
+        with self._lock:
+            key = f"{interface_name}.{operation_name}"
+            self._dispatcher_timings[key].append(duration_ms)
+            self._dispatcher_call_counts[key] += 1
+            
+            # Also record as regular metric for backwards compatibility
+            self.record_metric(
+                f"dispatcher.{interface_name}.{operation_name}.duration_ms",
+                duration_ms,
+                {'interface': interface_name, 'operation': operation_name}
+            )
+        return True
+    
+    def get_dispatcher_stats(self) -> Dict[str, Any]:
+        """Get dispatcher performance statistics (Phase 4 Task #7)."""
+        with self._lock:
+            stats = {}
+            for key, timings in self._dispatcher_timings.items():
+                if timings:
+                    stats[key] = {
+                        'call_count': self._dispatcher_call_counts[key],
+                        'total_ms': sum(timings),
+                        'avg_ms': sum(timings) / len(timings),
+                        'min_ms': min(timings),
+                        'max_ms': max(timings),
+                        'p95_ms': self._calculate_percentile(timings, 95),
+                        'p99_ms': self._calculate_percentile(timings, 99)
+                    }
+            return {'stats': stats, 'total_operations': sum(self._dispatcher_call_counts.values())}
+    
+    def get_operation_metrics(self) -> Dict[str, Any]:
+        """Get operation-level metrics (Phase 4 Task #7)."""
+        with self._lock:
+            metrics = {}
+            
+            # Group by interface
+            interfaces = defaultdict(lambda: {'operations': {}, 'total_calls': 0})
+            for key, count in self._dispatcher_call_counts.items():
+                interface, operation = key.split('.', 1)
+                interfaces[interface]['operations'][operation] = count
+                interfaces[interface]['total_calls'] += count
+            
+            # Calculate interface-level stats
+            for interface, data in interfaces.items():
+                if interface in ['CacheCore', 'LoggingCore', 'SecurityCore', 'MetricsCore']:
+                    timings_key = f"{interface}"
+                    all_timings = []
+                    for op_key, timing_list in self._dispatcher_timings.items():
+                        if op_key.startswith(interface):
+                            all_timings.extend(timing_list)
+                    
+                    if all_timings:
+                        data['avg_duration_ms'] = sum(all_timings) / len(all_timings)
+                        data['total_duration_ms'] = sum(all_timings)
+            
+            return dict(interfaces)
+    
+    def _calculate_percentile(self, values: List[float], percentile: float) -> float:
+        """Calculate percentile value."""
+        if not values:
+            return 0.0
+        sorted_values = sorted(values)
+        index = int((percentile / 100) * len(sorted_values))
+        return sorted_values[min(index, len(sorted_values) - 1)]
+    
+    def _build_metric_key(self, name: str, dimensions: Optional[Dict[str, str]] = None) -> str:
+        """Build metric key with dimensions."""
+        if not dimensions:
+            return name
+        
+        sorted_dims = sorted(dimensions.items())
+        dim_str = ','.join(f"{k}={v}" for k, v in sorted_dims)
+        return f"{name}[{dim_str}]"
+    
+    def _record_dispatcher_metric(self, operation: MetricOperation, duration_ms: float):
+        """Record dispatcher performance metric (self-recording)."""
+        # MetricsCore records its own dispatcher timing directly
+        if operation != MetricOperation.RECORD_DISPATCHER_TIMING:  # Avoid infinite recursion
+            self.record_dispatcher_timing('MetricsCore', operation.value, duration_ms)
+    
+    # Specialized metric recording methods
+    def record_response_metric(self, response_type: ResponseType, response_time_ms: float = 0.0) -> None:
+        """Record response metrics."""
         with self._lock:
             self._response_metrics.total_responses += 1
             
@@ -342,23 +413,25 @@ class MetricsCore:
                 self._response_metrics.fallback_responses += 1
             
             if response_time_ms > 0:
-                self._response_times.append(response_time_ms)
+                # Update timing stats
                 if response_time_ms < self._response_metrics.fastest_response_ms:
                     self._response_metrics.fastest_response_ms = response_time_ms
                 if response_time_ms > self._response_metrics.slowest_response_ms:
                     self._response_metrics.slowest_response_ms = response_time_ms
                 
-                total_time = sum(self._response_times)
-                self._response_metrics.avg_response_time_ms = total_time / len(self._response_times)
+                # Update average
+                total_time = self._response_metrics.avg_response_time_ms * (self._response_metrics.total_responses - 1)
+                self._response_metrics.avg_response_time_ms = (total_time + response_time_ms) / self._response_metrics.total_responses
             
+            # Update cache hit rate
             if self._response_metrics.total_responses > 0:
                 self._response_metrics.cache_hit_rate = (
                     self._response_metrics.cached_responses / self._response_metrics.total_responses * 100
                 )
     
-    def record_http_request(self, success: bool, response_time_ms: float = 0.0,
-                          method: Optional[str] = None, status_code: Optional[int] = None):
-        """Record HTTP request metric."""
+    def record_http_request(self, success: bool, response_time_ms: float = 0.0, 
+                          method: Optional[str] = None, status_code: Optional[int] = None) -> None:
+        """Record HTTP client metrics."""
         with self._lock:
             self._http_metrics.total_requests += 1
             
@@ -374,41 +447,34 @@ class MetricsCore:
                 )
             
             if method:
-                self._http_metrics.requests_by_method[method] = (
-                    self._http_metrics.requests_by_method.get(method, 0) + 1
-                )
+                self._http_metrics.requests_by_method[method] += 1
             
             if status_code:
-                self._http_metrics.requests_by_status[status_code] = (
-                    self._http_metrics.requests_by_status.get(status_code, 0) + 1
-                )
+                self._http_metrics.requests_by_status[status_code] += 1
     
-    def record_circuit_breaker_event(self, circuit_name: str, event_type: str, 
-                                    success: Optional[bool] = None):
-        """Record circuit breaker event."""
+    def record_circuit_breaker_event(self, circuit_name: str, event_type: str, success: Optional[bool] = None) -> None:
+        """Record circuit breaker metrics."""
         with self._lock:
             if circuit_name not in self._circuit_breaker_metrics:
                 self._circuit_breaker_metrics[circuit_name] = CircuitBreakerMetrics()
             
-            metrics = self._circuit_breaker_metrics[circuit_name]
-            metrics.total_calls += 1
-            
-            if success is True:
-                metrics.successful_calls += 1
-            elif success is False:
-                metrics.failed_calls += 1
+            cb = self._circuit_breaker_metrics[circuit_name]
+            cb.total_requests += 1
             
             if event_type == 'open':
-                metrics.circuit_opens += 1
-                metrics.current_state = 'open'
+                cb.state = 'open'
+                cb.failure_count += 1
+                cb.last_failure_time = time.time()
             elif event_type == 'close':
-                metrics.circuit_closes += 1
-                metrics.current_state = 'closed'
+                cb.state = 'closed'
+                cb.failure_count = 0
             elif event_type == 'half_open':
-                metrics.half_open_attempts += 1
-                metrics.current_state = 'half_open'
-            
-            metrics.failure_rate = metrics.calculate_failure_rate()
+                cb.state = 'half_open'
+            elif event_type == 'success':
+                cb.success_count += 1
+            elif event_type == 'failure':
+                cb.failure_count += 1
+                cb.last_failure_time = time.time()
     
     def get_response_metrics(self) -> Dict[str, Any]:
         """Get response metrics."""
@@ -420,11 +486,11 @@ class MetricsCore:
                 'timeout_responses': self._response_metrics.timeout_responses,
                 'cached_responses': self._response_metrics.cached_responses,
                 'fallback_responses': self._response_metrics.fallback_responses,
-                'success_rate': self._response_metrics.success_rate(),
-                'avg_response_time_ms': self._response_metrics.avg_response_time_ms,
-                'fastest_response_ms': self._response_metrics.fastest_response_ms,
-                'slowest_response_ms': self._response_metrics.slowest_response_ms,
-                'cache_hit_rate': self._response_metrics.cache_hit_rate
+                'avg_response_time_ms': round(self._response_metrics.avg_response_time_ms, 2),
+                'fastest_response_ms': round(self._response_metrics.fastest_response_ms, 2),
+                'slowest_response_ms': round(self._response_metrics.slowest_response_ms, 2),
+                'cache_hit_rate': round(self._response_metrics.cache_hit_rate, 2),
+                'success_rate': round(self._response_metrics.success_rate(), 2)
             }
     
     def get_http_metrics(self) -> Dict[str, Any]:
@@ -434,8 +500,7 @@ class MetricsCore:
                 'total_requests': self._http_metrics.total_requests,
                 'successful_requests': self._http_metrics.successful_requests,
                 'failed_requests': self._http_metrics.failed_requests,
-                'success_rate': self._http_metrics.success_rate(),
-                'avg_response_time_ms': self._http_metrics.avg_response_time_ms,
+                'avg_response_time_ms': round(self._http_metrics.avg_response_time_ms, 2),
                 'requests_by_method': dict(self._http_metrics.requests_by_method),
                 'requests_by_status': dict(self._http_metrics.requests_by_status)
             }
@@ -444,62 +509,28 @@ class MetricsCore:
         """Get circuit breaker metrics."""
         with self._lock:
             if circuit_name:
-                metrics = self._circuit_breaker_metrics.get(circuit_name)
-                if not metrics:
-                    return {}
-                return {
-                    'circuit_name': circuit_name,
-                    'total_calls': metrics.total_calls,
-                    'successful_calls': metrics.successful_calls,
-                    'failed_calls': metrics.failed_calls,
-                    'circuit_opens': metrics.circuit_opens,
-                    'circuit_closes': metrics.circuit_closes,
-                    'half_open_attempts': metrics.half_open_attempts,
-                    'current_state': metrics.current_state,
-                    'failure_rate': metrics.failure_rate
-                }
-            else:
-                return {
-                    name: {
-                        'total_calls': m.total_calls,
-                        'successful_calls': m.successful_calls,
-                        'failed_calls': m.failed_calls,
-                        'current_state': m.current_state,
-                        'failure_rate': m.failure_rate
+                if circuit_name in self._circuit_breaker_metrics:
+                    cb = self._circuit_breaker_metrics[circuit_name]
+                    return {
+                        'state': cb.state,
+                        'failure_count': cb.failure_count,
+                        'success_count': cb.success_count,
+                        'last_failure_time': cb.last_failure_time,
+                        'total_requests': cb.total_requests
                     }
-                    for name, m in self._circuit_breaker_metrics.items()
+                return {}
+            
+            # Return all circuit breakers
+            result = {}
+            for name, cb in self._circuit_breaker_metrics.items():
+                result[name] = {
+                    'state': cb.state,
+                    'failure_count': cb.failure_count,
+                    'success_count': cb.success_count,
+                    'last_failure_time': cb.last_failure_time,
+                    'total_requests': cb.total_requests
                 }
-    
-    def clear_metrics(self) -> bool:
-        """Clear all metrics."""
-        try:
-            with self._lock:
-                self._metrics.clear()
-                self._counters.clear()
-                self._gauges.clear()
-                self._histograms.clear()
-                self._response_metrics = ResponseMetrics()
-                self._http_metrics = HTTPClientMetrics()
-                self._circuit_breaker_metrics.clear()
-                self._response_times.clear()
-                self._stats = {
-                    'total_metrics': 0,
-                    'unique_metrics': 0,
-                    'counters': 0,
-                    'gauges': 0,
-                    'histograms': 0
-                }
-                return True
-        except Exception:
-            return False
-    
-    def _build_metric_key(self, name: str, dimensions: Optional[Dict[str, str]]) -> str:
-        """Build metric key with dimensions."""
-        if not dimensions:
-            return name
-        
-        dimension_str = ",".join(f"{k}={v}" for k, v in sorted(dimensions.items()))
-        return f"{name}[{dimension_str}]"
+            return result
 
 
 # ===== SINGLETON INSTANCE =====
@@ -507,10 +538,9 @@ class MetricsCore:
 _MANAGER = MetricsCore()
 
 
-# ===== IMPLEMENTATION FUNCTIONS FOR GATEWAY =====
-# Basic operations use execute_metric_operation(), specialized operations call _MANAGER methods directly
+# ===== IMPLEMENTATION WRAPPERS =====
 
-def _execute_record_metric_implementation(name: str, value: float = 1.0, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
+def _execute_record_metric_implementation(name: str, value: float, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
     """Execute record metric operation."""
     return _MANAGER.execute_metric_operation(MetricOperation.RECORD, name, value, dimensions)
 
@@ -570,19 +600,19 @@ def _execute_record_api_metric_implementation(endpoint: str, method: str, status
 def _execute_record_response_metric_implementation(response_type: str, response_time_ms: float = 0.0, **kwargs) -> None:
     """Execute record response metric."""
     try:
-        resp_type = ResponseType(response_type)
-        _MANAGER.record_response_metric(resp_type, response_time_ms)
+        response_type_enum = ResponseType(response_type)
+        _MANAGER.record_response_metric(response_type_enum, response_time_ms)
     except ValueError:
         pass
 
 
 def _execute_record_http_metric_implementation(success: bool, response_time_ms: float = 0.0, method: Optional[str] = None, status_code: Optional[int] = None, **kwargs) -> None:
-    """Execute record HTTP request metric."""
+    """Execute record HTTP metric."""
     _MANAGER.record_http_request(success, response_time_ms, method, status_code)
 
 
 def _execute_record_circuit_breaker_metric_implementation(circuit_name: str, event_type: str, success: Optional[bool] = None, **kwargs) -> None:
-    """Execute record circuit breaker event."""
+    """Execute record circuit breaker metric."""
     _MANAGER.record_circuit_breaker_event(circuit_name, event_type, success)
 
 
@@ -599,6 +629,22 @@ def _execute_get_http_metrics_implementation(**kwargs) -> Dict[str, Any]:
 def _execute_get_circuit_breaker_metrics_implementation(circuit_name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
     """Execute get circuit breaker metrics."""
     return _MANAGER.get_circuit_breaker_metrics(circuit_name)
+
+
+# Phase 4 Task #7: New dispatcher operation wrappers
+def _execute_record_dispatcher_timing_implementation(interface_name: str, operation_name: str, duration_ms: float, **kwargs) -> bool:
+    """Execute record dispatcher timing operation."""
+    return _MANAGER.execute_metric_operation(MetricOperation.RECORD_DISPATCHER_TIMING, interface_name, operation_name, duration_ms)
+
+
+def _execute_get_dispatcher_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get dispatcher stats operation."""
+    return _MANAGER.execute_metric_operation(MetricOperation.GET_DISPATCHER_STATS)
+
+
+def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get operation metrics operation."""
+    return _MANAGER.execute_metric_operation(MetricOperation.GET_OPERATION_METRICS)
 
 
 # ===== PUBLIC INTERFACE =====
@@ -630,13 +676,6 @@ __all__ = [
     'MetricOperation',
     'MetricType',
     'ResponseType',
-    'ResponseMetrics',
-    'HTTPClientMetrics',
-    'CircuitBreakerMetrics',
-    'get_metric_value',
-    'record_response_metric',
-    'record_http_request',
-    'record_circuit_breaker_event',
     '_execute_record_metric_implementation',
     '_execute_increment_counter_implementation',
     '_execute_get_stats_implementation',
@@ -650,6 +689,13 @@ __all__ = [
     '_execute_get_response_metrics_implementation',
     '_execute_get_http_metrics_implementation',
     '_execute_get_circuit_breaker_metrics_implementation',
+    '_execute_record_dispatcher_timing_implementation',
+    '_execute_get_dispatcher_stats_implementation',
+    '_execute_get_operation_metrics_implementation',
+    'get_metric_value',
+    'record_response_metric',
+    'record_http_request',
+    'record_circuit_breaker_event'
 ]
 
 # EOF
