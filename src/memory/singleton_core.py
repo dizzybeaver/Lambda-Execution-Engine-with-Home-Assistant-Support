@@ -1,7 +1,7 @@
 """
 singleton_core.py
-Version: 2025.10.03.02
-Description: Singleton management with generic operation dispatch pattern
+Version: 2025.10.14.01
+Description: Singleton management with generic operation dispatch pattern - PHASE 1 FIXED
 
 Copyright 2025 Joseph Hersey
 
@@ -19,6 +19,8 @@ Copyright 2025 Joseph Hersey
 """
 
 import os
+import sys
+import time
 from typing import Any, Dict, Callable, Optional
 from threading import Lock
 from enum import Enum
@@ -28,12 +30,19 @@ _USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower
 # ===== SINGLETON OPERATION ENUM =====
 
 class SingletonOperation(Enum):
-    """Enumeration of all singleton operations."""
+    """Enumeration of all singleton operations - aligned with gateway registry."""
     GET = "get"
     SET = "set"
+    HAS = "has"
+    DELETE = "delete"
+    CLEAR = "clear"
+    GET_STATS = "get_stats"
+    # Legacy operations for backward compatibility
     RESET = "reset"
     RESET_ALL = "reset_all"
     EXISTS = "exists"
+
+# ===== SINGLETON CORE =====
 
 class SingletonCore:
     """Manages singleton instances across the application."""
@@ -41,6 +50,8 @@ class SingletonCore:
     def __init__(self):
         self._instances: Dict[str, Any] = {}
         self._lock = Lock()
+        self._creation_times: Dict[str, float] = {}
+        self._access_counts: Dict[str, int] = {}
     
     def get(self, name: str, factory_func: Optional[Callable] = None, **kwargs) -> Any:
         """Get or create singleton instance."""
@@ -48,32 +59,80 @@ class SingletonCore:
             with self._lock:
                 if name not in self._instances:
                     if factory_func is None:
-                        raise ValueError(f"No singleton instance found for {name} and no factory provided")
+                        return None
                     self._instances[name] = factory_func()
+                    self._creation_times[name] = time.time()
+                    self._access_counts[name] = 0
         
+        self._access_counts[name] = self._access_counts.get(name, 0) + 1
         return self._instances[name]
     
     def set(self, name: str, instance: Any, **kwargs):
         """Set singleton instance."""
         with self._lock:
             self._instances[name] = instance
+            self._creation_times[name] = time.time()
+            self._access_counts[name] = 0
     
-    def reset(self, name: str, **kwargs) -> bool:
-        """Reset singleton instance."""
+    def has(self, name: str, **kwargs) -> bool:
+        """Check if singleton exists (gateway-aligned naming)."""
+        return name in self._instances
+    
+    def delete(self, name: str, **kwargs) -> bool:
+        """Delete specific singleton (gateway-aligned naming)."""
         with self._lock:
             if name in self._instances:
                 del self._instances[name]
+                self._creation_times.pop(name, None)
+                self._access_counts.pop(name, None)
                 return True
             return False
     
-    def reset_all(self, **kwargs):
-        """Reset all singleton instances."""
+    def clear(self, **kwargs) -> int:
+        """Clear all singletons (gateway-aligned naming). Returns count cleared."""
         with self._lock:
+            count = len(self._instances)
             self._instances.clear()
+            self._creation_times.clear()
+            self._access_counts.clear()
+            return count
     
-    def exists(self, name: str) -> bool:
-        """Check if singleton exists."""
-        return name in self._instances
+    def get_stats(self, **kwargs) -> Dict[str, Any]:
+        """Get comprehensive singleton statistics (LMMS compliance)."""
+        with self._lock:
+            total_memory = sum(
+                sys.getsizeof(instance) 
+                for instance in self._instances.values()
+            )
+            
+            return {
+                'total_singletons': len(self._instances),
+                'singleton_names': list(self._instances.keys()),
+                'singleton_types': {
+                    name: type(instance).__name__ 
+                    for name, instance in self._instances.items()
+                },
+                'creation_times': dict(self._creation_times),
+                'access_counts': dict(self._access_counts),
+                'estimated_memory_bytes': total_memory,
+                'estimated_memory_kb': total_memory / 1024,
+                'estimated_memory_mb': total_memory / (1024 * 1024),
+                'timestamp': time.time()
+            }
+    
+    # ===== LEGACY METHODS (backward compatibility) =====
+    
+    def reset(self, name: str, **kwargs) -> bool:
+        """Legacy name for delete."""
+        return self.delete(name, **kwargs)
+    
+    def reset_all(self, **kwargs) -> int:
+        """Legacy name for clear."""
+        return self.clear(**kwargs)
+    
+    def exists(self, name: str, **kwargs) -> bool:
+        """Legacy name for has."""
+        return self.has(name, **kwargs)
 
 
 _SINGLETON_MANAGER = SingletonCore()
@@ -111,7 +170,8 @@ def _execute_legacy_operation(operation: SingletonOperation, *args, **kwargs):
         return None if operation == SingletonOperation.GET else False
 
 
-# ===== COMPATIBILITY LAYER - ALL FUNCTIONS NOW ONE-LINERS =====
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+# These match the gateway.py _OPERATION_REGISTRY exactly
 
 def _execute_get_implementation(name: str, factory_func: Optional[Callable] = None, **kwargs) -> Any:
     """Execute singleton get."""
@@ -123,27 +183,57 @@ def _execute_set_implementation(name: str, instance: Any, **kwargs):
     return execute_singleton_operation(SingletonOperation.SET, name, instance, **kwargs)
 
 
+def _execute_has_implementation(name: str, **kwargs) -> bool:
+    """Execute singleton has check (gateway-aligned)."""
+    return execute_singleton_operation(SingletonOperation.HAS, name, **kwargs)
+
+
+def _execute_delete_implementation(name: str, **kwargs) -> bool:
+    """Execute singleton delete (gateway-aligned)."""
+    return execute_singleton_operation(SingletonOperation.DELETE, name, **kwargs)
+
+
+def _execute_clear_implementation(**kwargs) -> int:
+    """Execute singleton clear all (gateway-aligned)."""
+    return execute_singleton_operation(SingletonOperation.CLEAR, **kwargs)
+
+
+def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute singleton get stats (gateway-aligned, LMMS compliance)."""
+    return execute_singleton_operation(SingletonOperation.GET_STATS, **kwargs)
+
+
+# ===== LEGACY COMPATIBILITY =====
+
 def _execute_reset_implementation(name: str, **kwargs) -> bool:
-    """Execute singleton reset."""
+    """Execute singleton reset (legacy)."""
     return execute_singleton_operation(SingletonOperation.RESET, name, **kwargs)
 
 
-def _execute_reset_all_implementation(**kwargs):
-    """Execute reset all singletons."""
+def _execute_reset_all_implementation(**kwargs) -> int:
+    """Execute reset all singletons (legacy)."""
     return execute_singleton_operation(SingletonOperation.RESET_ALL, **kwargs)
 
 
 def _execute_exists_implementation(name: str, **kwargs) -> bool:
-    """Execute singleton exists check."""
+    """Execute singleton exists check (legacy)."""
     return execute_singleton_operation(SingletonOperation.EXISTS, name, **kwargs)
 
+
+# ===== EXPORTS =====
 
 __all__ = [
     'SingletonOperation',
     'SingletonCore',
     'execute_singleton_operation',
+    # Gateway-aligned implementations
     '_execute_get_implementation',
     '_execute_set_implementation',
+    '_execute_has_implementation',
+    '_execute_delete_implementation',
+    '_execute_clear_implementation',
+    '_execute_get_stats_implementation',
+    # Legacy implementations
     '_execute_reset_implementation',
     '_execute_reset_all_implementation',
     '_execute_exists_implementation',
