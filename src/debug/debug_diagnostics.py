@@ -18,7 +18,8 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from debug import Dict, Any, gc
+from typing import Dict, Any
+import gc
 
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
