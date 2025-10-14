@@ -1,7 +1,7 @@
 """
-security_core.py - Security validation with dispatcher timing integration
-Version: 2025.10.15.02
-Description: Complete security validation, encryption, and sanitization (Phase 4 Task #7)
+security/security_core.py - Security core orchestrator with dispatcher timing
+Version: 2025.10.14.01
+Description: Central security manager coordinating validation and crypto operations
 
 Copyright 2025 Joseph Hersey
 
@@ -18,54 +18,20 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-import re
-import base64
-import hashlib
-import hmac
-import uuid
 import time
 from typing import Dict, Any, Optional
-from enum import Enum
 
-
-class SecurityOperation(Enum):
-    """Security operations enumeration."""
-    VALIDATE_REQUEST = "validate_request"
-    VALIDATE_TOKEN = "validate_token"
-    VALIDATE_STRING = "validate_string"
-    VALIDATE_EMAIL = "validate_email"
-    VALIDATE_URL = "validate_url"
-    ENCRYPT = "encrypt"
-    DECRYPT = "decrypt"
-    HASH = "hash"
-    VERIFY_HASH = "verify_hash"
-    SANITIZE = "sanitize"
-    GENERATE_CORRELATION_ID = "generate_correlation_id"
-
-
-class ValidationPattern(Enum):
-    """Validation regex patterns."""
-    EMAIL = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    URL = r'^https?://[^\s]+$'
-    TOKEN = r'^[A-Za-z0-9-_]{20,}$'
-    ALPHANUMERIC = r'^[a-zA-Z0-9]+$'
-    NUMERIC = r'^\d+$'
+from security_types import SecurityOperation
+from security_validation import SecurityValidator
+from security_crypto import SecurityCrypto
 
 
 class SecurityCore:
-    """Core security manager with generic operations."""
+    """Core security manager orchestrating validation and crypto operations."""
     
     def __init__(self):
-        self._stats = {
-            'validations': 0,
-            'successful_validations': 0,
-            'failed_validations': 0,
-            'encryptions': 0,
-            'decryptions': 0,
-            'hashes': 0,
-            'correlation_ids_generated': 0
-        }
-        self._default_key = "lambda-execution-engine-default-key-2025"
+        self._validator = SecurityValidator()
+        self._crypto = SecurityCrypto()
     
     def execute_security_operation(self, operation: SecurityOperation, *args, **kwargs) -> Any:
         """Generic security operation executor with dispatcher performance monitoring."""
@@ -79,207 +45,57 @@ class SecurityCore:
         """Execute the actual operation logic."""
         if operation == SecurityOperation.VALIDATE_REQUEST:
             request = args[0] if args else kwargs.get('request')
-            return self.validate_request(request)
+            return self._validator.validate_request(request)
         elif operation == SecurityOperation.VALIDATE_TOKEN:
             token = args[0] if args else kwargs.get('token')
-            return self.validate_token(token)
+            return self._validator.validate_token(token)
         elif operation == SecurityOperation.VALIDATE_STRING:
             value = args[0] if args else kwargs.get('value')
             min_length = args[1] if len(args) > 1 else kwargs.get('min_length', 0)
             max_length = args[2] if len(args) > 2 else kwargs.get('max_length', 1000)
-            return self.validate_string(value, min_length, max_length)
+            return self._validator.validate_string(value, min_length, max_length)
         elif operation == SecurityOperation.VALIDATE_EMAIL:
             email = args[0] if args else kwargs.get('email')
-            return self.validate_email(email)
+            return self._validator.validate_email(email)
         elif operation == SecurityOperation.VALIDATE_URL:
             url = args[0] if args else kwargs.get('url')
-            return self.validate_url(url)
+            return self._validator.validate_url(url)
         elif operation == SecurityOperation.ENCRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key', self._default_key)
-            return self.encrypt_data(data, key)
+            key = args[1] if len(args) > 1 else kwargs.get('key', self._crypto._default_key)
+            return self._crypto.encrypt_data(data, key)
         elif operation == SecurityOperation.DECRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key', self._default_key)
-            return self.decrypt_data(data, key)
+            key = args[1] if len(args) > 1 else kwargs.get('key', self._crypto._default_key)
+            return self._crypto.decrypt_data(data, key)
         elif operation == SecurityOperation.HASH:
             data = args[0] if args else kwargs.get('data')
-            return self.hash_data(data)
+            return self._crypto.hash_data(data)
         elif operation == SecurityOperation.VERIFY_HASH:
             data = args[0] if args else kwargs.get('data')
             hash_value = args[1] if len(args) > 1 else kwargs.get('hash_value')
-            return self.verify_hash(data, hash_value)
+            return self._crypto.verify_hash(data, hash_value)
         elif operation == SecurityOperation.SANITIZE:
             data = args[0] if args else kwargs.get('data')
-            return self.sanitize_input(data)
+            return self._validator.sanitize_input(data)
         elif operation == SecurityOperation.GENERATE_CORRELATION_ID:
-            return self.generate_correlation_id()
+            return self._crypto.generate_correlation_id()
         return None
     
-    def validate_request(self, request: Dict[str, Any]) -> bool:
-        """Validate request structure - supports multiple formats."""
-        self._stats['validations'] += 1
-        
-        if not request or not isinstance(request, dict):
-            self._stats['failed_validations'] += 1
-            return False
-        
-        # Check for Lambda/API Gateway format
-        if 'version' in request and 'session' in request:
-            self._stats['successful_validations'] += 1
-            return True
-        
-        # Check for Alexa format
-        if 'directive' in request and 'header' in request['directive']:
-            self._stats['successful_validations'] += 1
-            return True
-        
-        # Check for standard web request format
-        required_fields = ['method', 'path']
-        if all(field in request for field in required_fields):
-            self._stats['successful_validations'] += 1
-            return True
-        
-        self._stats['failed_validations'] += 1
-        return False
-    
-    def validate_token(self, token: str) -> bool:
-        """Validate authentication token."""
-        self._stats['validations'] += 1
-        if not token or not isinstance(token, str):
-            self._stats['failed_validations'] += 1
-            return False
-        
-        if re.match(ValidationPattern.TOKEN.value, token):
-            self._stats['successful_validations'] += 1
-            return True
-        
-        self._stats['failed_validations'] += 1
-        return False
-    
-    def validate_string(self, value: str, min_length: int = 0, max_length: int = 1000) -> bool:
-        """Validate string value."""
-        self._stats['validations'] += 1
-        if not isinstance(value, str):
-            self._stats['failed_validations'] += 1
-            return False
-        
-        if min_length <= len(value) <= max_length:
-            self._stats['successful_validations'] += 1
-            return True
-        
-        self._stats['failed_validations'] += 1
-        return False
-    
-    def validate_email(self, email: str) -> bool:
-        """Validate email format."""
-        self._stats['validations'] += 1
-        if not email or not isinstance(email, str):
-            self._stats['failed_validations'] += 1
-            return False
-        
-        if re.match(ValidationPattern.EMAIL.value, email):
-            self._stats['successful_validations'] += 1
-            return True
-        
-        self._stats['failed_validations'] += 1
-        return False
-    
-    def validate_url(self, url: str) -> bool:
-        """Validate URL format."""
-        self._stats['validations'] += 1
-        if not url or not isinstance(url, str):
-            self._stats['failed_validations'] += 1
-            return False
-        
-        if re.match(ValidationPattern.URL.value, url):
-            self._stats['successful_validations'] += 1
-            return True
-        
-        self._stats['failed_validations'] += 1
-        return False
-    
-    def encrypt_data(self, data: str, key: str) -> str:
-        """Encrypt data using XOR cipher (demo only - not cryptographically secure!)."""
-        self._stats['encryptions'] += 1
-        try:
-            # XOR implementation
-            encrypted = bytearray()
-            for i, char in enumerate(data.encode()):
-                encrypted.append(char ^ ord(key[i % len(key)]))
-            return base64.b64encode(bytes(encrypted)).decode()
-        except Exception:
-            # Fallback to simple base64 encoding
-            encryption_key = key or self._default_key
-            combined = f"{encryption_key}:{data}"
-            return base64.b64encode(combined.encode('utf-8')).decode('utf-8')
-    
-    def decrypt_data(self, encrypted_data: str, key: str) -> str:
-        """Decrypt data using XOR cipher (demo only)."""
-        self._stats['decryptions'] += 1
-        try:
-            # Try XOR decryption
-            encrypted = base64.b64decode(encrypted_data.encode())
-            decrypted = bytearray()
-            for i, byte in enumerate(encrypted):
-                decrypted.append(byte ^ ord(key[i % len(key)]))
-            return decrypted.decode()
-        except Exception:
-            # Fallback to simple base64 decoding
-            try:
-                decryption_key = key or self._default_key
-                decoded = base64.b64decode(encrypted_data.encode('utf-8')).decode('utf-8')
-                if decoded.startswith(f"{decryption_key}:"):
-                    return decoded[len(decryption_key)+1:]
-                return decoded
-            except:
-                return ""
-    
-    def hash_data(self, data: str) -> str:
-        """Hash data using SHA-256."""
-        self._stats['hashes'] += 1
-        return hashlib.sha256(data.encode()).hexdigest()
-    
-    def verify_hash(self, data: str, hash_value: str) -> bool:
-        """Verify data against hash."""
-        computed_hash = self.hash_data(data)
-        return hmac.compare_digest(computed_hash, hash_value)
-    
-    def sanitize_input(self, data: Any) -> Any:
-        """Sanitize input data to prevent XSS and injection attacks."""
-        if data is None:
-            return ""
-        
-        if isinstance(data, str):
-            # HTML entity encoding
-            text = data.replace('<', '&lt;').replace('>', '&gt;')
-            text = text.replace('"', '&quot;').replace("'", '&#x27;')
-            # Also remove control characters and limit length
-            text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
-            text = re.sub(r'\s+', ' ', text).strip()
-            return text[:1000]  # Limit to 1000 chars
-        elif isinstance(data, dict):
-            return {k: self.sanitize_input(v) for k, v in data.items()}
-        elif isinstance(data, list):
-            return [self.sanitize_input(item) for item in data]
-        
-        return data
-    
-    def generate_correlation_id(self) -> str:
-        """Generate unique correlation ID."""
-        self._stats['correlation_ids_generated'] += 1
-        return str(uuid.uuid4())
-    
     def get_stats(self) -> Dict[str, Any]:
-        """Get security statistics."""
-        return self._stats.copy()
+        """Get combined security statistics."""
+        validator_stats = self._validator.get_stats()
+        crypto_stats = self._crypto.get_stats()
+        return {**validator_stats, **crypto_stats}
 
+
+# ===== MODULE SINGLETON =====
 
 _MANAGER = SecurityCore()
 
 
 def _record_dispatcher_metric(operation: SecurityOperation, duration_ms: float):
-    """Record dispatcher performance metric using centralized METRICS operation (Phase 4 Task #7)."""
+    """Record dispatcher performance metric using centralized METRICS operation."""
     try:
         from gateway import execute_operation, GatewayInterface
         execute_operation(
@@ -293,7 +109,7 @@ def _record_dispatcher_metric(operation: SecurityOperation, duration_ms: float):
         pass
 
 
-# ===== IMPLEMENTATION WRAPPERS =====
+# ===== GATEWAY IMPLEMENTATION WRAPPERS =====
 
 def _execute_validate_request_implementation(request: Dict[str, Any], **kwargs) -> bool:
     """Execute validate request operation."""
@@ -356,7 +172,8 @@ def _execute_validate_url_implementation(url: str, **kwargs) -> bool:
     return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_URL, url, **kwargs)
 
 
-# Backwards compatibility aliases
+# ===== BACKWARDS COMPATIBILITY ALIASES =====
+
 def _execute_encrypt_data_implementation(data: str, key: Optional[str] = None, **kwargs) -> str:
     """Alias for encrypt operation."""
     return _execute_encrypt_implementation(data, key, **kwargs)
@@ -377,20 +194,21 @@ def _execute_sanitize_input_implementation(data: Any, **kwargs) -> Any:
     return _execute_sanitize_implementation(data, **kwargs)
 
 
-# Public interface functions
+# ===== PUBLIC INTERFACE FUNCTIONS =====
+
 def validate_string_input(value: str, min_length: int = 0, max_length: int = 1000) -> bool:
     """Public interface for string validation."""
-    return _MANAGER.validate_string(value, min_length, max_length)
+    return _MANAGER._validator.validate_string(value, min_length, max_length)
 
 
 def validate_email_input(email: str) -> bool:
     """Public interface for email validation."""
-    return _MANAGER.validate_email(email)
+    return _MANAGER._validator.validate_email(email)
 
 
 def validate_url_input(url: str) -> bool:
     """Public interface for URL validation."""
-    return _MANAGER.validate_url(url)
+    return _MANAGER._validator.validate_url(url)
 
 
 def get_security_stats() -> Dict[str, Any]:
@@ -402,7 +220,6 @@ def get_security_stats() -> Dict[str, Any]:
 
 __all__ = [
     'SecurityOperation',
-    'ValidationPattern',
     'SecurityCore',
     '_execute_validate_request_implementation',
     '_execute_validate_token_implementation',
