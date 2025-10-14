@@ -74,13 +74,14 @@
 │   └── http_client_validation.py
 │   └── websocket.py
 │   └── websocket_core.py
-├── security_core/
+├── security/
     ├── __init__.py
     ├── security_core.py
     ├── security_crypto.py
     ├── security_types.py
     └── security_validation.py
 ```
+
 
 
 
