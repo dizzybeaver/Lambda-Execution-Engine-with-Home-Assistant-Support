@@ -1,7 +1,6 @@
 """
-circuit_breaker_core.py
-Version: 2025.10.03.02
-Description: Circuit Breaker with error handling
+circuit_breaker_core.py - Circuit Breaker Pattern Implementation
+Version: 2025.10.14.01
 
 Copyright 2025 Joseph Hersey
 
@@ -32,7 +31,7 @@ class CircuitState(Enum):
 
 
 class CircuitBreaker:
-    """Circuit breaker with shared_utilities integration."""
+    """Circuit breaker with error handling and state management."""
     
     def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 60):
         self.name = name
@@ -191,38 +190,51 @@ class CircuitBreakerCore:
                 breaker.reset()
 
 
+# ===== SINGLETON INSTANCE =====
+
 _CIRCUIT_BREAKER_MANAGER = CircuitBreakerCore()
 
 
-def _execute_get_implementation(name: str, failure_threshold: int = 5, 
-                                timeout: int = 60, **kwargs) -> CircuitBreaker:
-    """Execute get circuit breaker."""
-    return _CIRCUIT_BREAKER_MANAGER.get(name, failure_threshold, timeout)
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+# Function names MUST match gateway.py _OPERATION_REGISTRY exactly
+
+def get_breaker_implementation(name: str, failure_threshold: int = 5, 
+                               timeout: int = 60, **kwargs) -> Dict[str, Any]:
+    """Execute get circuit breaker operation.
+    
+    Returns circuit breaker state dict instead of CircuitBreaker object
+    to maintain gateway interface consistency.
+    """
+    breaker = _CIRCUIT_BREAKER_MANAGER.get(name, failure_threshold, timeout)
+    return breaker.get_state()
 
 
-def _execute_call_implementation(name: str, func: Callable, args: tuple = (), **kwargs) -> Any:
-    """Execute call with circuit breaker."""
+def execute_with_breaker_implementation(name: str, func: Callable, 
+                                       args: tuple = (), **kwargs) -> Any:
+    """Execute call with circuit breaker protection."""
     return _CIRCUIT_BREAKER_MANAGER.call(name, func, *args, **kwargs)
 
 
-def _execute_get_all_states_implementation(**kwargs) -> Dict[str, Dict[str, Any]]:
+def get_all_states_implementation(**kwargs) -> Dict[str, Dict[str, Any]]:
     """Execute get all circuit breaker states."""
     return _CIRCUIT_BREAKER_MANAGER.get_all_states()
 
 
-def _execute_reset_all_implementation(**kwargs):
+def reset_all_implementation(**kwargs):
     """Execute reset all circuit breakers."""
     _CIRCUIT_BREAKER_MANAGER.reset_all()
 
+
+# ===== EXPORTS =====
 
 __all__ = [
     'CircuitState',
     'CircuitBreaker',
     'CircuitBreakerCore',
-    '_execute_get_implementation',
-    '_execute_call_implementation',
-    '_execute_get_all_states_implementation',
-    '_execute_reset_all_implementation',
+    'get_breaker_implementation',
+    'execute_with_breaker_implementation',
+    'get_all_states_implementation',
+    'reset_all_implementation',
 ]
 
 # EOF
