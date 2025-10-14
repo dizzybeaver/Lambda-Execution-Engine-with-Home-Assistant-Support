@@ -18,7 +18,8 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from debug import Dict, Any, sys
+from typing import Dict, Any
+import sys
 
 
 def _verify_registry_operations(**kwargs) -> Dict[str, Any]:
