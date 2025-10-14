@@ -1,7 +1,7 @@
 """
-debug/__init__.py - Debug Module Shared Imports and Enums
+debug/__init__.py - Debug Package Interface and Gateway
 Version: 2025.10.14.01
-Description: Shared debug enumerations and common imports for internal debug modules
+Description: Debug package interface with gateway functions and shared enums
 
 Copyright 2025 Joseph Hersey
 
@@ -54,8 +54,50 @@ class DebugOperation(Enum):
     GET_PERFORMANCE_REPORT = "get_performance_report"
 
 
+# Import dispatcher after enum definition
+from debug.debug_core import generic_debug_operation
+
+
+# Gateway interface functions
+def execute_debug_operation(operation: DebugOperation, **kwargs) -> Dict[str, Any]:
+    """Primary gateway function for debug operations."""
+    return generic_debug_operation(operation, **kwargs)
+
+
+def health_check() -> Dict[str, Any]:
+    """Primary gateway function for health checks."""
+    return generic_debug_operation(DebugOperation.CHECK_COMPONENT_HEALTH, component='all')
+
+
+def diagnostics() -> Dict[str, Any]:
+    """Primary gateway function for diagnostics."""
+    return generic_debug_operation(DebugOperation.DIAGNOSE_SYSTEM_HEALTH)
+
+
+def run_tests(test_type: str = "comprehensive") -> Dict[str, Any]:
+    """Primary gateway function for test execution."""
+    operation_map = {
+        'performance': DebugOperation.RUN_PERFORMANCE_BENCHMARK,
+        'validation': DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE,
+        'config': DebugOperation.RUN_CONFIG_UNIT_TESTS
+    }
+    operation = operation_map.get(test_type, DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE)
+    return generic_debug_operation(operation)
+
+
+def analyze_system() -> Dict[str, Any]:
+    """Primary gateway function for system analysis."""
+    return generic_debug_operation(DebugOperation.VALIDATE_SYSTEM_ARCHITECTURE)
+
+
 __all__ = [
     'DebugOperation',
+    'generic_debug_operation',
+    'execute_debug_operation',
+    'health_check',
+    'diagnostics',
+    'run_tests',
+    'analyze_system',
     'Dict',
     'Any',
     'Optional',
