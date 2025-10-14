@@ -1,8 +1,6 @@
 """
-cache_core.py
-Version: 2025.10.09.01
-Description: Dynamic caching dependency tracking
-
+cache_core.py - Dynamic caching with generic operation dispatch
+Version: 2025.10.14.03
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,11 +16,30 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
+import os
 import time
 import threading
 from typing import Dict, Any, Optional, Callable, Set
 from dataclasses import dataclass
+from enum import Enum
 
+_USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
+
+
+# ===== CACHE OPERATION ENUM =====
+
+class CacheOperation(Enum):
+    """Enumeration of all cache operations."""
+    GET = "get"
+    SET = "set"
+    DELETE = "delete"
+    CLEAR = "clear"
+    CLEANUP_EXPIRED = "cleanup_expired"
+    GET_STATS = "get_stats"
+    GET_MODULE_DEPENDENCIES = "get_module_dependencies"
+
+
+# ===== CACHE ENTRY =====
 
 @dataclass
 class CacheEntry:
@@ -34,6 +51,8 @@ class CacheEntry:
     access_count: int = 0
     last_access: float = 0.0
 
+
+# ===== LUGS INTEGRATED CACHE =====
 
 class LUGSIntegratedCache:
     """Cache with LUGS module dependency tracking."""
@@ -167,36 +186,78 @@ class LUGSIntegratedCache:
 _cache_instance = LUGSIntegratedCache()
 
 
+# ===== GENERIC OPERATION EXECUTION =====
+
+def execute_cache_operation(operation: CacheOperation, *args, **kwargs):
+    """
+    Universal cache operation executor.
+    
+    Single function that routes all cache operations to the LUGSIntegratedCache instance.
+    """
+    if not _USE_GENERIC_OPERATIONS:
+        return _execute_legacy_operation(operation, *args, **kwargs)
+    
+    try:
+        method_name = operation.value
+        method = getattr(_cache_instance, method_name, None)
+        
+        if method is None:
+            return None if operation == CacheOperation.GET else False
+        
+        # Handle special case for get with default
+        if operation == CacheOperation.GET:
+            result = method(*args)
+            default = kwargs.get('default')
+            return result if result is not None else default
+        
+        return method(*args, **kwargs)
+    except Exception:
+        return None if operation == CacheOperation.GET else False
+
+
+def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
+    """Legacy operation execution for rollback compatibility."""
+    try:
+        method = getattr(_cache_instance, operation.value)
+        if operation == CacheOperation.GET:
+            result = method(*args)
+            default = kwargs.get('default')
+            return result if result is not None else default
+        return method(*args, **kwargs)
+    except Exception:
+        return None if operation == CacheOperation.GET else False
+
+
 # ===== CONVENIENCE FUNCTIONS =====
 
 def cache_set(key: str, value: Any, ttl: float = 300, source_module: Optional[str] = None) -> None:
     """Set cache value with LUGS tracking."""
-    _cache_instance.set(key, value, ttl, source_module)
+    execute_cache_operation(CacheOperation.SET, key, value, ttl, source_module)
 
 
-def cache_get(key: str) -> Optional[Any]:
+def cache_get(key: str, default: Any = None) -> Optional[Any]:
     """Get cache value."""
-    return _cache_instance.get(key)
+    return execute_cache_operation(CacheOperation.GET, key, default=default)
 
 
 def cache_delete(key: str) -> bool:
     """Delete cache entry."""
-    return _cache_instance.delete(key)
+    return execute_cache_operation(CacheOperation.DELETE, key)
 
 
 def cache_clear() -> int:
     """Clear all cache entries."""
-    return _cache_instance.clear()
+    return execute_cache_operation(CacheOperation.CLEAR)
 
 
 def cache_cleanup() -> int:
     """Clean up expired entries."""
-    return _cache_instance.cleanup_expired()
+    return execute_cache_operation(CacheOperation.CLEANUP_EXPIRED)
 
 
 def cache_get_stats() -> Dict[str, Any]:
     """Get cache statistics."""
-    return _cache_instance.get_stats()
+    return execute_cache_operation(CacheOperation.GET_STATS)
 
 
 def cache_operation_result(
@@ -227,31 +288,37 @@ def cache_operation_result(
     return result
 
 
-# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+# ===== COMPATIBILITY LAYER - ALL FUNCTIONS NOW ONE-LINERS =====
 
-def _execute_get_implementation(key: str, default: Any = None) -> Optional[Any]:
+def _execute_get_implementation(key: str, default: Any = None, **kwargs) -> Optional[Any]:
     """Execute cache get operation."""
-    result = _cache_instance.get(key)
-    return result if result is not None else default
+    return execute_cache_operation(CacheOperation.GET, key, default=default)
 
 
-def _execute_set_implementation(key: str, value: Any, ttl: Optional[float] = None) -> None:
+def _execute_set_implementation(key: str, value: Any, ttl: Optional[float] = None, **kwargs) -> None:
     """Execute cache set operation."""
-    _cache_instance.set(key, value, ttl or 300)
+    execute_cache_operation(CacheOperation.SET, key, value, ttl or 300)
 
 
-def _execute_delete_implementation(key: str) -> bool:
+def _execute_delete_implementation(key: str, **kwargs) -> bool:
     """Execute cache delete operation."""
-    return _cache_instance.delete(key)
+    return execute_cache_operation(CacheOperation.DELETE, key)
 
 
-def _execute_clear_implementation() -> int:
+def _execute_clear_implementation(**kwargs) -> int:
     """Execute cache clear operation."""
-    return _cache_instance.clear()
+    return execute_cache_operation(CacheOperation.CLEAR)
+
+
+def _execute_exists_implementation(key: str, **kwargs) -> bool:
+    """Execute cache exists check."""
+    return cache_get(key) is not None
 
 
 __all__ = [
+    'CacheOperation',
     'LUGSIntegratedCache',
+    'execute_cache_operation',
     'cache_set',
     'cache_get',
     'cache_delete',
@@ -262,7 +329,8 @@ __all__ = [
     '_execute_get_implementation',
     '_execute_set_implementation',
     '_execute_delete_implementation',
-    '_execute_clear_implementation'
+    '_execute_clear_implementation',
+    '_execute_exists_implementation'
 ]
 
 # EOF
