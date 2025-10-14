@@ -1,6 +1,6 @@
 """
 security_core.py
-Version: 2025.10.10.01
+Version: 2025.10.14.01
 Description: Security validation, encryption, and sanitization with Smart Home support
 
 Copyright 2025 Joseph Hersey
@@ -22,7 +22,9 @@ import re
 import base64
 import hashlib
 import hmac
-from typing import Dict, Any
+import uuid
+import time
+from typing import Dict, Any, Optional
 from enum import Enum
 
 
@@ -38,6 +40,7 @@ class SecurityOperation(Enum):
     HASH = "hash"
     VERIFY_HASH = "verify_hash"
     SANITIZE = "sanitize"
+    GENERATE_CORRELATION_ID = "generate_correlation_id"
 
 
 class ValidationPattern(Enum):
@@ -58,8 +61,11 @@ class SecurityCore:
             'successful_validations': 0,
             'failed_validations': 0,
             'encryptions': 0,
-            'hashes': 0
+            'decryptions': 0,
+            'hashes': 0,
+            'correlation_ids_generated': 0
         }
+        self._default_key = "lambda-execution-engine-default-key-2025"
     
     def execute_security_operation(self, operation: SecurityOperation, *args, **kwargs) -> Any:
         """Generic security operation executor."""
@@ -82,11 +88,11 @@ class SecurityCore:
             return self.validate_url(url)
         elif operation == SecurityOperation.ENCRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key')
+            key = args[1] if len(args) > 1 else kwargs.get('key', self._default_key)
             return self.encrypt_data(data, key)
         elif operation == SecurityOperation.DECRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key')
+            key = args[1] if len(args) > 1 else kwargs.get('key', self._default_key)
             return self.decrypt_data(data, key)
         elif operation == SecurityOperation.HASH:
             data = args[0] if args else kwargs.get('data')
@@ -98,6 +104,8 @@ class SecurityCore:
         elif operation == SecurityOperation.SANITIZE:
             data = args[0] if args else kwargs.get('data')
             return self.sanitize_input(data)
+        elif operation == SecurityOperation.GENERATE_CORRELATION_ID:
+            return self.generate_correlation_id()
         return None
     
     def validate_request(self, request: Dict[str, Any]) -> bool:
@@ -108,20 +116,28 @@ class SecurityCore:
             self._stats['failed_validations'] += 1
             return False
         
-        # Smart Home format: {directive: {header, payload}}
+        # Check for Smart Home directive format
         if 'directive' in request:
             directive = request['directive']
-            if isinstance(directive, dict) and 'header' in directive and 'payload' in directive:
-                self._stats['successful_validations'] += 1
-                return True
-        
-        # Custom Skill format: {version, session}
-        if 'version' in request and 'session' in request:
+            if not all(key in directive for key in ['header', 'endpoint', 'payload']):
+                self._stats['failed_validations'] += 1
+                return False
+            
+            header = directive['header']
+            if not all(key in header for key in ['namespace', 'name', 'messageId', 'payloadVersion']):
+                self._stats['failed_validations'] += 1
+                return False
+            
             self._stats['successful_validations'] += 1
             return True
         
-        # Health check format: {requestType: health_check}
-        if 'requestType' in request:
+        # Check for Custom Skill format
+        if 'version' in request and 'session' in request and 'request' in request:
+            req_data = request['request']
+            if 'type' not in req_data or 'requestId' not in req_data:
+                self._stats['failed_validations'] += 1
+                return False
+            
             self._stats['successful_validations'] += 1
             return True
         
@@ -132,17 +148,11 @@ class SecurityCore:
         """Validate token format."""
         self._stats['validations'] += 1
         
-        if not token or not isinstance(token, str):
+        if not isinstance(token, str):
             self._stats['failed_validations'] += 1
             return False
         
-        if len(token) < 20 or len(token) > 500:
-            self._stats['failed_validations'] += 1
-            return False
-        
-        pattern = re.compile(ValidationPattern.TOKEN.value)
-        is_valid = bool(pattern.match(token))
-        
+        is_valid = bool(re.match(ValidationPattern.TOKEN.value, token))
         if is_valid:
             self._stats['successful_validations'] += 1
         else:
@@ -151,31 +161,30 @@ class SecurityCore:
         return is_valid
     
     def validate_string(self, value: str, min_length: int = 0, max_length: int = 1000) -> bool:
-        """Validate string with length constraints."""
+        """Validate string length and format."""
         self._stats['validations'] += 1
         
         if not isinstance(value, str):
             self._stats['failed_validations'] += 1
             return False
         
-        if len(value) < min_length or len(value) > max_length:
+        is_valid = min_length <= len(value) <= max_length
+        if is_valid:
+            self._stats['successful_validations'] += 1
+        else:
             self._stats['failed_validations'] += 1
-            return False
         
-        self._stats['successful_validations'] += 1
-        return True
+        return is_valid
     
     def validate_email(self, email: str) -> bool:
         """Validate email format."""
         self._stats['validations'] += 1
         
-        if not email or not isinstance(email, str):
+        if not isinstance(email, str):
             self._stats['failed_validations'] += 1
             return False
         
-        pattern = re.compile(ValidationPattern.EMAIL.value)
-        is_valid = bool(pattern.match(email))
-        
+        is_valid = bool(re.match(ValidationPattern.EMAIL.value, email))
         if is_valid:
             self._stats['successful_validations'] += 1
         else:
@@ -187,13 +196,11 @@ class SecurityCore:
         """Validate URL format."""
         self._stats['validations'] += 1
         
-        if not url or not isinstance(url, str):
+        if not isinstance(url, str):
             self._stats['failed_validations'] += 1
             return False
         
-        pattern = re.compile(ValidationPattern.URL.value)
-        is_valid = bool(pattern.match(url))
-        
+        is_valid = bool(re.match(ValidationPattern.URL.value, url))
         if is_valid:
             self._stats['successful_validations'] += 1
         else:
@@ -201,35 +208,48 @@ class SecurityCore:
         
         return is_valid
     
-    def encrypt_data(self, data: str, key: str) -> str:
-        """Simple encryption using base64."""
+    def encrypt_data(self, data: str, key: Optional[str] = None) -> str:
+        """Encrypt data using XOR with key (simple encryption for demo)."""
         self._stats['encryptions'] += 1
         
-        try:
-            data_bytes = data.encode('utf-8')
-            encoded = base64.b64encode(data_bytes)
-            return encoded.decode('utf-8')
-        except Exception:
-            return ""
-    
-    def decrypt_data(self, data: str, key: str) -> str:
-        """Simple decryption using base64."""
-        try:
-            data_bytes = data.encode('utf-8')
-            decoded = base64.b64decode(data_bytes)
-            return decoded.decode('utf-8')
-        except Exception:
-            return ""
-    
-    def hash_data(self, data: str) -> str:
-        """Hash data using SHA-256."""
-        self._stats['hashes'] += 1
+        if key is None:
+            key = self._default_key
         
         try:
-            hash_obj = hashlib.sha256(data.encode('utf-8'))
-            return hash_obj.hexdigest()
+            data_bytes = data.encode('utf-8')
+            key_bytes = key.encode('utf-8')
+            
+            encrypted = bytearray()
+            for i, byte in enumerate(data_bytes):
+                encrypted.append(byte ^ key_bytes[i % len(key_bytes)])
+            
+            return base64.b64encode(bytes(encrypted)).decode('utf-8')
         except Exception:
-            return ""
+            return data
+    
+    def decrypt_data(self, encrypted_data: str, key: Optional[str] = None) -> str:
+        """Decrypt data using XOR with key."""
+        self._stats['decryptions'] += 1
+        
+        if key is None:
+            key = self._default_key
+        
+        try:
+            encrypted_bytes = base64.b64decode(encrypted_data.encode('utf-8'))
+            key_bytes = key.encode('utf-8')
+            
+            decrypted = bytearray()
+            for i, byte in enumerate(encrypted_bytes):
+                decrypted.append(byte ^ key_bytes[i % len(key_bytes)])
+            
+            return bytes(decrypted).decode('utf-8')
+        except Exception:
+            return encrypted_data
+    
+    def hash_data(self, data: str) -> str:
+        """Generate SHA-256 hash of data."""
+        self._stats['hashes'] += 1
+        return hashlib.sha256(data.encode('utf-8')).hexdigest()
     
     def verify_hash(self, data: str, hash_value: str) -> bool:
         """Verify data matches hash."""
@@ -237,7 +257,7 @@ class SecurityCore:
         return hmac.compare_digest(computed_hash, hash_value)
     
     def sanitize_input(self, data: Any) -> Any:
-        """Sanitize input data."""
+        """Sanitize input data to prevent XSS."""
         if isinstance(data, str):
             sanitized = data.replace('<', '&lt;').replace('>', '&gt;')
             sanitized = sanitized.replace('"', '&quot;').replace("'", '&#x27;')
@@ -248,21 +268,34 @@ class SecurityCore:
             return [self.sanitize_input(item) for item in data]
         return data
     
+    def generate_correlation_id(self) -> str:
+        """Generate unique correlation ID for request tracking."""
+        self._stats['correlation_ids_generated'] += 1
+        timestamp = int(time.time() * 1000)
+        unique_id = str(uuid.uuid4())
+        return f"corr-{timestamp}-{unique_id}"
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get security statistics."""
         return {
             'total_validations': self._stats['validations'],
             'successful_validations': self._stats['successful_validations'],
             'failed_validations': self._stats['failed_validations'],
-            'validation_success_rate': (self._stats['successful_validations'] / self._stats['validations'] * 100) if self._stats['validations'] > 0 else 0,
+            'validation_success_rate': (
+                self._stats['successful_validations'] / self._stats['validations'] * 100
+            ) if self._stats['validations'] > 0 else 0,
             'encryptions_performed': self._stats['encryptions'],
-            'hashes_computed': self._stats['hashes']
+            'decryptions_performed': self._stats['decryptions'],
+            'hashes_computed': self._stats['hashes'],
+            'correlation_ids_generated': self._stats['correlation_ids_generated']
         }
 
 
+# Singleton instance
 _MANAGER = SecurityCore()
 
 
+# Gateway implementation functions
 def _execute_validate_request_implementation(request: Dict[str, Any], **kwargs) -> bool:
     """Execute validate request operation."""
     return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_REQUEST, request)
@@ -273,19 +306,70 @@ def _execute_validate_token_implementation(token: str, **kwargs) -> bool:
     return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_TOKEN, token)
 
 
-def _execute_encrypt_data_implementation(data: str, key: str, **kwargs) -> str:
+def _execute_encrypt_data_implementation(data: str, key: Optional[str] = None, **kwargs) -> str:
     """Execute encrypt data operation."""
-    return _MANAGER.execute_security_operation(SecurityOperation.ENCRYPT, data, key)
+    return _MANAGER.execute_security_operation(SecurityOperation.ENCRYPT, data, key=key)
 
 
-def _execute_decrypt_data_implementation(data: str, key: str, **kwargs) -> str:
+def _execute_decrypt_data_implementation(data: str, key: Optional[str] = None, **kwargs) -> str:
     """Execute decrypt data operation."""
-    return _MANAGER.execute_security_operation(SecurityOperation.DECRYPT, data, key)
+    return _MANAGER.execute_security_operation(SecurityOperation.DECRYPT, data, key=key)
 
 
+def _execute_generate_correlation_id_implementation(**kwargs) -> str:
+    """Execute generate correlation ID operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.GENERATE_CORRELATION_ID)
+
+
+def _execute_validate_string_implementation(value: str, min_length: int = 0, max_length: int = 1000, **kwargs) -> bool:
+    """Execute validate string operation."""
+    return _MANAGER.execute_security_operation(
+        SecurityOperation.VALIDATE_STRING, 
+        value, 
+        min_length=min_length, 
+        max_length=max_length
+    )
+
+
+def _execute_validate_email_implementation(email: str, **kwargs) -> bool:
+    """Execute validate email operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_EMAIL, email)
+
+
+def _execute_validate_url_implementation(url: str, **kwargs) -> bool:
+    """Execute validate URL operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_URL, url)
+
+
+def _execute_hash_data_implementation(data: str, **kwargs) -> str:
+    """Execute hash data operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.HASH, data)
+
+
+def _execute_verify_hash_implementation(data: str, hash_value: str, **kwargs) -> bool:
+    """Execute verify hash operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VERIFY_HASH, data, hash_value=hash_value)
+
+
+def _execute_sanitize_input_implementation(data: Any, **kwargs) -> Any:
+    """Execute sanitize input operation."""
+    return _MANAGER.execute_security_operation(SecurityOperation.SANITIZE, data)
+
+
+# Public interface functions
 def validate_string_input(value: str, min_length: int = 0, max_length: int = 1000) -> bool:
     """Public interface for string validation."""
     return _MANAGER.validate_string(value, min_length, max_length)
+
+
+def validate_email_input(email: str) -> bool:
+    """Public interface for email validation."""
+    return _MANAGER.validate_email(email)
+
+
+def validate_url_input(url: str) -> bool:
+    """Public interface for URL validation."""
+    return _MANAGER.validate_url(url)
 
 
 def get_security_stats() -> Dict[str, Any]:
@@ -296,12 +380,22 @@ def get_security_stats() -> Dict[str, Any]:
 __all__ = [
     'SecurityOperation',
     'ValidationPattern',
+    'SecurityCore',
     'validate_string_input',
+    'validate_email_input',
+    'validate_url_input',
     'get_security_stats',
     '_execute_validate_request_implementation',
     '_execute_validate_token_implementation',
     '_execute_encrypt_data_implementation',
     '_execute_decrypt_data_implementation',
+    '_execute_generate_correlation_id_implementation',
+    '_execute_validate_string_implementation',
+    '_execute_validate_email_implementation',
+    '_execute_validate_url_implementation',
+    '_execute_hash_data_implementation',
+    '_execute_verify_hash_implementation',
+    '_execute_sanitize_input_implementation',
 ]
 
 # EOF
