@@ -43,6 +43,18 @@ from typing import Dict, Any, Optional, Union, List, Callable
 from dataclasses import dataclass
 from enum import Enum
 import logging as stdlib_logging
+# Validation integration
+try:
+    from shared_utilities_validation import (
+        ValidationError, RequiredFieldError, TypeValidationError, RangeValidationError,
+        validate_required, validate_type, validate_range, validate_string_length,
+        validate_one_of, validate_required_fields, validate_dict_schema,
+        validate_params, validate_return_type, safe_validate, validate_all,
+        create_cache_key_validator, create_ttl_validator, create_metric_validator
+    )
+    _VALIDATION_AVAILABLE = True
+except ImportError:
+    _VALIDATION_AVAILABLE = False
 
 logger = stdlib_logging.getLogger(__name__)
 
@@ -1066,6 +1078,24 @@ __all__ = [
     'aggregate_interface_metrics',
     'optimize_interface_memory',
     'validate_aws_free_tier_compliance',
+    'ValidationError',
+    'RequiredFieldError',
+    'TypeValidationError',
+    'RangeValidationError',
+    'validate_required',
+    'validate_type',
+    'validate_range',
+    'validate_string_length',
+    'validate_one_of',
+    'validate_required_fields',
+    'validate_dict_schema',
+    'validate_params',
+    'validate_return_type',
+    'safe_validate',
+    'validate_all',
+    'create_cache_key_validator',
+    'create_ttl_validator',
+    'create_metric_validator',
 ]
 
 # EOF
