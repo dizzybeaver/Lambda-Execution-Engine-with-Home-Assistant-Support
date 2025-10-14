@@ -1,6 +1,6 @@
 """
-cache_core.py - Dynamic caching with generic operation dispatch
-Version: 2025.10.14.03
+cache_core.py - Dynamic caching with generic operation dispatch and performance monitoring
+Version: 2025.10.15.01
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -186,17 +186,32 @@ class LUGSIntegratedCache:
 _cache_instance = LUGSIntegratedCache()
 
 
-# ===== GENERIC OPERATION EXECUTION =====
+# ===== GENERIC OPERATION EXECUTION WITH PERFORMANCE MONITORING =====
 
 def execute_cache_operation(operation: CacheOperation, *args, **kwargs):
     """
-    Universal cache operation executor.
+    Universal cache operation executor with dispatcher performance monitoring.
     
     Single function that routes all cache operations to the LUGSIntegratedCache instance.
     """
-    if not _USE_GENERIC_OPERATIONS:
-        return _execute_legacy_operation(operation, *args, **kwargs)
+    # Start timing
+    start_time = time.time()
     
+    # Execute operation
+    if not _USE_GENERIC_OPERATIONS:
+        result = _execute_legacy_operation(operation, *args, **kwargs)
+    else:
+        result = _execute_generic_operation(operation, *args, **kwargs)
+    
+    # Record dispatcher metrics
+    duration_ms = (time.time() - start_time) * 1000
+    _record_dispatcher_metric(operation, duration_ms)
+    
+    return result
+
+
+def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
+    """Execute cache operation using generic dispatcher."""
     try:
         method_name = operation.value
         method = getattr(_cache_instance, method_name, None)
@@ -226,6 +241,26 @@ def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
         return method(*args, **kwargs)
     except Exception:
         return None if operation == CacheOperation.GET else False
+
+
+def _record_dispatcher_metric(operation: CacheOperation, duration_ms: float):
+    """Record dispatcher performance metric using gateway to avoid circular dependency."""
+    try:
+        # Import gateway lazily to avoid circular dependency
+        from gateway import execute_operation, GatewayInterface
+        
+        # Record dispatcher timing metric
+        metric_name = f'dispatcher.CacheCore.{operation.value}'
+        execute_operation(
+            GatewayInterface.METRICS,
+            'record',
+            name=metric_name,
+            value=duration_ms,
+            dimensions={'operation': operation.value}
+        )
+    except Exception:
+        # Silently fail to avoid breaking cache operations
+        pass
 
 
 # ===== CONVENIENCE FUNCTIONS =====
