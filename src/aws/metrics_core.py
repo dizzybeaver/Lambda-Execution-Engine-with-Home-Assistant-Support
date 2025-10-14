@@ -1,13 +1,7 @@
 """
 metrics_core.py - Unified metrics collection with dispatcher timing operations
 Version: 2025.10.15.02
-Description: Unified metrics collection with dispatcher timing operations (Phase 4 Task #7)
-
-PHASE 4 TASK #7 - Ultra-Integration:
-- Added RECORD_DISPATCHER_TIMING operation for centralized dispatcher metrics
-- Added GET_DISPATCHER_STATS operation for querying dispatcher performance
-- Added GET_OPERATION_METRICS operation for operation-level metrics
-- Eliminates duplicate _record_dispatcher_metric implementations across cores
+Description: Complete metrics with dispatcher timing operations (Phase 4 Task #7)
 
 Copyright 2025 Joseph Hersey
 
@@ -353,14 +347,14 @@ class MetricsCore:
             # Group by interface
             interfaces = defaultdict(lambda: {'operations': {}, 'total_calls': 0})
             for key, count in self._dispatcher_call_counts.items():
-                interface, operation = key.split('.', 1)
-                interfaces[interface]['operations'][operation] = count
-                interfaces[interface]['total_calls'] += count
+                if '.' in key:
+                    interface, operation = key.split('.', 1)
+                    interfaces[interface]['operations'][operation] = count
+                    interfaces[interface]['total_calls'] += count
             
             # Calculate interface-level stats
             for interface, data in interfaces.items():
                 if interface in ['CacheCore', 'LoggingCore', 'SecurityCore', 'MetricsCore']:
-                    timings_key = f"{interface}"
                     all_timings = []
                     for op_key, timing_list in self._dispatcher_timings.items():
                         if op_key.startswith(interface):
@@ -537,7 +531,6 @@ class MetricsCore:
 
 _MANAGER = MetricsCore()
 
-
 # ===== IMPLEMENTATION WRAPPERS =====
 
 def _execute_record_metric_implementation(name: str, value: float, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
@@ -676,6 +669,10 @@ __all__ = [
     'MetricOperation',
     'MetricType',
     'ResponseType',
+    'ResponseMetrics',
+    'HTTPClientMetrics',
+    'CircuitBreakerMetrics',
+    'MetricsCore',
     '_execute_record_metric_implementation',
     '_execute_increment_counter_implementation',
     '_execute_get_stats_implementation',
