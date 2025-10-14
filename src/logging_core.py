@@ -1,8 +1,6 @@
 """
-logging_core.py
-Version: 2025.10.14.01
-Description: Unified logging with template-based messages, generic operations, and error response tracking
-
+logging_core.py - Unified logging with generic operation dispatch
+Version: 2025.10.14.03
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,144 +16,75 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
+import os
 import logging
 import time
-import os
-import json
-import uuid
 import threading
-from typing import Dict, Any, Optional, List, Deque
-from datetime import datetime, timedelta
-from collections import deque
+import uuid
+from typing import Dict, Any, Optional
 from enum import Enum
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime
 
-# Log message templates for ultra-fast generation
-_CACHE_HIT_LOG = "Cache hit: %s (access_count=%d)"
-_CACHE_MISS_LOG = "Cache miss: %s"
-_HA_SUCCESS_LOG = "HA operation success: %s (%.2fms)"
-_HA_ERROR_LOG = "HA operation failed: %s - %s"
-_HTTP_REQUEST_LOG = "HTTP %s %s"
-_HTTP_SUCCESS_LOG = "HTTP success: %d (%.2fms)"
-_OPERATION_START_LOG = "Operation started: %s [%s]"
-_OPERATION_SUCCESS_LOG = "Operation completed: %s (%.2fms)"
-_LAMBDA_START_LOG = "Lambda invocation started [%s]"
-_METRIC_RECORD_LOG = "Metric recorded: %s = %.2f"
-_MODULE_LOAD_LOG = "Module loaded: %s (%.2fms)"
-_MODULE_UNLOAD_LOG = "Module unloaded: %s"
-_CIRCUIT_OPEN_LOG = "Circuit breaker opened: %s"
-_CIRCUIT_CLOSE_LOG = "Circuit breaker closed: %s"
-
+_USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
 _USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'true').lower() == 'true'
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== ENUMERATIONS =====
+
+# ===== LOGGING OPERATION ENUM =====
 
 class LogOperation(Enum):
-    """Generic logging operations."""
+    """Enumeration of all logging operations."""
     LOG_INFO = "log_info"
     LOG_ERROR = "log_error"
     LOG_WARNING = "log_warning"
     LOG_DEBUG = "log_debug"
     LOG_START = "log_operation_start"
     LOG_SUCCESS = "log_operation_success"
-    LOG_TEMPLATE = "log_template"
+    LOG_TEMPLATE = "log_template_fast"
+    GET_STATS = "get_stats"
 
 
 class LogTemplate(Enum):
-    """Log message templates."""
-    CACHE_HIT = "cache_hit"
-    CACHE_MISS = "cache_miss"
-    HA_SUCCESS = "ha_success"
-    HA_ERROR = "ha_error"
-    HTTP_REQUEST = "http_request"
-    HTTP_SUCCESS = "http_success"
-    OPERATION_START = "operation_start"
-    OPERATION_SUCCESS = "operation_success"
-    LAMBDA_START = "lambda_start"
-    METRIC_RECORD = "metric_record"
-    MODULE_LOAD = "module_load"
-    MODULE_UNLOAD = "module_unload"
-    CIRCUIT_OPEN = "circuit_open"
-    CIRCUIT_CLOSE = "circuit_close"
+    """Pre-formatted log templates for optimal performance."""
+    OPERATION_START = "[OP_START]"
+    OPERATION_SUCCESS = "[OP_SUCCESS]"
+    OPERATION_FAILURE = "[OP_FAIL]"
+    CACHE_HIT = "[CACHE_HIT]"
+    CACHE_MISS = "[CACHE_MISS]"
 
 
 class ErrorLogLevel(Enum):
-    """Error log level enumeration."""
+    """Error severity levels."""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-# ===== ERROR RESPONSE DATA STRUCTURES =====
+# ===== ERROR LOG ENTRY =====
 
+@dataclass
 class ErrorLogEntry:
-    """Individual error log entry."""
+    """Structured error response log entry."""
+    id: str
+    timestamp: float
+    datetime: datetime
+    correlation_id: str
+    source_module: Optional[str]
+    error_type: str
+    severity: ErrorLogLevel
+    status_code: int
+    error_response: Dict[str, Any]
+    lambda_context_info: Optional[Dict[str, Any]]
+    additional_context: Optional[Dict[str, Any]]
     
-    def __init__(self, 
-                 error_response: Dict[str, Any],
-                 correlation_id: str,
-                 source_module: Optional[str] = None,
-                 lambda_context = None,
-                 additional_context: Optional[Dict[str, Any]] = None):
-        self.id = str(uuid.uuid4())
-        self.timestamp = time.time()
-        self.datetime = datetime.utcnow()
-        self.error_response = error_response
-        self.correlation_id = correlation_id
-        self.source_module = source_module or "unknown"
-        self.lambda_context_info = self._extract_lambda_context(lambda_context)
-        self.additional_context = additional_context or {}
-        
-        self.error_type = self._determine_error_type(error_response)
-        self.severity = self._determine_severity(error_response)
-        self.status_code = error_response.get('statusCode', 500)
-        
-    def _extract_lambda_context(self, lambda_context) -> Dict[str, Any]:
-        """Extract relevant information from Lambda context."""
-        if not lambda_context:
-            return {}
-            
-        return {
-            'request_id': getattr(lambda_context, 'aws_request_id', 'unknown'),
-            'function_name': getattr(lambda_context, 'function_name', 'unknown'),
-            'function_version': getattr(lambda_context, 'function_version', 'unknown'),
-            'memory_limit': getattr(lambda_context, 'memory_limit_in_mb', 'unknown'),
-            'remaining_time': getattr(lambda_context, 'get_remaining_time_in_millis', lambda: 0)()
-        }
-        
-    def _determine_error_type(self, error_response: Dict[str, Any]) -> str:
-        """Determine error type from response."""
-        body = error_response.get('body', {})
-        if isinstance(body, str):
-            try:
-                body = json.loads(body)
-            except:
-                pass
-        
-        if isinstance(body, dict):
-            return body.get('error_type', 'UNKNOWN')
-        
-        status_code = error_response.get('statusCode', 500)
-        
-        if status_code == 400:
-            return "validation_error"
-        elif status_code == 401:
-            return "authentication_error"
-        elif status_code == 403:
-            return "authorization_error"
-        elif status_code == 404:
-            return "not_found_error"
-        elif status_code == 429:
-            return "rate_limit_error"
-        elif status_code >= 500:
-            return "server_error"
-        else:
-            return "client_error"
-            
-    def _determine_severity(self, error_response: Dict[str, Any]) -> ErrorLogLevel:
-        """Determine severity level from response."""
+    @staticmethod
+    def determine_severity(error_response: Dict[str, Any]) -> ErrorLogLevel:
+        """Determine severity from error response."""
         status_code = error_response.get('statusCode', 500)
         
         if status_code >= 500:
@@ -184,10 +113,10 @@ class ErrorLogEntry:
         }
 
 
-# ===== UNIFIED LOGGING CORE =====
+# ===== LOGGING CORE =====
 
 class LoggingCore:
-    """Unified logging manager with template optimization, generic operations, and error response tracking."""
+    """Unified logging manager with template optimization and generic operations."""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -201,7 +130,7 @@ class LoggingCore:
         
         # Error response tracking
         self.max_error_entries = 1000
-        self.error_entries: Deque[ErrorLogEntry] = deque(maxlen=self.max_error_entries)
+        self.error_entries: deque = deque(maxlen=self.max_error_entries)
         self.error_lock = threading.Lock()
         self.error_created_at = time.time()
         self.total_errors_logged = 0
@@ -210,39 +139,6 @@ class LoggingCore:
         """Log using template for ultra-fast performance."""
         message = f"{template.value}: {' '.join(str(arg) for arg in args)}"
         self.logger.log(level, message)
-    
-    def execute_log_operation(self, operation: LogOperation, *args, **kwargs) -> None:
-        """Generic logging operation executor."""
-        if operation == LogOperation.LOG_INFO:
-            message = args[0] if args else kwargs.get('message', '')
-            extra = kwargs.get('extra')
-            self.log_info(message, extra)
-        elif operation == LogOperation.LOG_ERROR:
-            message = args[0] if args else kwargs.get('message', '')
-            error = args[1] if len(args) > 1 else kwargs.get('error')
-            extra = kwargs.get('extra')
-            self.log_error(message, error, extra)
-        elif operation == LogOperation.LOG_WARNING:
-            message = args[0] if args else kwargs.get('message', '')
-            extra = kwargs.get('extra')
-            self.log_warning(message, extra)
-        elif operation == LogOperation.LOG_DEBUG:
-            message = args[0] if args else kwargs.get('message', '')
-            extra = kwargs.get('extra')
-            self.log_debug(message, extra)
-        elif operation == LogOperation.LOG_START:
-            operation_name = args[0] if args else kwargs.get('operation', '')
-            correlation_id = args[1] if len(args) > 1 else kwargs.get('correlation_id', '')
-            self.log_operation_start(operation_name, correlation_id)
-        elif operation == LogOperation.LOG_SUCCESS:
-            operation_name = args[0] if args else kwargs.get('operation', '')
-            duration_ms = args[1] if len(args) > 1 else kwargs.get('duration_ms', 0)
-            self.log_operation_success(operation_name, duration_ms)
-        elif operation == LogOperation.LOG_TEMPLATE:
-            template = args[0] if args else kwargs.get('template')
-            template_args = args[1:] if len(args) > 1 else kwargs.get('args', ())
-            level = kwargs.get('level', logging.INFO)
-            self.log_template_fast(template, *template_args, level=level)
     
     def log_info(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
         """Log info message."""
@@ -270,7 +166,7 @@ class LoggingCore:
     def log_operation_start(self, operation: str, correlation_id: str = "") -> None:
         """Log operation start."""
         if _USE_LOG_TEMPLATES:
-            message = _OPERATION_START_LOG % (operation, correlation_id)
+            message = f"[OP_START]: {operation} [{correlation_id}]"
             self.logger.info(message)
             self._stats['template_usage'] += 1
         else:
@@ -280,7 +176,7 @@ class LoggingCore:
     def log_operation_success(self, operation: str, duration_ms: float = 0) -> None:
         """Log operation success."""
         if _USE_LOG_TEMPLATES:
-            message = _OPERATION_SUCCESS_LOG % (operation, duration_ms)
+            message = f"[OP_SUCCESS]: {operation} ({duration_ms:.2f}ms)"
             self.logger.info(message)
             self._stats['template_usage'] += 1
         else:
@@ -294,96 +190,92 @@ class LoggingCore:
                           lambda_context = None,
                           additional_context: Optional[Dict[str, Any]] = None) -> str:
         """Log an error response and return entry ID."""
-        try:
-            if not correlation_id:
-                if lambda_context:
-                    correlation_id = getattr(lambda_context, 'aws_request_id', str(uuid.uuid4()))
-                else:
-                    correlation_id = str(uuid.uuid4())
-                    
-            entry = ErrorLogEntry(
-                error_response=error_response,
-                correlation_id=correlation_id,
-                source_module=source_module,
-                lambda_context=lambda_context,
-                additional_context=additional_context
-            )
-            
-            with self.error_lock:
-                self.error_entries.append(entry)
-                self.total_errors_logged += 1
-                
-            # Record metrics if available
-            try:
-                from gateway import execute_operation, GatewayInterface
-                execute_operation(
-                    GatewayInterface.METRICS,
-                    'record_error',
-                    error_type=entry.error_type,
-                    severity=entry.severity.value,
-                    category='error_response',
-                    context={
-                        'status_code': entry.status_code,
-                        'source_module': entry.source_module,
-                        'has_lambda_context': bool(lambda_context)
-                    }
-                )
-            except:
-                pass
-            
-            logger.debug(f"Logged error response: {entry.id} ({entry.error_type})")
-            return entry.id
-            
-        except Exception as e:
-            logger.error(f"Failed to log error response: {e}")
-            return f"error_{uuid.uuid4()}"
+        entry_id = str(uuid.uuid4())
+        current_time = time.time()
+        
+        lambda_context_info = None
+        if lambda_context:
+            lambda_context_info = {
+                'request_id': getattr(lambda_context, 'aws_request_id', 'unknown'),
+                'function_name': getattr(lambda_context, 'function_name', 'unknown'),
+                'remaining_time_ms': getattr(lambda_context, 'get_remaining_time_in_millis', lambda: 0)()
+            }
+        
+        error_type = error_response.get('body', {}).get('error', 'Unknown')
+        if isinstance(error_type, dict):
+            error_type = error_type.get('type', 'Unknown')
+        
+        severity = ErrorLogEntry.determine_severity(error_response)
+        
+        entry = ErrorLogEntry(
+            id=entry_id,
+            timestamp=current_time,
+            datetime=datetime.fromtimestamp(current_time),
+            correlation_id=correlation_id or 'unknown',
+            source_module=source_module,
+            error_type=str(error_type),
+            severity=severity,
+            status_code=error_response.get('statusCode', 500),
+            error_response=error_response,
+            lambda_context_info=lambda_context_info,
+            additional_context=additional_context
+        )
+        
+        with self.error_lock:
+            self.error_entries.append(entry)
+            self.total_errors_logged += 1
+        
+        self.log_error(
+            f"Error response logged: {error_type}",
+            extra={
+                'entry_id': entry_id,
+                'correlation_id': correlation_id,
+                'severity': severity.value,
+                'status_code': entry.status_code
+            }
+        )
+        
+        return entry_id
     
-    def get_error_analytics(self, 
-                           time_range_minutes: int = 60,
+    def get_error_analytics(self, time_range_minutes: int = 60,
                            include_details: bool = False) -> Dict[str, Any]:
-        """Get error analytics for specified time range."""
+        """Get error response analytics."""
         try:
             cutoff_time = time.time() - (time_range_minutes * 60)
             
             with self.error_lock:
-                relevant_entries = [
-                    entry for entry in self.error_entries 
-                    if entry.timestamp >= cutoff_time
-                ]
+                recent_errors = [e for e in self.error_entries if e.timestamp >= cutoff_time]
                 
-            analytics = {
-                'time_range_minutes': time_range_minutes,
-                'total_errors': len(relevant_entries),
-                'error_types': {},
-                'severity_breakdown': {},
-                'status_code_breakdown': {},
-                'source_modules': {},
-                'timestamp': time.time()
-            }
-            
-            for entry in relevant_entries:
-                analytics['error_types'][entry.error_type] = analytics['error_types'].get(entry.error_type, 0) + 1
+                analytics = {
+                    'time_range_minutes': time_range_minutes,
+                    'total_errors': len(recent_errors),
+                    'errors_by_severity': {},
+                    'errors_by_type': {},
+                    'errors_by_status_code': {},
+                    'timestamp': time.time()
+                }
                 
-                severity = entry.severity.value
-                analytics['severity_breakdown'][severity] = analytics['severity_breakdown'].get(severity, 0) + 1
+                for entry in recent_errors:
+                    severity = entry.severity.value
+                    analytics['errors_by_severity'][severity] = analytics['errors_by_severity'].get(severity, 0) + 1
+                    
+                    error_type = entry.error_type
+                    analytics['errors_by_type'][error_type] = analytics['errors_by_type'].get(error_type, 0) + 1
+                    
+                    status_code = str(entry.status_code)
+                    analytics['errors_by_status_code'][status_code] = analytics['errors_by_status_code'].get(status_code, 0) + 1
                 
-                status_code = str(entry.status_code)
-                analytics['status_code_breakdown'][status_code] = analytics['status_code_breakdown'].get(status_code, 0) + 1
+                if include_details:
+                    analytics['error_details'] = [e.to_dict() for e in recent_errors[:20]]
                 
-                module = entry.source_module
-                analytics['source_modules'][module] = analytics['source_modules'].get(module, 0) + 1
-                
-            if include_details:
-                analytics['entries'] = [entry.to_dict() for entry in relevant_entries[-10:]]
-                
-            return analytics
+            return {'status': 'success', 'analytics': analytics}
             
         except Exception as e:
             logger.error(f"Failed to get error analytics: {e}")
-            return {'error': str(e), 'timestamp': time.time()}
+            return {'status': 'error', 'error': str(e), 'timestamp': time.time()}
     
     def clear_error_logs(self, older_than_minutes: Optional[int] = None) -> Dict[str, Any]:
-        """Clear error logs, optionally filtered by age."""
+        """Clear error response logs."""
         try:
             with self.error_lock:
                 if older_than_minutes is None:
@@ -422,31 +314,63 @@ class LoggingCore:
         }
 
 
-# ===== SINGLETON INSTANCE =====
-
 _MANAGER = LoggingCore()
 
 
-# ===== IMPLEMENTATION FUNCTIONS FOR GATEWAY =====
+# ===== GENERIC OPERATION EXECUTION =====
+
+def execute_logging_operation(operation: LogOperation, *args, **kwargs):
+    """
+    Universal logging operation executor.
+    
+    Single function that routes all logging operations to the LoggingCore instance.
+    """
+    if not _USE_GENERIC_OPERATIONS:
+        return _execute_legacy_operation(operation, *args, **kwargs)
+    
+    try:
+        method_name = operation.value
+        method = getattr(_MANAGER, method_name, None)
+        
+        if method is None:
+            return None
+        
+        return method(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Operation {operation.value} failed: {str(e)}")
+        return None
+
+
+def _execute_legacy_operation(operation: LogOperation, *args, **kwargs):
+    """Legacy operation execution for rollback compatibility."""
+    try:
+        method = getattr(_MANAGER, operation.value)
+        return method(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Legacy operation {operation.value} failed: {str(e)}")
+        return None
+
+
+# ===== COMPATIBILITY LAYER - ALL FUNCTIONS NOW ONE-LINERS =====
 
 def _execute_log_info_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
     """Execute log info operation."""
-    _MANAGER.execute_log_operation(LogOperation.LOG_INFO, message, extra=extra)
+    execute_logging_operation(LogOperation.LOG_INFO, message, extra)
 
 
 def _execute_log_error_implementation(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
     """Execute log error operation."""
-    _MANAGER.execute_log_operation(LogOperation.LOG_ERROR, message, error, extra=extra)
+    execute_logging_operation(LogOperation.LOG_ERROR, message, error, extra)
 
 
 def _execute_log_warning_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
     """Execute log warning operation."""
-    _MANAGER.execute_log_operation(LogOperation.LOG_WARNING, message, extra=extra)
+    execute_logging_operation(LogOperation.LOG_WARNING, message, extra)
 
 
 def _execute_log_debug_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
     """Execute log debug operation."""
-    _MANAGER.execute_log_operation(LogOperation.LOG_DEBUG, message, extra=extra)
+    execute_logging_operation(LogOperation.LOG_DEBUG, message, extra)
 
 
 def _execute_log_operation_start_implementation(operation: str, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
@@ -481,6 +405,20 @@ def _execute_log_operation_failure_implementation(operation: str, error: Excepti
     _MANAGER.log_error(f"Operation failed: {operation} ({duration_ms:.2f}ms)", error=error, extra=extra)
 
 
+# ===== PUBLIC INTERFACE =====
+
+def log_template_fast(template: LogTemplate, *args, level: int = logging.INFO) -> None:
+    """Public interface for fast template logging."""
+    _MANAGER.log_template_fast(template, *args, level=level)
+
+
+def get_logging_stats() -> Dict[str, Any]:
+    """Public interface for logging statistics."""
+    return _MANAGER.get_stats()
+
+
+# ===== ERROR RESPONSE TRACKING INTERNAL FUNCTIONS =====
+
 def _log_error_response_internal(error_response: Dict[str, Any], 
                                 correlation_id: Optional[str] = None,
                                 source_module: Optional[str] = None,
@@ -507,25 +445,12 @@ def _clear_error_response_logs_internal(older_than_minutes: Optional[int] = None
     return _MANAGER.clear_error_logs(older_than_minutes)
 
 
-# ===== PUBLIC INTERFACE =====
-
-def log_template_fast(template: LogTemplate, *args, level: int = logging.INFO) -> None:
-    """Public interface for fast template logging."""
-    _MANAGER.log_template_fast(template, *args, level=level)
-
-
-def get_logging_stats() -> Dict[str, Any]:
-    """Public interface for logging statistics."""
-    return _MANAGER.get_stats()
-
-
-# ===== EXPORTS =====
-
 __all__ = [
     'LogOperation',
     'LogTemplate',
     'ErrorLogLevel',
     'ErrorLogEntry',
+    'execute_logging_operation',
     'log_template_fast',
     'get_logging_stats',
     '_execute_log_info_implementation',
