@@ -1,5 +1,5 @@
 # Lambda Configuration Scenarios
-**Version:** 2025.10.14  
+**Version:** 2025.10.15  
 **Copyright:** 2025 Joseph Hersey  
 **License:** Apache 2.0
 
@@ -73,6 +73,88 @@
 
 ---
 
+## Scenario 3: Fail-Safe Mode (Emergency Recovery)
+
+### Purpose
+Emergency fallback when Lambda Execution Engine fails. Bypasses all LEE/SUGA architecture and routes requests directly to Home Assistant's native Alexa Smart Home API.
+
+### When to Use
+- LEE crashes after deployment
+- Critical bugs preventing normal operation
+- Need immediate restoration while debugging
+- Family needs smart home working NOW
+
+### Lambda Environment Variables
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `LEE_FAILSAFE_ENABLED` | `true` | **Master switch** - enables failsafe mode |
+| `HOME_ASSISTANT_URL` | `http://192.168.1.100:8123` | Base URL of HA instance |
+| `HOME_ASSISTANT_TOKEN` | `eyJ0eXAiOiJKV1Qi...` | Long-lived access token |
+| `HOME_ASSISTANT_VERIFY_SSL` | `false` | Optional - disable SSL verification |
+| `DEBUG_MODE` | `true` | Optional - enable verbose logging |
+
+### Minimal Configuration (Copy-Paste)
+```bash
+LEE_FAILSAFE_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+HOME_ASSISTANT_VERIFY_SSL=false
+```
+
+### Features
+- ✅ Zero LEE dependencies - completely standalone
+- ✅ Direct passthrough to Home Assistant
+- ✅ All Alexa directive types supported
+- ✅ Minimal latency (no SUGA overhead)
+- ✅ Works with existing HA Alexa integration
+
+### Limitations
+- ❌ No LEE features (caching, metrics, circuit breaker)
+- ❌ No custom intents/automations
+- ❌ No enhanced logging/diagnostics
+- ❌ Basic error handling only
+
+### Recovery Process
+
+1. **Enable Failsafe**
+   ```bash
+   # Set in Lambda console
+   LEE_FAILSAFE_ENABLED=true
+   HOME_ASSISTANT_URL=http://your-ha-ip:8123
+   HOME_ASSISTANT_TOKEN=your_token
+   ```
+
+2. **Verify Operation**
+   - Test Alexa commands
+   - Check CloudWatch logs
+   - Confirm family is happy
+
+3. **Debug LEE**
+   - Review CloudWatch logs
+   - Identify root cause
+   - Apply fixes
+
+4. **Restore Normal Operation**
+   ```bash
+   # After fixing LEE
+   LEE_FAILSAFE_ENABLED=false
+   ```
+
+5. **Redeploy**
+   - Upload fixed Lambda package
+   - Test thoroughly
+   - Monitor for issues
+
+### Notes
+- Failsafe activates **before** any LEE imports
+- If failsafe file missing, falls back to LEE
+- Original HA configuration unaffected
+- No changes to Alexa skill required
+- Can toggle on/off without code changes
+
+---
+
 ## Quick Copy-Paste Configurations
 
 ### SSM Enabled (Environment Variables)
@@ -97,4 +179,13 @@ HA_ASSISTANT_NAME=Jarvis
 HA_FEATURES=full
 HA_WEBSOCKET_ENABLED=false
 HA_WEBSOCKET_TIMEOUT=10
+```
+
+### Emergency Failsafe (Minimal)
+```bash
+LEE_FAILSAFE_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+HOME_ASSISTANT_VERIFY_SSL=false
+DEBUG_MODE=true
 ```
