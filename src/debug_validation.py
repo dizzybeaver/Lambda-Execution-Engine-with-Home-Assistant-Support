@@ -1,5 +1,5 @@
 """
-debug/debug_validation.py - Debug Validation Operations
+debug_validation.py - Debug Validation Operations
 Version: 2025.10.14.01
 Description: System validation operations for debug subsystem
 
