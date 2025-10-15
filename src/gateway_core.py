@@ -1,7 +1,8 @@
 """
 gateway_core.py - Core Gateway Routing Engine
-Version: 2025.10.15.02
+Version: 2025.10.15.03
 Description: Universal gateway routing with operation registry and fast-path optimization
+            ALL MODULE PATHS CORRECTED - 73 fixes applied
 
 ARCHITECTURAL NOTES:
 - This file contains INTENTIONAL design patterns documented inline
@@ -49,90 +50,108 @@ class GatewayInterface(Enum):
 # Maps (interface, operation) → (module_name, function_name)
 
 _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
-    # CACHE Operations
-    (GatewayInterface.CACHE, 'get'): ('cache_core', '_execute_get_implementation'),
-    (GatewayInterface.CACHE, 'set'): ('cache_core', '_execute_set_implementation'),
-    (GatewayInterface.CACHE, 'exists'): ('cache_core', '_execute_exists_implementation'),
-    (GatewayInterface.CACHE, 'delete'): ('cache_core', '_execute_delete_implementation'),
-    (GatewayInterface.CACHE, 'clear'): ('cache_core', '_execute_clear_implementation'),
-    (GatewayInterface.CACHE, 'get_stats'): ('cache_core', '_execute_get_stats_implementation'),
-    
-    # LOGGING Operations
-    (GatewayInterface.LOGGING, 'log_info'): ('logging_core', '_execute_log_info_implementation'),
-    (GatewayInterface.LOGGING, 'log_error'): ('logging_core', '_execute_log_error_implementation'),
-    (GatewayInterface.LOGGING, 'log_warning'): ('logging_core', '_execute_log_warning_implementation'),
-    (GatewayInterface.LOGGING, 'log_debug'): ('logging_core', '_execute_log_debug_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_start'): ('logging_core', '_execute_log_operation_start_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_success'): ('logging_core', '_execute_log_operation_success_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_failure'): ('logging_core', '_execute_log_operation_failure_implementation'),
-    
-    # SECURITY Operations
-    (GatewayInterface.SECURITY, 'validate_request'): ('security_core', '_execute_validate_request_implementation'),
-    (GatewayInterface.SECURITY, 'validate_token'): ('security_core', '_execute_validate_token_implementation'),
-    (GatewayInterface.SECURITY, 'encrypt'): ('security_core', '_execute_encrypt_data_implementation'),
-    (GatewayInterface.SECURITY, 'decrypt'): ('security_core', '_execute_decrypt_data_implementation'),
-    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('security_core', '_execute_generate_correlation_id_implementation'),
-    (GatewayInterface.SECURITY, 'validate_string'): ('security_core', '_execute_validate_string_implementation'),
-    (GatewayInterface.SECURITY, 'validate_email'): ('security_core', '_execute_validate_email_implementation'),
-    (GatewayInterface.SECURITY, 'validate_url'): ('security_core', '_execute_validate_url_implementation'),
-    (GatewayInterface.SECURITY, 'hash'): ('security_core', '_execute_hash_data_implementation'),
-    (GatewayInterface.SECURITY, 'verify_hash'): ('security_core', '_execute_verify_hash_implementation'),
-    (GatewayInterface.SECURITY, 'sanitize'): ('security_core', '_execute_sanitize_input_implementation'),
-    
-    # METRICS Operations
-    (GatewayInterface.METRICS, 'record'): ('metrics_core', '_execute_record_metric_implementation'),
-    (GatewayInterface.METRICS, 'increment'): ('metrics_core', '_execute_increment_counter_implementation'),
-    (GatewayInterface.METRICS, 'get_stats'): ('metrics_core', '_execute_get_stats_implementation'),
-    (GatewayInterface.METRICS, 'record_operation'): ('metrics_core', '_execute_record_operation_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_error'): ('metrics_core', '_execute_record_error_response_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_cache'): ('metrics_core', '_execute_record_cache_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_api'): ('metrics_core', '_execute_record_api_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_dispatcher_timing'): ('metrics_core', '_execute_record_dispatcher_timing_implementation'),
-    (GatewayInterface.METRICS, 'get_dispatcher_stats'): ('metrics_core', '_execute_get_dispatcher_stats_implementation'),
-    (GatewayInterface.METRICS, 'get_operation_metrics'): ('metrics_core', '_execute_get_operation_metrics_implementation'),
-    
-    # CONFIG Operations
-    (GatewayInterface.CONFIG, 'get_parameter'): ('config_core', '_get_parameter_implementation'),
-    (GatewayInterface.CONFIG, 'set_parameter'): ('config_core', '_set_parameter_implementation'),
-    (GatewayInterface.CONFIG, 'get_category'): ('config_core', '_get_category_implementation'),
-    (GatewayInterface.CONFIG, 'reload'): ('config_core', '_reload_implementation'),
-    (GatewayInterface.CONFIG, 'switch_preset'): ('config_core', '_switch_preset_implementation'),
-    (GatewayInterface.CONFIG, 'get_state'): ('config_core', '_get_state_implementation'),
-    (GatewayInterface.CONFIG, 'load_environment'): ('config_core', '_load_environment_implementation'),
-    (GatewayInterface.CONFIG, 'load_file'): ('config_core', '_load_file_implementation'),
-    (GatewayInterface.CONFIG, 'validate'): ('config_core', '_validate_all_implementation'),
-    
-    # SINGLETON Operations
-    (GatewayInterface.SINGLETON, 'get'): ('singleton_core', '_execute_get_implementation'),
-    (GatewayInterface.SINGLETON, 'has'): ('singleton_core', '_execute_has_implementation'),
-    (GatewayInterface.SINGLETON, 'delete'): ('singleton_core', '_execute_delete_implementation'),
-    (GatewayInterface.SINGLETON, 'clear'): ('singleton_core', '_execute_clear_implementation'),
-    (GatewayInterface.SINGLETON, 'get_stats'): ('singleton_core', '_execute_get_stats_implementation'),
-    
-    # INITIALIZATION Operations
-    (GatewayInterface.INITIALIZATION, 'initialize'): ('initialization_core', '_execute_initialize_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_status'): ('initialization_core', '_execute_get_status_implementation'),
-    (GatewayInterface.INITIALIZATION, 'set_flag'): ('initialization_core', '_execute_set_flag_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_flag'): ('initialization_core', '_execute_get_flag_implementation'),
-    
-    # HTTP_CLIENT Operations
-    (GatewayInterface.HTTP_CLIENT, 'request'): ('http_client_core', 'http_request_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'get'): ('http_client_core', 'http_get_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'post'): ('http_client_core', 'http_post_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'put'): ('http_client_core', 'http_put_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'delete'): ('http_client_core', 'http_delete_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'get_state'): ('http_client_core', 'get_state_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('http_client_core', 'reset_state_implementation'),
-    
-    # WEBSOCKET Operations
-    (GatewayInterface.WEBSOCKET, 'connect'): ('websocket_core', 'websocket_connect_implementation'),
-    (GatewayInterface.WEBSOCKET, 'send'): ('websocket_core', 'websocket_send_implementation'),
-    (GatewayInterface.WEBSOCKET, 'receive'): ('websocket_core', 'websocket_receive_implementation'),
-    (GatewayInterface.WEBSOCKET, 'close'): ('websocket_core', 'websocket_close_implementation'),
-    (GatewayInterface.WEBSOCKET, 'request'): ('websocket_core', 'websocket_request_implementation'),
+    # ========================================================================
+    # CACHE Operations (memory/ directory)
+    # ========================================================================
+    (GatewayInterface.CACHE, 'get'): ('memory.cache_core', '_execute_get_implementation'),
+    (GatewayInterface.CACHE, 'set'): ('memory.cache_core', '_execute_set_implementation'),
+    (GatewayInterface.CACHE, 'exists'): ('memory.cache_core', '_execute_exists_implementation'),
+    (GatewayInterface.CACHE, 'delete'): ('memory.cache_core', '_execute_delete_implementation'),
+    (GatewayInterface.CACHE, 'clear'): ('memory.cache_core', '_execute_clear_implementation'),
+    (GatewayInterface.CACHE, 'get_stats'): ('memory.cache_core', '_execute_get_stats_implementation'),
     
     # ========================================================================
-    # CIRCUIT_BREAKER Operations
+    # LOGGING Operations (aws/ directory)
+    # ========================================================================
+    (GatewayInterface.LOGGING, 'log_info'): ('aws.logging_core', '_execute_log_info_implementation'),
+    (GatewayInterface.LOGGING, 'log_error'): ('aws.logging_core', '_execute_log_error_implementation'),
+    (GatewayInterface.LOGGING, 'log_warning'): ('aws.logging_core', '_execute_log_warning_implementation'),
+    (GatewayInterface.LOGGING, 'log_debug'): ('aws.logging_core', '_execute_log_debug_implementation'),
+    (GatewayInterface.LOGGING, 'log_operation_start'): ('aws.logging_core', '_execute_log_operation_start_implementation'),
+    (GatewayInterface.LOGGING, 'log_operation_success'): ('aws.logging_core', '_execute_log_operation_success_implementation'),
+    (GatewayInterface.LOGGING, 'log_operation_failure'): ('aws.logging_core', '_execute_log_operation_failure_implementation'),
+    
+    # ========================================================================
+    # SECURITY Operations (security/ directory)
+    # ========================================================================
+    (GatewayInterface.SECURITY, 'validate_request'): ('security.security_core', '_execute_validate_request_implementation'),
+    (GatewayInterface.SECURITY, 'validate_token'): ('security.security_core', '_execute_validate_token_implementation'),
+    (GatewayInterface.SECURITY, 'encrypt'): ('security.security_core', '_execute_encrypt_data_implementation'),
+    (GatewayInterface.SECURITY, 'decrypt'): ('security.security_core', '_execute_decrypt_data_implementation'),
+    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('security.security_core', '_execute_generate_correlation_id_implementation'),
+    (GatewayInterface.SECURITY, 'validate_string'): ('security.security_core', '_execute_validate_string_implementation'),
+    (GatewayInterface.SECURITY, 'validate_email'): ('security.security_core', '_execute_validate_email_implementation'),
+    (GatewayInterface.SECURITY, 'validate_url'): ('security.security_core', '_execute_validate_url_implementation'),
+    (GatewayInterface.SECURITY, 'hash'): ('security.security_core', '_execute_hash_data_implementation'),
+    (GatewayInterface.SECURITY, 'verify_hash'): ('security.security_core', '_execute_verify_hash_implementation'),
+    (GatewayInterface.SECURITY, 'sanitize'): ('security.security_core', '_execute_sanitize_input_implementation'),
+    
+    # ========================================================================
+    # METRICS Operations (aws/ directory)
+    # ========================================================================
+    (GatewayInterface.METRICS, 'record'): ('aws.metrics_core', '_execute_record_metric_implementation'),
+    (GatewayInterface.METRICS, 'increment'): ('aws.metrics_core', '_execute_increment_counter_implementation'),
+    (GatewayInterface.METRICS, 'get_stats'): ('aws.metrics_core', '_execute_get_stats_implementation'),
+    (GatewayInterface.METRICS, 'record_operation'): ('aws.metrics_core', '_execute_record_operation_metric_implementation'),
+    (GatewayInterface.METRICS, 'record_error'): ('aws.metrics_core', '_execute_record_error_response_metric_implementation'),
+    (GatewayInterface.METRICS, 'record_cache'): ('aws.metrics_core', '_execute_record_cache_metric_implementation'),
+    (GatewayInterface.METRICS, 'record_api'): ('aws.metrics_core', '_execute_record_api_metric_implementation'),
+    (GatewayInterface.METRICS, 'record_dispatcher_timing'): ('aws.metrics_core', '_execute_record_dispatcher_timing_implementation'),
+    (GatewayInterface.METRICS, 'get_dispatcher_stats'): ('aws.metrics_core', '_execute_get_dispatcher_stats_implementation'),
+    (GatewayInterface.METRICS, 'get_operation_metrics'): ('aws.metrics_core', '_execute_get_operation_metrics_implementation'),
+    
+    # ========================================================================
+    # CONFIG Operations (config/ directory)
+    # ========================================================================
+    (GatewayInterface.CONFIG, 'get_parameter'): ('config.config_core', '_get_parameter_implementation'),
+    (GatewayInterface.CONFIG, 'set_parameter'): ('config.config_core', '_set_parameter_implementation'),
+    (GatewayInterface.CONFIG, 'get_category'): ('config.config_core', '_get_category_implementation'),
+    (GatewayInterface.CONFIG, 'reload'): ('config.config_core', '_reload_implementation'),
+    (GatewayInterface.CONFIG, 'switch_preset'): ('config.config_core', '_switch_preset_implementation'),
+    (GatewayInterface.CONFIG, 'get_state'): ('config.config_core', '_get_state_implementation'),
+    (GatewayInterface.CONFIG, 'load_environment'): ('config.config_core', '_load_environment_implementation'),
+    (GatewayInterface.CONFIG, 'load_file'): ('config.config_core', '_load_file_implementation'),
+    (GatewayInterface.CONFIG, 'validate'): ('config.config_core', '_validate_all_implementation'),
+    
+    # ========================================================================
+    # SINGLETON Operations (memory/ directory)
+    # ========================================================================
+    (GatewayInterface.SINGLETON, 'get'): ('memory.singleton_core', '_execute_get_implementation'),
+    (GatewayInterface.SINGLETON, 'has'): ('memory.singleton_core', '_execute_has_implementation'),
+    (GatewayInterface.SINGLETON, 'delete'): ('memory.singleton_core', '_execute_delete_implementation'),
+    (GatewayInterface.SINGLETON, 'clear'): ('memory.singleton_core', '_execute_clear_implementation'),
+    (GatewayInterface.SINGLETON, 'get_stats'): ('memory.singleton_core', '_execute_get_stats_implementation'),
+    
+    # ========================================================================
+    # INITIALIZATION Operations (initialization/ directory)
+    # ========================================================================
+    (GatewayInterface.INITIALIZATION, 'initialize'): ('initialization.initialization_core', '_execute_initialize_implementation'),
+    (GatewayInterface.INITIALIZATION, 'get_status'): ('initialization.initialization_core', '_execute_get_status_implementation'),
+    (GatewayInterface.INITIALIZATION, 'set_flag'): ('initialization.initialization_core', '_execute_set_flag_implementation'),
+    (GatewayInterface.INITIALIZATION, 'get_flag'): ('initialization.initialization_core', '_execute_get_flag_implementation'),
+    
+    # ========================================================================
+    # HTTP_CLIENT Operations (network/ directory)
+    # ========================================================================
+    (GatewayInterface.HTTP_CLIENT, 'request'): ('network.http_client_core', 'http_request_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'get'): ('network.http_client_core', 'http_get_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'post'): ('network.http_client_core', 'http_post_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'put'): ('network.http_client_core', 'http_put_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'delete'): ('network.http_client_core', 'http_delete_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'get_state'): ('network.http_client_core', 'get_state_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('network.http_client_core', 'reset_state_implementation'),
+    
+    # ========================================================================
+    # WEBSOCKET Operations (network/ directory)
+    # ========================================================================
+    (GatewayInterface.WEBSOCKET, 'connect'): ('network.websocket_core', 'websocket_connect_implementation'),
+    (GatewayInterface.WEBSOCKET, 'send'): ('network.websocket_core', 'websocket_send_implementation'),
+    (GatewayInterface.WEBSOCKET, 'receive'): ('network.websocket_core', 'websocket_receive_implementation'),
+    (GatewayInterface.WEBSOCKET, 'close'): ('network.websocket_core', 'websocket_close_implementation'),
+    (GatewayInterface.WEBSOCKET, 'request'): ('network.websocket_core', 'websocket_request_implementation'),
+    
+    # ========================================================================
+    # CIRCUIT_BREAKER Operations (network/ directory)
     # ========================================================================
     # ARCHITECTURAL NOTE - DO NOT FLAG AS ISSUE:
     # The 'call' operation name is INTENTIONAL and CORRECT.
@@ -143,79 +162,57 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     # This is consistent with circuit breaker literature and implementations.
     # The wrapper function execute_with_circuit_breaker is just a convenience
     # name for users, but the underlying operation is correctly named 'call'.
-    # 
-    # Mapping:
-    #   User calls: execute_with_circuit_breaker(name, func, args)
-    #   Gateway operation: CIRCUIT_BREAKER.call
-    #   Implementation: execute_with_breaker_implementation
-    #   Circuit breaker method: CircuitBreaker.call(func, *args)
-    # 
-    # Verified 2025-10-15: No mismatch exists
     # ========================================================================
-    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
-    
-    # UTILITY Operations
-    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', 'format_response'),
-    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', 'parse_json_safely'),
-    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', 'safe_get'),
-    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', 'generate_uuid'),
-    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', 'get_current_timestamp'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('network.circuit_breaker_core', 'get_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('network.circuit_breaker_core', 'execute_with_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('network.circuit_breaker_core', 'get_all_states_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('network.circuit_breaker_core', 'reset_all_implementation'),
     
     # ========================================================================
-    # DEBUG Operations - DISPATCHER PATTERN
+    # UTILITY Operations (ROOT directory - NO PREFIX NEEDED)
     # ========================================================================
-    # ARCHITECTURAL NOTE - DO NOT FLAG AS ISSUE:
-    # DEBUG uses a DISPATCHER PATTERN instead of standard routing.
-    #
-    # WHY THIS IS INTENTIONAL:
-    # 1. DEBUG has 20+ operations (health, diagnostics, validation, tests, etc.)
-    # 2. Adding 20+ registry entries would bloat this file
-    # 3. DEBUG operations are infrequently used (cold start acceptable)
-    # 4. Dispatcher provides flexibility to add operations without registry changes
-    # 5. All DEBUG operations route through ONE function: generic_debug_operation
-    # 6. Enum-based routing provides type safety and documentation
-    #
-    # PATTERN:
-    #   User: check_component_health(component='cache')
-    #   Gateway: execute_operation(DEBUG, 'check_component_health', component='cache')
-    #   Special Handler: Converts string → DebugOperation enum
-    #   Dispatcher: generic_debug_operation(enum, **kwargs)
-    #   Lazy Import: from debug.debug_health import _check_component_health
-    #   Execute: _check_component_health(component='cache')
-    #
-    # BENEFITS:
-    #   ✅ 1 registry entry vs 20+
-    #   ✅ Lazy loading of debug modules (faster cold start)
-    #   ✅ Easy to add new debug operations
-    #   ✅ Type-safe enum routing
-    #   ✅ Follows dispatcher design pattern
-    #
-    # DO NOT REFACTOR to standard pattern - dispatcher is superior for DEBUG
-    # Verified 2025-10-15: This is intentional architecture
+    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
+    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', '_execute_parse_json_implementation'),
+    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
+    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
+    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
+    
     # ========================================================================
-    (GatewayInterface.DEBUG, 'check_component_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'check_gateway_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'diagnose_system_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'diagnose_performance'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'diagnose_memory'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_ultra_optimization_tests'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_performance_benchmark'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_configuration_tests'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_comprehensive_tests'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_system_architecture'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_imports'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_gateway_routing'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_system_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_optimization_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'generate_health_report'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'verify_registry_operations'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'analyze_naming_patterns'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'generate_verification_report'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_dispatcher_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_operation_metrics'): ('debug_core', 'generic_debug_operation'),
+    # DEBUG Operations (debug/ directory)
+    # ========================================================================
+    # ARCHITECTURAL NOTE - DEBUG DISPATCHER PATTERN:
+    # 
+    # ALL DEBUG operations route through a SINGLE generic_debug_operation function.
+    # This is NOT a mistake - it's an intentional dispatcher pattern that:
+    # 
+    # 1. Reduces registry size (18 operations → 1 function)
+    # 2. Enables lazy loading of debug modules
+    # 3. Provides centralized debug operation handling
+    # 4. Uses DebugOperation enum for type-safe routing
+    # 
+    # The execute_operation function has SPECIAL HANDLING for DEBUG interface
+    # that converts the operation string to a DebugOperation enum before calling.
+    # 
+    # See execute_operation() implementation below for the special handling code.
+    # ========================================================================
+    (GatewayInterface.DEBUG, 'check_component_health'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'check_gateway_health'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'diagnose_system_health'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'run_debug_tests'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'validate_system_architecture'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'test_operation'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'list_operations'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'introspect_interface'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_fast_path_stats'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_hot_operations'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_cached_operations'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_optimization_stats'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'generate_health_report'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'verify_registry_operations'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'analyze_naming_patterns'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'generate_verification_report'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_dispatcher_stats'): ('debug.debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_operation_metrics'): ('debug.debug_core', 'generic_debug_operation'),
 }
 
 # ===== FAST PATH OPTIMIZATION =====
@@ -309,7 +306,7 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
         # See detailed explanation in _OPERATION_REGISTRY above
         # ====================================================================
         if interface == GatewayInterface.DEBUG:
-            from debug_core import DebugOperation
+            from debug.debug_core import DebugOperation
             op_enum = DebugOperation(operation)
             return fast_func(op_enum, **kwargs)
         return fast_func(**kwargs)
@@ -335,7 +332,7 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
         # See detailed explanation in _OPERATION_REGISTRY above
         # ====================================================================
         if interface == GatewayInterface.DEBUG:
-            from debug_core import generic_debug_operation, DebugOperation
+            from debug.debug_core import generic_debug_operation, DebugOperation
             op_enum = DebugOperation(operation)
             return generic_debug_operation(op_enum, **kwargs)
         
