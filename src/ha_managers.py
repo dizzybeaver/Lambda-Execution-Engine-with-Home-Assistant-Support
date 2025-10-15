@@ -1,5 +1,5 @@
 """
-home_assistant/ha_managers.py - Entity Management
+ha_managers.py - Entity Management
 Version: 2025.10.14.01
 Description: Generic entity managers for devices/areas using Gateway services.
 
