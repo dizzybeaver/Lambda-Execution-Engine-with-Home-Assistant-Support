@@ -1,7 +1,8 @@
 """
 aws/logging_core.py - Unified logging interface (gateway-facing)
-Version: 2025.10.14.01
+Version: 2025.10.15.07
 Description: Gateway compatibility layer for logging subsystem
+            FIXED: All sibling imports now use relative imports with dots
 
 Copyright 2025 Joseph Hersey
 
@@ -21,8 +22,8 @@ Copyright 2025 Joseph Hersey
 import logging
 from typing import Dict, Any, Optional
 
-# Import from split modules
-from logging_types import (
+# FIXED: Import from split modules using relative imports
+from .logging_types import (
     LogOperation,
     LogTemplate,
     ErrorLogLevel,
@@ -30,9 +31,9 @@ from logging_types import (
     ErrorLogEntry,
 )
 
-from logging_manager import _MANAGER
+from .logging_manager import _MANAGER
 
-from logging_operations import execute_logging_operation
+from .logging_operations import execute_logging_operation
 
 
 # ===== COMPATIBILITY LAYER FOR GATEWAY =====
@@ -69,71 +70,34 @@ def _execute_log_operation_start_implementation(operation: str, correlation_id: 
 
 def _execute_log_operation_success_implementation(operation: str, duration_ms: float = 0, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
     """Execute log operation success."""
-    return execute_logging_operation(LogOperation.LOG_OPERATION_SUCCESS, operation, duration_ms, result, correlation_id)
+    execute_logging_operation(LogOperation.LOG_OPERATION_SUCCESS, operation, duration_ms, correlation_id, result)
 
 
-def _execute_log_operation_failure_implementation(operation: str, error: Exception, duration_ms: float = 0, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+def _execute_log_operation_failure_implementation(operation: str, error: str, correlation_id: Optional[str] = None, **kwargs) -> None:
     """Execute log operation failure."""
-    return execute_logging_operation(LogOperation.LOG_OPERATION_FAILURE, operation, error, duration_ms, correlation_id, context)
+    execute_logging_operation(LogOperation.LOG_OPERATION_FAILURE, operation, error, correlation_id)
 
 
-# ===== PUBLIC INTERFACE =====
+# ===== ERROR RESPONSE TRACKING =====
 
-def log_template_fast(template: LogTemplate, *args, level: int = logging.INFO) -> None:
-    """Public interface for fast template logging."""
-    _MANAGER.log_template_fast(template, *args, level=level)
-
-
-def get_logging_stats() -> Dict[str, Any]:
-    """Public interface for logging statistics."""
-    return _MANAGER.get_stats()
+def _log_error_response_internal(status_code: int, error_message: str, correlation_id: Optional[str] = None, **kwargs) -> None:
+    """Internal function to log error responses for analytics."""
+    _MANAGER.log_error_response(status_code, error_message, correlation_id)
 
 
-# ===== ERROR RESPONSE TRACKING INTERNAL FUNCTIONS =====
-
-def _log_error_response_internal(error_response: Dict[str, Any], 
-                                correlation_id: Optional[str] = None,
-                                source_module: Optional[str] = None,
-                                lambda_context = None,
-                                additional_context: Optional[Dict[str, Any]] = None) -> str:
-    """Internal implementation for logging error responses."""
-    return _MANAGER.log_error_response(
-        error_response=error_response,
-        correlation_id=correlation_id,
-        source_module=source_module,
-        lambda_context=lambda_context,
-        additional_context=additional_context
-    )
+def _get_error_response_analytics_internal(**kwargs) -> Dict[str, Any]:
+    """Internal function to get error response analytics."""
+    return _MANAGER.get_error_response_analytics()
 
 
-def _get_error_response_analytics_internal(time_range_minutes: int = 60,
-                                          include_details: bool = False) -> Dict[str, Any]:
-    """Internal implementation for getting error response analytics."""
-    return _MANAGER.get_error_analytics(time_range_minutes, include_details)
-
-
-def _clear_error_response_logs_internal(older_than_minutes: Optional[int] = None) -> Dict[str, Any]:
-    """Internal implementation for clearing error response logs."""
-    return _MANAGER.clear_error_logs(older_than_minutes)
+def _clear_error_response_logs_internal(**kwargs) -> None:
+    """Internal function to clear error response logs."""
+    _MANAGER.clear_error_response_logs()
 
 
 # ===== EXPORTS =====
 
 __all__ = [
-    # Types
-    'LogOperation',
-    'LogTemplate',
-    'ErrorLogLevel',
-    'ErrorEntry',
-    'ErrorLogEntry',
-    
-    # Core
-    'execute_logging_operation',
-    
-    # Public interface
-    'log_template_fast',
-    'get_logging_stats',
-    
     # Gateway compatibility layer
     '_execute_log_info_implementation',
     '_execute_log_error_implementation',
@@ -147,6 +111,14 @@ __all__ = [
     '_log_error_response_internal',
     '_get_error_response_analytics_internal',
     '_clear_error_response_logs_internal',
+    
+    # Re-export from other modules for convenience
+    'LogOperation',
+    'LogTemplate',
+    'ErrorLogLevel',
+    'ErrorEntry',
+    'ErrorLogEntry',
+    'execute_logging_operation',
 ]
 
 # EOF
