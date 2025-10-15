@@ -1,11 +1,9 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.15.01
+Version: 2025.10.15.02
 Description: Dynamically generated convenience wrappers for all gateway operations
-
-CRITICAL FIX: Wrapper signature now accepts *args, **kwargs to support positional arguments
-Previously: def wrapper(**kwargs) - BROKE positional argument calls
-Now: def wrapper(*args, **kwargs) - SUPPORTS both positional and keyword arguments
+             FIXED: Added missing helper functions (initialize_config, get_cache_config, 
+                    get_metrics_config, is_circuit_breaker_open, get_circuit_breaker_state)
 
 Copyright 2025 Joseph Hersey
 
@@ -24,6 +22,55 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 from gateway_core import GatewayInterface, execute_operation
+
+# ===== MANUAL HELPER FUNCTIONS =====
+# These are convenience functions that don't fit the standard wrapper pattern
+
+def initialize_config(**kwargs) -> Dict[str, Any]:
+    """
+    Initialize configuration system.
+    Helper function for CONFIG interface initialization.
+    """
+    return execute_operation(GatewayInterface.CONFIG, 'initialize', **kwargs)
+
+
+def get_cache_config(**kwargs) -> Dict[str, Any]:
+    """
+    Get cache configuration.
+    Helper function to retrieve cache-specific config parameters.
+    """
+    result = execute_operation(GatewayInterface.CONFIG, 'get_category', category='cache', **kwargs)
+    return result if isinstance(result, dict) else {}
+
+
+def get_metrics_config(**kwargs) -> Dict[str, Any]:
+    """
+    Get metrics configuration.
+    Helper function to retrieve metrics-specific config parameters.
+    """
+    result = execute_operation(GatewayInterface.CONFIG, 'get_category', category='metrics', **kwargs)
+    return result if isinstance(result, dict) else {}
+
+
+def is_circuit_breaker_open(name: str, **kwargs) -> bool:
+    """
+    Check if circuit breaker is open.
+    Helper function for quick circuit breaker state check.
+    """
+    state = execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name, **kwargs)
+    if isinstance(state, dict):
+        return state.get('state') == 'open'
+    return False
+
+
+def get_circuit_breaker_state(name: str, **kwargs) -> Dict[str, Any]:
+    """
+    Get circuit breaker state.
+    Helper function to retrieve full circuit breaker state.
+    """
+    result = execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name, **kwargs)
+    return result if isinstance(result, dict) else {}
+
 
 # ===== DYNAMIC WRAPPER GENERATION =====
 
@@ -189,6 +236,13 @@ for interface_name, operation, wrapper_name in _WRAPPER_SPECS:
 __all__ = [
     # Core
     '_create_wrapper',
+    
+    # Manual Helper Functions
+    'initialize_config',
+    'get_cache_config',
+    'get_metrics_config',
+    'is_circuit_breaker_open',
+    'get_circuit_breaker_state',
     
     # Generated Wrappers - CACHE
     'cache_get',
