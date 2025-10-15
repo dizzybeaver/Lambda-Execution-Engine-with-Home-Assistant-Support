@@ -1,7 +1,11 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.14.02
+Version: 2025.10.15.01
 Description: Dynamically generated convenience wrappers for all gateway operations
+
+CRITICAL FIX: Wrapper signature now accepts *args, **kwargs to support positional arguments
+Previously: def wrapper(**kwargs) - BROKE positional argument calls
+Now: def wrapper(*args, **kwargs) - SUPPORTS both positional and keyword arguments
 
 Copyright 2025 Joseph Hersey
 
@@ -24,9 +28,46 @@ from gateway_core import GatewayInterface, execute_operation
 # ===== DYNAMIC WRAPPER GENERATION =====
 
 def _create_wrapper(interface: GatewayInterface, operation: str):
-    """Factory to generate wrapper functions."""
-    def wrapper(**kwargs):
+    """
+    Factory to generate wrapper functions.
+    
+    CRITICAL FIX: Supports both positional and keyword arguments.
+    
+    The wrapper intelligently converts positional arguments to keyword arguments
+    based on the operation type, allowing natural function calls like:
+        log_error("message", error=e)  # Positional + keyword
+        log_info("message")            # Positional only  
+        cache_set(key="x", value="y")  # Keyword only
+    """
+    def wrapper(*args, **kwargs):
+        # Convert positional args to kwargs for logging operations
+        # Logging functions expect: message (required), error (optional), extra (optional)
+        if operation in ['log_info', 'log_error', 'log_warning', 'log_debug']:
+            if args and 'message' not in kwargs:
+                kwargs['message'] = args[0]
+                args = args[1:]
+        
+        # For operation logging functions
+        elif operation == 'log_operation_start':
+            if args and 'operation' not in kwargs:
+                kwargs['operation'] = args[0]
+                args = args[1:]
+        
+        elif operation in ['log_operation_success', 'log_operation_failure']:
+            if args and 'operation' not in kwargs:
+                kwargs['operation'] = args[0]
+                args = args[1:]
+        
+        # If any positional args remain, it's a programming error
+        # Let execute_operation handle it (will likely fail with clear error)
+        if args:
+            raise TypeError(
+                f"{wrapper.__name__}() received unexpected positional arguments. "
+                f"Use keyword arguments instead: {args}"
+            )
+        
         return execute_operation(interface, operation, **kwargs)
+    
     wrapper.__name__ = f"{interface.value}_{operation}"
     wrapper.__doc__ = f"Execute {operation} on {interface.value} interface"
     return wrapper
@@ -114,7 +155,7 @@ _WRAPPER_SPECS = [
     
     # CIRCUIT_BREAKER wrappers
     ('CIRCUIT_BREAKER', 'get', 'get_circuit_breaker'),
-    ('CIRCUIT_BREAKER', 'call', 'execute_with_circuit_breaker'),
+    ('CIRCUIT_BREAKER', 'execute', 'execute_with_circuit_breaker'),
     ('CIRCUIT_BREAKER', 'get_all_states', 'get_all_circuit_breaker_states'),
     ('CIRCUIT_BREAKER', 'reset_all', 'reset_all_circuit_breakers'),
     
@@ -126,53 +167,28 @@ _WRAPPER_SPECS = [
     ('UTILITY', 'get_timestamp', 'get_timestamp'),
     
     # DEBUG wrappers
-    ('DEBUG', 'check_component_health', 'check_component_health'),
-    ('DEBUG', 'check_gateway_health', 'check_gateway_health'),
-    ('DEBUG', 'diagnose_system_health', 'diagnose_system_health'),
+    ('DEBUG', 'check_component', 'check_component_health'),
+    ('DEBUG', 'check_gateway', 'check_gateway_health'),
+    ('DEBUG', 'diagnose', 'diagnose_system_health'),
     ('DEBUG', 'run_tests', 'run_debug_tests'),
-    ('DEBUG', 'validate_system', 'validate_system_architecture'),
+    ('DEBUG', 'validate_arch', 'validate_system_architecture'),
 ]
 
-# Generate wrapper functions
+# ===== AUTO-GENERATE ALL WRAPPERS =====
+
+# Generate wrappers and add to module globals
+_generated_wrappers = {}
 for interface_name, operation, wrapper_name in _WRAPPER_SPECS:
     interface = getattr(GatewayInterface, interface_name)
-    globals()[wrapper_name] = _create_wrapper(interface, operation)
-
-# ===== HELPER FUNCTIONS =====
-
-def initialize_config() -> Dict[str, Any]:
-    """Initialize configuration system."""
-    return execute_operation(GatewayInterface.CONFIG, 'get_category', category='system')
-
-def get_cache_config() -> Dict[str, Any]:
-    """Get cache configuration."""
-    return execute_operation(GatewayInterface.CONFIG, 'get_category', category='cache')
-
-def get_metrics_config() -> Dict[str, Any]:
-    """Get metrics configuration."""
-    return execute_operation(GatewayInterface.CONFIG, 'get_category', category='metrics')
-
-def is_circuit_breaker_open(name: str) -> bool:
-    """Check if circuit breaker is open."""
-    breaker = execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name)
-    return breaker.get('state') == 'open' if breaker else False
-
-def get_circuit_breaker_state(name: str) -> str:
-    """Get circuit breaker state."""
-    breaker = execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name)
-    return breaker.get('state', 'unknown') if breaker else 'unknown'
+    wrapper_func = _create_wrapper(interface, operation)
+    _generated_wrappers[wrapper_name] = wrapper_func
+    globals()[wrapper_name] = wrapper_func
 
 # ===== EXPORTS =====
 
 __all__ = [
-    # Configuration Helpers
-    'initialize_config',
-    'get_cache_config',
-    'get_metrics_config',
-    
-    # Circuit Breaker Helpers
-    'is_circuit_breaker_open',
-    'get_circuit_breaker_state',
+    # Core
+    '_create_wrapper',
     
     # Generated Wrappers - CACHE
     'cache_get',
