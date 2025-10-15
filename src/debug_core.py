@@ -1,5 +1,5 @@
 """
-debug/debug_core.py - Debug Operation Dispatcher
+debug_core.py - Debug Operation Dispatcher
 Version: 2025.10.14.01
 Description: Dispatcher for debug operations - delegates to internal debug modules
 
