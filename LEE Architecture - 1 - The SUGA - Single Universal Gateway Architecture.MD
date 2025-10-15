@@ -1225,8 +1225,7 @@ Extensions use SUGA Gateway for ALL infrastructure (HTTP, logging, caching, etc.
 ---
 
 **Version:** 2025.10.15.01  
-**Architecture:** SUGA + LIGA + LMMS + LUGA + ZAPH  
-**Copyright:** 2025 Joseph Hersey
+**Architecture:** SUGA + LMMS
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
