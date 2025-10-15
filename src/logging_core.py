@@ -1,5 +1,5 @@
 """
-aws/logging_core.py - Unified logging interface (gateway-facing)
+logging_core.py - Unified logging interface (gateway-facing)
 Version: 2025.10.15.07
 Description: Gateway compatibility layer for logging subsystem
             FIXED: All sibling imports now use relative imports with dots
