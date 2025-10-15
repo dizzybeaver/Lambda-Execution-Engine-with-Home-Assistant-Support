@@ -1,5 +1,5 @@
 """
-debug/debug_health.py - Debug Health Check Operations
+debug_health.py - Debug Health Check Operations
 Version: 2025.10.14.01
 Description: Health check operations for debug subsystem
 
