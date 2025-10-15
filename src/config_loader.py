@@ -1,5 +1,5 @@
 """
-config/config_loader.py
+config_loader.py
 Version: 2025.10.14.01
 Description: Configuration loading operations for Lambda Execution Engine
 
