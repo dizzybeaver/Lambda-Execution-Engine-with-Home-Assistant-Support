@@ -1,5 +1,5 @@
 """
-aws/logging_operations.py - Logging operation dispatcher
+logging_operations.py - Logging operation dispatcher
 Version: 2025.10.14.01
 Description: Generic operation execution and dispatcher timing integration
 
