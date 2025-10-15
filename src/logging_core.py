@@ -23,7 +23,7 @@ import logging
 from typing import Dict, Any, Optional
 
 # FIXED: Import from split modules using relative imports
-from .logging_types import (
+from logging_types import (
     LogOperation,
     LogTemplate,
     ErrorLogLevel,
@@ -31,9 +31,9 @@ from .logging_types import (
     ErrorLogEntry,
 )
 
-from .logging_manager import _MANAGER
+from logging_manager import _MANAGER
 
-from .logging_operations import execute_logging_operation
+from logging_operations import execute_logging_operation
 
 
 # ===== COMPATIBILITY LAYER FOR GATEWAY =====
