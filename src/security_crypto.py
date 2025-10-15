@@ -1,5 +1,5 @@
 """
-security/security_crypto.py - Cryptographic operations
+security_crypto.py - Cryptographic operations
 Version: 2025.10.14.01
 Description: Encryption, decryption, hashing, and correlation ID generation
 
