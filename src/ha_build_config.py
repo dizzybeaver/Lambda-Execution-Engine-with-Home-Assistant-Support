@@ -1,5 +1,5 @@
 """
-home_assistant/ha_build_config.py - Feature Configuration
+ha_build_config.py - Feature Configuration
 Version: 2025.10.14.01
 Description: Feature flags and build configuration for HA extension.
 
