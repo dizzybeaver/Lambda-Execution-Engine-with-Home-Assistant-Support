@@ -1,140 +1,162 @@
 """
-ha_build_config.py
-Version: 2025.10.13.08
-Description: Home Assistant build configuration (Phase 5 - renamed for consistency)
+home_assistant/ha_build_config.py - Feature Configuration
+Version: 2025.10.14.01
+Description: Feature flags and build configuration for HA extension.
+
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
-from typing import Dict, List, Set, Any
 from enum import Enum
+from typing import Dict, List, Set, Any
 
+# ===== FEATURE ENUMERATION =====
 
-class HAFeature(str, Enum):
-    """Home Assistant feature modules - now consolidated."""
+class HAFeature(Enum):
+    """HA feature flags."""
+    CORE = "core"
     ALEXA = "alexa"
-    FEATURES = "features"  # Consolidated automation, scripts, input_helpers, notifications, conversation
-    MANAGERS = "managers"  # Consolidated devices, areas, timers
-    CORE = "core"  # Core utilities
-    CONFIG = "config"  # Configuration
+    AUTOMATIONS = "automations"
+    SCRIPTS = "scripts"
+    INPUT_HELPERS = "input_helpers"
+    NOTIFICATIONS = "notifications"
+    CONVERSATION = "conversation"
+    MANAGERS = "managers"
+    WEBSOCKET = "websocket"
 
+# ===== FEATURE MODULES =====
 
-# Updated module mapping for consolidated structure
-FEATURE_MODULES: Dict[HAFeature, str] = {
-    HAFeature.ALEXA: "ha_alexa.py",
-    HAFeature.FEATURES: "ha_features.py",
-    HAFeature.MANAGERS: "ha_managers.py",
-    HAFeature.CORE: "ha_core.py",
-    HAFeature.CONFIG: "ha_config.py",
+FEATURE_MODULES = {
+    HAFeature.CORE: ['ha_core', 'ha_config'],
+    HAFeature.ALEXA: ['ha_alexa'],
+    HAFeature.AUTOMATIONS: ['ha_features'],
+    HAFeature.SCRIPTS: ['ha_features'],
+    HAFeature.INPUT_HELPERS: ['ha_features'],
+    HAFeature.NOTIFICATIONS: ['ha_features'],
+    HAFeature.CONVERSATION: ['ha_features'],
+    HAFeature.MANAGERS: ['ha_managers'],
+    HAFeature.WEBSOCKET: ['ha_websocket'],
 }
 
+# ===== FEATURE DEPENDENCIES =====
 
-FEATURE_DEPENDENCIES: Dict[HAFeature, List[HAFeature]] = {
-    HAFeature.ALEXA: [HAFeature.CORE, HAFeature.MANAGERS],
-    HAFeature.FEATURES: [HAFeature.CORE],
-    HAFeature.MANAGERS: [HAFeature.CORE],
-    HAFeature.CORE: [],
-    HAFeature.CONFIG: [],
+FEATURE_DEPENDENCIES = {
+    HAFeature.CORE: set(),
+    HAFeature.ALEXA: {HAFeature.CORE, HAFeature.MANAGERS},
+    HAFeature.AUTOMATIONS: {HAFeature.CORE},
+    HAFeature.SCRIPTS: {HAFeature.CORE},
+    HAFeature.INPUT_HELPERS: {HAFeature.CORE},
+    HAFeature.NOTIFICATIONS: {HAFeature.CORE},
+    HAFeature.CONVERSATION: {HAFeature.CORE},
+    HAFeature.MANAGERS: {HAFeature.CORE},
+    HAFeature.WEBSOCKET: {HAFeature.CORE},
 }
 
+# ===== COMMON PRESETS =====
 
-COMMON_PRESETS: Dict[str, List[HAFeature]] = {
-    "minimal": [
-        HAFeature.ALEXA,
-        HAFeature.CORE,
-        HAFeature.CONFIG,
-    ],
-    "voice_control": [
-        HAFeature.ALEXA,
-        HAFeature.CORE,
-        HAFeature.CONFIG,
-        HAFeature.FEATURES,
-    ],
-    "full": [
-        HAFeature.ALEXA,
-        HAFeature.FEATURES,
-        HAFeature.MANAGERS,
-        HAFeature.CORE,
-        HAFeature.CONFIG,
-    ],
+COMMON_PRESETS = {
+    'minimal': {HAFeature.CORE},
+    'basic': {HAFeature.CORE, HAFeature.ALEXA, HAFeature.MANAGERS},
+    'standard': {
+        HAFeature.CORE, HAFeature.ALEXA, HAFeature.AUTOMATIONS,
+        HAFeature.SCRIPTS, HAFeature.MANAGERS
+    },
+    'full': {
+        HAFeature.CORE, HAFeature.ALEXA, HAFeature.AUTOMATIONS,
+        HAFeature.SCRIPTS, HAFeature.INPUT_HELPERS, HAFeature.NOTIFICATIONS,
+        HAFeature.CONVERSATION, HAFeature.MANAGERS
+    },
+    'development': {
+        HAFeature.CORE, HAFeature.ALEXA, HAFeature.AUTOMATIONS,
+        HAFeature.SCRIPTS, HAFeature.INPUT_HELPERS, HAFeature.NOTIFICATIONS,
+        HAFeature.CONVERSATION, HAFeature.MANAGERS, HAFeature.WEBSOCKET
+    },
 }
 
+# ===== FEATURE PARSING =====
 
-def parse_feature_list(feature_str: str) -> Set[HAFeature]:
-    """Parse comma-separated feature list from environment variable."""
-    if not feature_str:
-        return set(COMMON_PRESETS["full"])
+def parse_feature_list(feature_string: str) -> Set[HAFeature]:
+    """Parse feature string from environment."""
+    if not feature_string:
+        return COMMON_PRESETS['standard']
     
-    feature_str = feature_str.strip().lower()
+    feature_string = feature_string.lower().strip()
     
-    if feature_str in COMMON_PRESETS:
-        return set(COMMON_PRESETS[feature_str])
+    # Check for preset
+    if feature_string in COMMON_PRESETS:
+        return COMMON_PRESETS[feature_string]
     
+    # Parse individual features
     features = set()
-    for item in feature_str.split(','):
-        item = item.strip()
+    for feature_name in feature_string.split(','):
+        feature_name = feature_name.strip()
         try:
-            features.add(HAFeature(item))
+            feature = HAFeature(feature_name)
+            features.add(feature)
         except ValueError:
-            pass
+            continue
     
-    return features if features else set(COMMON_PRESETS["full"])
+    return features if features else COMMON_PRESETS['standard']
 
 
 def get_required_modules(features: Set[HAFeature]) -> Set[str]:
-    """Get all required modules for given features including dependencies."""
-    required = set()
-    to_process = list(features)
-    processed = set()
+    """Get required modules for feature set."""
+    modules = set()
     
-    while to_process:
-        feature = to_process.pop(0)
-        
-        if feature in processed:
-            continue
-        
-        processed.add(feature)
-        required.add(FEATURE_MODULES[feature])
-        
-        for dep in FEATURE_DEPENDENCIES.get(feature, []):
-            if dep not in processed:
-                to_process.append(dep)
+    for feature in features:
+        feature_modules = FEATURE_MODULES.get(feature, [])
+        modules.update(feature_modules)
     
-    return required
+    return modules
 
 
 def get_enabled_features() -> Set[HAFeature]:
     """Get enabled features from environment."""
-    feature_str = os.environ.get('HA_FEATURES', 'full')
-    return parse_feature_list(feature_str)
+    feature_string = os.getenv('HA_FEATURES', 'standard')
+    return parse_feature_list(feature_string)
 
 
 def is_feature_enabled(feature: HAFeature) -> bool:
-    """Check if a specific feature is enabled."""
-    return feature in get_enabled_features()
+    """Check if feature is enabled."""
+    enabled = get_enabled_features()
+    return feature in enabled
 
 
-__all__ = [
-    'HAFeature',
-    'FEATURE_MODULES',
-    'FEATURE_DEPENDENCIES',
-    'COMMON_PRESETS',
-    'parse_feature_list',
-    'get_required_modules',
-    'get_enabled_features',
-    'is_feature_enabled',
-]
+# ===== FEATURE VALIDATION =====
+
+def validate_feature_dependencies(features: Set[HAFeature]) -> Dict[str, Any]:
+    """Validate feature dependencies."""
+    missing_deps = {}
+    
+    for feature in features:
+        required_deps = FEATURE_DEPENDENCIES.get(feature, set())
+        missing = required_deps - features
+        
+        if missing:
+            missing_deps[feature.value] = [dep.value for dep in missing]
+    
+    if missing_deps:
+        return {
+            'valid': False,
+            'missing_dependencies': missing_deps
+        }
+    
+    return {'valid': True}
+
+
+def get_feature_info() -> Dict[str, Any]:
+    """Get current feature configuration info."""
+    enabled = get_enabled_features()
+    modules = get_required_modules(enabled)
+    validation = validate_feature_dependencies(enabled)
+    
+    return {
+        'enabled_features': [f.value for f in enabled],
+        'required_modules': sorted(list(modules)),
+        'validation': validation,
+        'preset': os.getenv('HA_FEATURES', 'standard')
+    }
+
 
 # EOF
