@@ -1,254 +1,116 @@
 """
-ha_config.py
-Version: 2025.10.11.01
-Description: Home Assistant Extension Configuration
+home_assistant/ha_config.py - Configuration Management
+Version: 2025.10.14.01
+Description: Configuration loading using Gateway services.
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
 from typing import Dict, Any, Optional
-from enum import Enum
+from gateway import (
+    log_info, log_error, log_debug,
+    cache_get, cache_set,
+    create_success_response, create_error_response
+)
 
+# Cache key for configuration
+HA_CONFIG_CACHE_KEY = 'ha_configuration'
+HA_CONFIG_TTL = 600
 
-class HAPresetLevel(Enum):
-    """Home Assistant preset levels."""
-    MINIMAL = "minimal"
-    STANDARD = "standard"
-    MAXIMUM = "maximum"
-    CUSTOM = "custom"
-
-
-HA_PRESET_CONFIGURATIONS = {
-    HAPresetLevel.MINIMAL: {
-        "memory_allocation_mb": 15.0,
-        "feature_flags": {
-            "device_control": True,
-            "scene_activation": False,
-            "automation_trigger": False,
-            "service_calls": True,
-            "state_queries": True,
-            "batch_operations": False,
-            "area_control": False
-        },
-        "performance": {
-            "cache_enabled": False,
-            "cache_ttl_seconds": 0,
-            "max_retries": 1,
-            "timeout_seconds": 15,
-            "circuit_breaker_threshold": 10,
-            "batch_size": 1
-        },
-        "logging": {
-            "log_level": "ERROR",
-            "log_requests": False,
-            "log_responses": False,
-            "log_errors": True
-        }
-    },
-    
-    HAPresetLevel.STANDARD: {
-        "memory_allocation_mb": 25.0,
-        "feature_flags": {
-            "device_control": True,
-            "scene_activation": True,
-            "automation_trigger": True,
-            "service_calls": True,
-            "state_queries": True,
-            "batch_operations": True,
-            "area_control": True
-        },
-        "performance": {
-            "cache_enabled": True,
-            "cache_ttl_seconds": 300,
-            "max_retries": 3,
-            "timeout_seconds": 30,
-            "circuit_breaker_threshold": 5,
-            "batch_size": 10
-        },
-        "logging": {
-            "log_level": "INFO",
-            "log_requests": True,
-            "log_responses": False,
-            "log_errors": True
-        }
-    },
-    
-    HAPresetLevel.MAXIMUM: {
-        "memory_allocation_mb": 40.0,
-        "feature_flags": {
-            "device_control": True,
-            "scene_activation": True,
-            "automation_trigger": True,
-            "service_calls": True,
-            "state_queries": True,
-            "batch_operations": True,
-            "area_control": True
-        },
-        "performance": {
-            "cache_enabled": True,
-            "cache_ttl_seconds": 600,
-            "max_retries": 5,
-            "timeout_seconds": 45,
-            "circuit_breaker_threshold": 3,
-            "batch_size": 25
-        },
-        "logging": {
-            "log_level": "DEBUG",
-            "log_requests": True,
-            "log_responses": True,
-            "log_errors": True
-        }
-    }
-}
-
-
-def get_ha_preset() -> HAPresetLevel:
-    """Get Home Assistant preset from environment variable."""
-    preset_value = os.getenv("HA_PRESET", "").lower()
-    
-    if preset_value == "minimal":
-        return HAPresetLevel.MINIMAL
-    elif preset_value == "standard":
-        return HAPresetLevel.STANDARD
-    elif preset_value == "maximum":
-        return HAPresetLevel.MAXIMUM
-    else:
-        return HAPresetLevel.CUSTOM
-
-
-def load_ha_preset_config(preset: HAPresetLevel) -> Dict[str, Any]:
-    """Load preset configuration for Home Assistant."""
-    if preset == HAPresetLevel.CUSTOM:
-        return {}
-    
-    return HA_PRESET_CONFIGURATIONS.get(preset, {}).copy()
-
-
-def load_ha_connection_config() -> Dict[str, Any]:
-    """Load Home Assistant connection configuration from Parameter Store or environment."""
-    return {
-        "ha_url": os.getenv("HA_URL", ""),
-        "ha_token": os.getenv("HA_TOKEN", ""),
-        "ha_timeout": int(os.getenv("HA_TIMEOUT", "30")),
-        "ha_verify_ssl": os.getenv("HA_VERIFY_SSL", "true").lower() == "true",
-        "ha_assistant_name": os.getenv("HA_ASSISTANT_NAME", "Home Assistant")
-    }
-
+# ===== CONFIGURATION LOADING =====
 
 def load_ha_config() -> Dict[str, Any]:
-    """Load complete Home Assistant extension configuration."""
-    enabled = os.getenv("HOME_ASSISTANT_ENABLED", "false").lower() == "true"
-    
-    if not enabled:
-        return {
-            "enabled": False,
-            "preset": "none",
-            "connection": {},
-            "settings": {}
-        }
-    
-    preset = get_ha_preset()
-    preset_config = load_ha_preset_config(preset)
-    connection_config = load_ha_connection_config()
+    """Load HA configuration from environment."""
+    cached = cache_get(HA_CONFIG_CACHE_KEY)
+    if cached:
+        log_debug("Using cached HA configuration")
+        return cached
     
     config = {
-        "enabled": True,
-        "preset": preset.value,
-        "connection": connection_config,
-        "settings": preset_config
+        'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
+        'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
+        'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
+        'timeout': int(os.getenv('HOME_ASSISTANT_TIMEOUT', '30')),
+        'verify_ssl': os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
+        'assistant_name': os.getenv('HA_ASSISTANT_NAME', 'Jarvis')
     }
     
-    if preset == HAPresetLevel.CUSTOM:
-        config["settings"] = HA_USER_CUSTOM_CONFIG.copy()
+    cache_set(HA_CONFIG_CACHE_KEY, config, ttl=HA_CONFIG_TTL)
+    log_debug("HA configuration loaded from environment")
     
     return config
 
 
-def validate_ha_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate Home Assistant configuration."""
-    validation = {
-        "valid": True,
-        "errors": [],
-        "warnings": []
-    }
+def validate_ha_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Validate HA configuration."""
+    if config is None:
+        config = load_ha_config()
     
-    if not config.get("enabled"):
-        return validation
+    errors = []
     
-    connection = config.get("connection", {})
+    if not config.get('enabled'):
+        return create_success_response('HA disabled', {'valid': True, 'enabled': False})
     
-    if not connection.get("ha_url"):
-        validation["valid"] = False
-        validation["errors"].append("Home Assistant URL not configured")
+    if not config.get('base_url'):
+        errors.append('HOME_ASSISTANT_URL not configured')
     
-    if not connection.get("ha_token"):
-        validation["valid"] = False
-        validation["errors"].append("Home Assistant token not configured")
+    if not config.get('access_token'):
+        errors.append('HOME_ASSISTANT_TOKEN not configured')
     
-    settings = config.get("settings", {})
-    memory_allocation = settings.get("memory_allocation_mb", 0)
+    if config.get('timeout', 0) <= 0:
+        errors.append('Invalid timeout value')
     
-    if memory_allocation > 50:
-        validation["warnings"].append(f"High memory allocation ({memory_allocation}MB) may impact system performance")
+    if errors:
+        return create_error_response('Invalid configuration', 'INVALID_CONFIG', 
+                                    {'errors': errors})
     
-    return validation
+    return create_success_response('Configuration valid', {'valid': True})
 
 
-HA_USER_CUSTOM_CONFIG = {
-    "memory_allocation_mb": 25.0,
-    
-    "feature_flags": {
-        "device_control": True,
-        "scene_activation": True,
-        "automation_trigger": True,
-        "service_calls": True,
-        "state_queries": True,
-        "batch_operations": True,
-        "area_control": True
-    },
-    
-    "performance": {
-        "cache_enabled": True,
-        "cache_ttl_seconds": 300,
-        "max_retries": 3,
-        "timeout_seconds": 30,
-        "circuit_breaker_threshold": 5,
-        "batch_size": 10
-    },
-    
-    "logging": {
-        "log_level": "INFO",
-        "log_requests": True,
-        "log_responses": False,
-        "log_errors": True
-    },
-    
-    "entity_filters": {
-        "include_domains": ["light", "switch", "climate", "cover", "lock", "fan", "media_player"],
-        "exclude_domains": [],
-        "include_entities": [],
-        "exclude_entities": []
-    },
-    
-    "optimization": {
-        "enable_state_caching": True,
-        "state_cache_ttl_seconds": 60,
-        "enable_batch_state_fetch": True,
-        "enable_service_call_batching": True,
-        "parallel_execution_enabled": False,
-        "max_parallel_calls": 5
+def get_ha_preset(preset_name: str = 'default') -> Dict[str, Any]:
+    """Get HA preset configuration."""
+    presets = {
+        'default': {
+            'cache_ttl_state': 60,
+            'cache_ttl_entities': 300,
+            'retry_attempts': 3,
+            'timeout': 30
+        },
+        'fast': {
+            'cache_ttl_state': 30,
+            'cache_ttl_entities': 150,
+            'retry_attempts': 2,
+            'timeout': 15
+        },
+        'slow': {
+            'cache_ttl_state': 120,
+            'cache_ttl_entities': 600,
+            'retry_attempts': 5,
+            'timeout': 60
+        }
     }
-}
+    
+    return presets.get(preset_name, presets['default'])
+
+
+def load_ha_connection_config() -> Dict[str, Any]:
+    """Load connection-specific configuration."""
+    return {
+        'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
+        'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
+        'timeout': int(os.getenv('HOME_ASSISTANT_TIMEOUT', '30')),
+        'verify_ssl': os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
+    }
+
+
+def load_ha_preset_config(preset: str = 'default') -> Dict[str, Any]:
+    """Load preset configuration merged with connection config."""
+    connection = load_ha_connection_config()
+    preset_config = get_ha_preset(preset)
+    
+    return {**connection, **preset_config}
+
+
+# EOF
