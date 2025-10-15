@@ -1,5 +1,5 @@
 """
-home_assistant/ha_core.py - Home Assistant Core Operations
+ha_core.py - Home Assistant Core Operations
 Version: 2025.10.14.01
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
