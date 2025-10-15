@@ -39,16 +39,74 @@ def _setup_logging() -> logging.Logger:
 _logger = _setup_logging()
 
 
+# ===== SSM PARAMETER STORE SUPPORT =====
+
+def _load_from_ssm(parameter_prefix: str, key: str) -> Optional[str]:
+    """
+    Load parameter from AWS Systems Manager Parameter Store.
+    
+    Lazy loads boto3 only when needed to minimize cold start impact.
+    
+    IAM Permissions Required:
+        Your Lambda execution role must have:
+        {
+          "Effect": "Allow",
+          "Action": ["ssm:GetParameter"],
+          "Resource": "arn:aws:ssm:REGION:ACCOUNT:parameter{parameter_prefix}/*"
+        }
+    
+    Args:
+        parameter_prefix: SSM parameter path prefix (e.g., /lambda-execution-engine)
+        key: Parameter key relative to prefix (e.g., home_assistant/url)
+        
+    Returns:
+        Parameter value or None if not found/access denied
+    """
+    try:
+        # Lazy load boto3 only when SSM is needed
+        import boto3
+        
+        ssm = boto3.client('ssm')
+        param_path = f"{parameter_prefix}/{key}"
+        
+        _logger.debug('Reading SSM parameter: %s', param_path)
+        
+        response = ssm.get_parameter(Name=param_path, WithDecryption=True)
+        value = response['Parameter']['Value']
+        
+        _logger.debug('Successfully loaded parameter from SSM: %s', param_path)
+        return value
+        
+    except Exception as e:
+        _logger.debug('Failed to load SSM parameter %s: %s', key, str(e))
+        return None
+
+
 # ===== CONFIGURATION MANAGEMENT =====
 
 def _load_failsafe_config() -> Dict[str, Any]:
     """
-    Load and validate failsafe configuration from environment variables.
+    Load and validate failsafe configuration from SSM or environment variables.
     
-    Supports both new and legacy environment variable names:
-    - HOME_ASSISTANT_URL or BASE_URL
-    - HOME_ASSISTANT_TOKEN or LONG_LIVED_ACCESS_TOKEN
-    - HOME_ASSISTANT_VERIFY_SSL or NOT_VERIFY_SSL
+    Configuration priority:
+    1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
+    2. Environment variables
+    3. Legacy environment variable names
+    
+    Supports SSM Parameter Store:
+    - USE_PARAMETER_STORE=true enables SSM
+    - PARAMETER_PREFIX sets base path (default: /lambda-execution-engine)
+    - Reads: {prefix}/home_assistant/url, {prefix}/home_assistant/token
+    
+    Supports environment variables (new names):
+    - HOME_ASSISTANT_URL
+    - HOME_ASSISTANT_TOKEN
+    - HOME_ASSISTANT_VERIFY_SSL
+    
+    Supports legacy environment variables:
+    - BASE_URL
+    - LONG_LIVED_ACCESS_TOKEN
+    - NOT_VERIFY_SSL
     
     Returns:
         Dict containing validated configuration
@@ -56,37 +114,67 @@ def _load_failsafe_config() -> Dict[str, Any]:
     Raises:
         AssertionError: If required configuration is missing
     """
-    # Try new name first, fallback to legacy
-    base_url = os.environ.get('HOME_ASSISTANT_URL') or os.environ.get('BASE_URL')
-    assert base_url is not None, 'Missing required environment variable: HOME_ASSISTANT_URL or BASE_URL'
+    # Check if SSM Parameter Store is enabled
+    use_parameter_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
+    parameter_prefix = os.environ.get('PARAMETER_PREFIX', '/lambda-execution-engine')
+    
+    _logger.debug('Configuration mode: use_parameter_store=%s, prefix=%s', use_parameter_store, parameter_prefix)
+    
+    # Load base URL
+    base_url = None
+    if use_parameter_store:
+        base_url = _load_from_ssm(parameter_prefix, 'home_assistant/url')
+    
+    if base_url is None:
+        # Fallback to environment variables (new name first, then legacy)
+        base_url = os.environ.get('HOME_ASSISTANT_URL') or os.environ.get('BASE_URL')
+    
+    assert base_url is not None, 'Missing required configuration: HOME_ASSISTANT_URL (environment) or home_assistant/url (SSM)'
     
     # Normalize URL (strip trailing slash)
     base_url = base_url.strip('/')
     
-    # Determine SSL verification
-    # HOME_ASSISTANT_VERIFY_SSL=false means do not verify
-    # NOT_VERIFY_SSL=true means do not verify (legacy)
-    verify_ssl_env = os.environ.get('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
-    not_verify_ssl_env = os.environ.get('NOT_VERIFY_SSL', 'false').lower()
-    verify_ssl = verify_ssl_env != 'false' and not_verify_ssl_env != 'true'
+    # Load SSL verification setting
+    verify_ssl = True  # default
+    
+    if use_parameter_store:
+        verify_ssl_ssm = _load_from_ssm(parameter_prefix, 'home_assistant/verify_ssl')
+        if verify_ssl_ssm is not None:
+            verify_ssl = verify_ssl_ssm.lower() != 'false'
+    
+    # Environment variables override SSM (if present)
+    verify_ssl_env = os.environ.get('HOME_ASSISTANT_VERIFY_SSL')
+    not_verify_ssl_env = os.environ.get('NOT_VERIFY_SSL')
+    
+    if verify_ssl_env is not None:
+        verify_ssl = verify_ssl_env.lower() != 'false'
+    elif not_verify_ssl_env is not None:
+        verify_ssl = not_verify_ssl_env.lower() != 'true'
     
     # Debug mode
     debug_mode = bool(os.environ.get('DEBUG_MODE', os.environ.get('DEBUG')))
     
     # Fallback token for debug mode only
+    # Try SSM first, then environment variables
     fallback_token = None
     if debug_mode:
-        fallback_token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN')
+        if use_parameter_store:
+            fallback_token = _load_from_ssm(parameter_prefix, 'home_assistant/token')
+        
+        if fallback_token is None:
+            fallback_token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN')
     
     config = {
         'base_url': base_url,
         'verify_ssl': verify_ssl,
         'debug_mode': debug_mode,
         'fallback_token': fallback_token,
-        'api_endpoint': f'{base_url}/api/alexa/smart_home'
+        'api_endpoint': f'{base_url}/api/alexa/smart_home',
+        'use_parameter_store': use_parameter_store
     }
     
-    _logger.debug('Failsafe configuration loaded: base_url=%s, verify_ssl=%s', base_url, verify_ssl)
+    _logger.debug('Failsafe configuration loaded: base_url=%s, verify_ssl=%s, ssm=%s', 
+                  base_url, verify_ssl, use_parameter_store)
     return config
 
 
@@ -279,11 +367,27 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     This is a completely standalone handler with zero LEE dependencies.
     It provides direct passthrough to Home Assistant's native Alexa API.
     
+    Configuration Sources (in priority order):
+        1. AWS Systems Manager Parameter Store (if enabled)
+        2. Lambda Environment Variables
+        3. Legacy environment variable names
+    
     Environment Variables:
+        USE_PARAMETER_STORE: Enable SSM Parameter Store (true/false)
+        PARAMETER_PREFIX: SSM parameter path prefix (default: /lambda-execution-engine)
+        
         HOME_ASSISTANT_URL or BASE_URL: Base URL of Home Assistant instance
         HOME_ASSISTANT_TOKEN or LONG_LIVED_ACCESS_TOKEN: Authentication token (debug only)
         HOME_ASSISTANT_VERIFY_SSL or NOT_VERIFY_SSL: SSL verification setting
         DEBUG_MODE or DEBUG: Enable debug logging
+    
+    SSM Parameter Store Paths (if USE_PARAMETER_STORE=true):
+        {PARAMETER_PREFIX}/home_assistant/url: Base URL
+        {PARAMETER_PREFIX}/home_assistant/token: Access token (SecureString recommended)
+        {PARAMETER_PREFIX}/home_assistant/verify_ssl: SSL verification (optional)
+    
+    IAM Permissions Required (if using SSM):
+        - ssm:GetParameter on arn:aws:ssm:REGION:ACCOUNT:parameter{PARAMETER_PREFIX}/*
     
     Args:
         event: Alexa directive event
