@@ -10,10 +10,9 @@
 
 **LIGS + LUGS = Complete Memory Lifecycle Management**
 
-***Crafted, designed, and honed by Joseph Hersey***
-
 *A revolutionary approach to managing memory in serverless environments*
 
+***Crafted, designed, and honed by Joseph Hersey***
 ---
 
 ### 🎯 **Revolutionary Results**
