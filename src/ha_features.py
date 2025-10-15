@@ -1,5 +1,5 @@
 """
-home_assistant/ha_features.py - Home Assistant Features
+ha_features.py - Home Assistant Features
 Version: 2025.10.14.01
 Description: HA features (automations, scripts, conversation) using Gateway services.
 
