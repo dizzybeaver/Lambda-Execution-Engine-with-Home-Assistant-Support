@@ -9,6 +9,7 @@
 ![Innovation](https://img.shields.io/badge/Memory_Revolution-82%25_Reduction-red?style=for-the-badge)
 
 **LIGS + LUGS = Complete Memory Lifecycle Management**
+
 ***Crafted, designed, and honed by Joseph Hersey***
 
 *A revolutionary approach to managing memory in serverless environments*
