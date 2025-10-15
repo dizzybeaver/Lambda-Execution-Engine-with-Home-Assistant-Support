@@ -1,5 +1,5 @@
 """
-aws/metrics_core.py - Core metrics collection manager
+metrics_core.py - Core metrics collection manager
 Version: 2025.10.14.04
 Description: MetricsCore class with unified operations
 
