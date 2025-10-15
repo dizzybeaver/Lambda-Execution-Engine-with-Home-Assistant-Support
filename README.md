@@ -24,7 +24,8 @@
 # Work Log
 ## Date: 10-14-2025 
 1. Complete 16 hour rework of entire codebase.
-2. Inclusion of new fail-safe feature. This is a tiny implementation that is 100% independant of the LEE and home assistant extension. If the lee fails on you. Set the proper enviromental variables for the failsafe and you are back up with home assistant.
+2. Inclusion of new fail-safe feature. This is a tiny implementation that is 100% independant of the LEE and home assistant extension. If the LEE fails on you for any reason it is a snap
+   to get home assistant connectivity back up. All you have to do is set LEE_FAILSAFE_ENABLED to True. It will automatically grab the host and token from the correct spot, enviroment or SSM. 
 
 # Below is an easy to access MD of available AWS Lambda Test Tab JSONs to be used to get information about any problems.
 
