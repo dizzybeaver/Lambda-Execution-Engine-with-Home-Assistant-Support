@@ -1,5 +1,5 @@
 """
-config/config_validator.py
+config_validator.py
 Version: 2025.10.14.01
 Description: Configuration validation logic for Lambda Execution Engine
 
