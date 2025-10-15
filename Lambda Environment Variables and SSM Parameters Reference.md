@@ -1,5 +1,5 @@
 # Lambda Environment Variables & SSM Parameters Reference
-**Version:** 2025.10.14  
+**Version:** 2025.10.15  
 **Copyright:** 2025 Joseph Hersey  
 **License:** Apache 2.0
 
@@ -26,6 +26,42 @@
 
 ---
 
+## Emergency Failsafe Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `LEE_FAILSAFE_ENABLED` | Boolean | `false` | **Master switch** - Bypasses entire LEE/SUGA and routes directly to Home Assistant |
+
+### Failsafe Behavior
+
+When `LEE_FAILSAFE_ENABLED=true`:
+- **Activates before any LEE imports** - checked first in `lambda_handler()`
+- Routes all requests to standalone `lambda_failsafe.py`
+- Uses only these variables:
+  - `HOME_ASSISTANT_URL` (required)
+  - `HOME_ASSISTANT_TOKEN` (required)
+  - `HOME_ASSISTANT_VERIFY_SSL` (optional)
+  - `DEBUG_MODE` (optional)
+- Ignores all other LEE/extension configuration
+- Falls back to normal LEE if failsafe file missing
+
+### Use Cases
+- Emergency recovery after failed deployment
+- Critical bugs preventing LEE operation
+- Immediate restoration while debugging
+- Temporary bypass for troubleshooting
+
+### Recovery
+```bash
+# Enable failsafe
+LEE_FAILSAFE_ENABLED=true
+
+# After fixing LEE
+LEE_FAILSAFE_ENABLED=false
+```
+
+---
+
 ## Configuration System Variables
 
 | Variable | Type | Default | Description |
@@ -46,16 +82,18 @@
 | `HOME_ASSISTANT_URL` | String | None | Base URL of Home Assistant instance (http://host:port) |
 | `HOME_ASSISTANT_TOKEN` | String | None | Long-lived access token from Home Assistant |
 
+**Note:** When failsafe mode is enabled (`LEE_FAILSAFE_ENABLED=true`), `HOME_ASSISTANT_ENABLED` is ignored. Only `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` are required.
+
 ### Optional
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `HOME_ASSISTANT_TIMEOUT` | Integer | `30` | HTTP request timeout in seconds |
-| `HOME_ASSISTANT_VERIFY_SSL` | Boolean | `true` | Verify SSL certificates for HTTPS connections |
-| `HA_ASSISTANT_NAME` | String | `Assistant` | Name used in conversation responses |
-| `HA_FEATURES` | String | `basic` | Feature level: `basic`, `standard`, `full`, `development` |
-| `HA_WEBSOCKET_ENABLED` | Boolean | `false` | Enable WebSocket for entity registry and filtering |
-| `HA_WEBSOCKET_TIMEOUT` | Integer | `10` | WebSocket connection timeout in seconds |
+| `HOME_ASSISTANT_TIMEOUT` | Integer | `30` | HTTP request timeout in seconds (not used by failsafe) |
+| `HOME_ASSISTANT_VERIFY_SSL` | Boolean | `true` | Verify SSL certificates for HTTPS connections (used by failsafe) |
+| `HA_ASSISTANT_NAME` | String | `Assistant` | Name used in conversation responses (not used by failsafe) |
+| `HA_FEATURES` | String | `basic` | Feature level: `basic`, `standard`, `full`, `development` (not used by failsafe) |
+| `HA_WEBSOCKET_ENABLED` | Boolean | `false` | Enable WebSocket for entity registry and filtering (not used by failsafe) |
+| `HA_WEBSOCKET_TIMEOUT` | Integer | `10` | WebSocket connection timeout in seconds (not used by failsafe) |
 
 ---
 
@@ -68,6 +106,8 @@ Set these environment variables to enable SSM:
 USE_PARAMETER_STORE=true
 PARAMETER_PREFIX=/lambda-execution-engine
 ```
+
+**Note:** SSM parameters are **not used** when failsafe mode is active. Failsafe reads only from Lambda environment variables.
 
 ### SSM Parameter Hierarchy
 
@@ -108,9 +148,10 @@ All parameters use the prefix defined in `PARAMETER_PREFIX` (default: `/lambda-e
 
 Configuration values are resolved in this order (highest to lowest priority):
 
-1. **Environment Variables** - Set in Lambda console
-2. **SSM Parameter Store** - If `USE_PARAMETER_STORE=true`
-3. **Default Values** - Hardcoded in application
+1. **Failsafe Mode** - If `LEE_FAILSAFE_ENABLED=true`, only environment variables are used
+2. **Environment Variables** - Set in Lambda console
+3. **SSM Parameter Store** - If `USE_PARAMETER_STORE=true` (ignored in failsafe mode)
+4. **Default Values** - Hardcoded in application
 
 ---
 
@@ -136,6 +177,16 @@ aws ssm put-parameter \
   --name "/lambda/ha/home_assistant/token" \
   --value "eyJ0eXAiOiJKV1Qi..." \
   --type "SecureString"
+```
+
+### Emergency Failsafe Setup
+```bash
+# Minimal configuration for immediate recovery
+LEE_FAILSAFE_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+HOME_ASSISTANT_VERIFY_SSL=false
+DEBUG_MODE=true
 ```
 
 ### Development Setup
@@ -187,12 +238,39 @@ To use Parameter Store, add this policy to Lambda execution role:
 
 Replace `REGION` and `ACCOUNT` with your AWS region and account ID.
 
+**Note:** IAM permissions are not required for failsafe mode, as it only reads Lambda environment variables.
+
+---
+
+## Variable Usage by Mode
+
+### Normal LEE Mode
+- Uses all variables listed above
+- Respects `HOME_ASSISTANT_ENABLED`
+- Can use SSM Parameter Store
+- Full feature set available
+
+### Failsafe Mode (`LEE_FAILSAFE_ENABLED=true`)
+**Only uses these variables:**
+- `HOME_ASSISTANT_URL` ✅ Required
+- `HOME_ASSISTANT_TOKEN` ✅ Required
+- `HOME_ASSISTANT_VERIFY_SSL` ✅ Optional (default: true)
+- `DEBUG_MODE` ✅ Optional (default: false)
+
+**Ignores all other variables:**
+- Configuration tier, logging, metrics
+- Extension features, caching, circuit breaker
+- SSM Parameter Store (reads only env vars)
+- All HA extension optional features
+
 ---
 
 ## Notes
 
-- Environment variables take precedence over SSM parameters
+- Environment variables take precedence over SSM parameters (except in failsafe mode)
 - SSM parameters are cached for 300 seconds to reduce API calls
 - Boolean values in SSM must be strings: `"true"` or `"false"`
 - Use `SecureString` type in SSM for all tokens and secrets
 - Change `PARAMETER_PREFIX` to isolate configurations per environment
+- Failsafe mode provides insurance against LEE failures
+- Toggle failsafe without code changes or redeployment
