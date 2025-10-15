@@ -1,5 +1,5 @@
 """
-aws/metrics_operations.py - Gateway implementation functions for metrics
+metrics_operations.py - Gateway implementation functions for metrics
 Version: 2025.10.14.04
 Description: Gateway-compatible implementation functions for metrics operations
 
