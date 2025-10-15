@@ -1,5 +1,5 @@
 """
-home_assistant/ha_websocket.py - WebSocket Operations
+ha_websocket.py - WebSocket Operations
 Version: 2025.10.14.01
 Description: WebSocket communication with Home Assistant using Gateway services.
 
