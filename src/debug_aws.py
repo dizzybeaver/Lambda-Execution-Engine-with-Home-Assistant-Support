@@ -1,5 +1,5 @@
 """
-debug/debug_aws.py - AWS Lambda Debug Test Interface
+debug_aws.py - AWS Lambda Debug Test Interface
 Version: 2025.10.14.01
 Description: AWS-specific test interface with CLI and Lambda handler
 
