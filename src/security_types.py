@@ -1,5 +1,5 @@
 """
-security/security_types.py - Security type definitions and enums
+security_types.py - Security type definitions and enums
 Version: 2025.10.14.01
 Description: Security operation types and validation patterns
 
