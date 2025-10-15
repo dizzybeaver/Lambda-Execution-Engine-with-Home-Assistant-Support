@@ -1,5 +1,5 @@
 """
-debug/debug_performance.py - Debug Performance Operations
+debug_performance.py - Debug Performance Operations
 Version: 2025.10.14.01
 Description: Performance benchmarking operations for debug subsystem
 
