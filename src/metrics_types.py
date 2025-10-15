@@ -1,5 +1,5 @@
 """
-aws/metrics_types.py - Metrics type definitions and data structures
+metrics_types.py - Metrics type definitions and data structures
 Version: 2025.10.14.04
 Description: Enumerations and data classes for metrics subsystem
 
