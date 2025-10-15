@@ -1,5 +1,5 @@
 """
-home_assistant/ha_config.py - Configuration Management
+ha_config.py - Configuration Management
 Version: 2025.10.14.01
 Description: Configuration loading using Gateway services.
 
