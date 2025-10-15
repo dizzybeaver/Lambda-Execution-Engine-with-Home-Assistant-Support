@@ -1,5 +1,5 @@
 """
-aws/metrics_helper.py - Metrics utility functions
+metrics_helper.py - Metrics utility functions
 Version: 2025.10.14.04
 Description: Helper functions for metrics operations
 
