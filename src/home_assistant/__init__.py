@@ -1,25 +1,42 @@
 """
-home_assistant/__init__.py - Home Assistant Package Exports
+home_assistant/__init__.py - Home Assistant Extension Package
 Version: 2025.10.14.01
-Description: Exports for home_assistant package (Alexa, features, managers, core).
+Description: Package initialization for Home Assistant extension internal modules.
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
-# Alexa Integration
-from ha_alexa import AlexaSmartHomeManager
+# Core Operations
+from ha_core import (
+    get_ha_config,
+    call_ha_api,
+    get_states,
+    get_entity_state,
+    call_service,
+    ha_operation_wrapper,
+    check_ha_status,
+    is_ha_available,
+    initialize_ha_system,
+    cleanup_ha_system,
+    get_diagnostic_info,
+    get_ha_entity_registry,
+    filter_exposed_entities_wrapper,
+    fuzzy_match_name,
+    HA_CACHE_TTL_ENTITIES,
+    HA_CACHE_TTL_STATE,
+    HA_CACHE_TTL_CONFIG,
+    HA_CIRCUIT_BREAKER_NAME,
+)
+
+# Configuration
+from ha_config import (
+    load_ha_config,
+    validate_ha_config,
+    get_ha_preset,
+    load_ha_connection_config,
+    load_ha_preset_config,
+)
 
 # Build Configuration
 from ha_build_config import (
@@ -31,57 +48,96 @@ from ha_build_config import (
     get_required_modules,
     get_enabled_features,
     is_feature_enabled,
+    validate_feature_dependencies,
+    get_feature_info,
 )
 
-# Configuration Loading
-from ha_config import (
-    load_ha_config,
-    validate_ha_config,
-    get_ha_preset,
-    load_ha_connection_config,
-    load_ha_preset_config,
-)
-
-# Core Operations
-from ha_core import (
-    batch_get_states,
-    call_ha_service,
-    is_ha_available,
-    get_ha_config,
-    filter_exposed_entities,
-    ha_operation_wrapper,
-    fuzzy_match_name,
-    HA_CACHE_TTL_ENTITIES,
-)
-
-# Feature Operations
+# Features
 from ha_features import (
-    # Automation
     list_automations,
     trigger_automation,
-    # Scripts
     list_scripts,
     run_script,
-    # Input Helpers
     list_input_helpers,
     set_input_helper,
-    # Notifications
     send_notification,
-    # Conversation
     process_conversation,
 )
 
-# Generic Managers
-from ha_managers import HAGenericManager
+# Managers
+from ha_managers import (
+    HAGenericManager,
+    list_entities_by_domain,
+    manage_device,
+    manage_area,
+)
 
-# Testing
+# Alexa Integration
+from ha_alexa import (
+    process_alexa_directive,
+    handle_discovery,
+    handle_control,
+    handle_power_control,
+    handle_brightness_control,
+    handle_thermostat_control,
+    handle_accept_grant,
+)
+
+# WebSocket Operations (optional)
+try:
+    from ha_websocket import (
+        establish_websocket_connection,
+        authenticate_websocket,
+        websocket_request,
+        get_entity_registry_via_websocket,
+        filter_exposed_entities,
+        is_websocket_enabled,
+    )
+    _WEBSOCKET_AVAILABLE = True
+except ImportError:
+    _WEBSOCKET_AVAILABLE = False
+
+# Tests
 from ha_tests import (
     is_ha_extension_available,
+    execute_ha_test_with_caching,
+    test_ha_extension_initialization,
+    test_ha_configuration,
+    test_ha_status_check,
+    test_ha_gateway_integration,
+    test_ha_alexa_integration,
+    test_ha_features,
+    test_ha_managers,
+    run_all_ha_tests,
 )
 
 __all__ = [
-    # Alexa
-    'AlexaSmartHomeManager',
+    # Core
+    'get_ha_config',
+    'call_ha_api',
+    'get_states',
+    'get_entity_state',
+    'call_service',
+    'ha_operation_wrapper',
+    'check_ha_status',
+    'is_ha_available',
+    'initialize_ha_system',
+    'cleanup_ha_system',
+    'get_diagnostic_info',
+    'get_ha_entity_registry',
+    'filter_exposed_entities_wrapper',
+    'fuzzy_match_name',
+    'HA_CACHE_TTL_ENTITIES',
+    'HA_CACHE_TTL_STATE',
+    'HA_CACHE_TTL_CONFIG',
+    'HA_CIRCUIT_BREAKER_NAME',
+    
+    # Configuration
+    'load_ha_config',
+    'validate_ha_config',
+    'get_ha_preset',
+    'load_ha_connection_config',
+    'load_ha_preset_config',
     
     # Build Configuration
     'HAFeature',
@@ -92,47 +148,56 @@ __all__ = [
     'get_required_modules',
     'get_enabled_features',
     'is_feature_enabled',
+    'validate_feature_dependencies',
+    'get_feature_info',
     
-    # Configuration
-    'load_ha_config',
-    'validate_ha_config',
-    'get_ha_preset',
-    'load_ha_connection_config',
-    'load_ha_preset_config',
-    
-    # Core Operations
-    'batch_get_states',
-    'call_ha_service',
-    'is_ha_available',
-    'get_ha_config',
-    'filter_exposed_entities',
-    'ha_operation_wrapper',
-    'fuzzy_match_name',
-    'HA_CACHE_TTL_ENTITIES',
-    
-    # Feature Operations - Automation
+    # Features
     'list_automations',
     'trigger_automation',
-    
-    # Feature Operations - Scripts
     'list_scripts',
     'run_script',
-    
-    # Feature Operations - Input Helpers
     'list_input_helpers',
     'set_input_helper',
-    
-    # Feature Operations - Notifications
     'send_notification',
-    
-    # Feature Operations - Conversation
     'process_conversation',
     
     # Managers
     'HAGenericManager',
+    'list_entities_by_domain',
+    'manage_device',
+    'manage_area',
     
-    # Testing
+    # Alexa
+    'process_alexa_directive',
+    'handle_discovery',
+    'handle_control',
+    'handle_power_control',
+    'handle_brightness_control',
+    'handle_thermostat_control',
+    'handle_accept_grant',
+    
+    # Tests
     'is_ha_extension_available',
+    'execute_ha_test_with_caching',
+    'test_ha_extension_initialization',
+    'test_ha_configuration',
+    'test_ha_status_check',
+    'test_ha_gateway_integration',
+    'test_ha_alexa_integration',
+    'test_ha_features',
+    'test_ha_managers',
+    'run_all_ha_tests',
 ]
+
+# Add WebSocket exports if available
+if _WEBSOCKET_AVAILABLE:
+    __all__.extend([
+        'establish_websocket_connection',
+        'authenticate_websocket',
+        'websocket_request',
+        'get_entity_registry_via_websocket',
+        'filter_exposed_entities',
+        'is_websocket_enabled',
+    ])
 
 # EOF
