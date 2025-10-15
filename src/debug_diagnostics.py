@@ -1,5 +1,5 @@
 """
-debug/debug_diagnostics.py - Debug Diagnostic Operations
+debug_diagnostics.py - Debug Diagnostic Operations
 Version: 2025.10.14.01
 Description: System diagnostic operations for debug subsystem
 
