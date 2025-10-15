@@ -1,5 +1,5 @@
 """
-home_assistant/ha_tests.py - Testing & Validation
+ha_tests.py - Testing & Validation
 Version: 2025.10.14.01
 Description: Testing functions using Gateway services.
 
