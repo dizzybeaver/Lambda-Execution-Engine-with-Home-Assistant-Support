@@ -12,7 +12,8 @@
 
 *A revolutionary approach to managing memory in serverless environments*
 
-***Crafted, designed, and honed by Joseph Hersey***
+*Crafted, designed, and honed by Joseph Hersey*
+
 ---
 
 ### 🎯 **Revolutionary Results**
