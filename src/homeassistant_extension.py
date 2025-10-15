@@ -1,6 +1,6 @@
 """
 homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.14.01
+Version: 2025.10.15.02
 Description: Pure facade for Home Assistant extension - delegates all operations
              to internal modules. This is the ONLY file lambda_function.py imports.
 
@@ -80,48 +80,20 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
 def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
     """Process Alexa Smart Home directive - delegates to ha_alexa."""
     if not is_ha_extension_enabled():
-        return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE', 
-                                           'Home Assistant extension disabled')
+        return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_alexa import process_alexa_directive
-        return process_alexa_directive(event)
+        from ha_alexa import process_alexa_request
+        return process_alexa_request(event)
     except Exception as e:
-        log_error(f"Alexa request processing failed: {str(e)}")
-        return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
+        log_error(f"Alexa request failed: {str(e)}")
+        return create_error_response(str(e), 'ALEXA_REQUEST_FAILED')
 
 
-def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle Alexa discovery - delegates to ha_alexa."""
-    if not is_ha_extension_enabled():
-        return _create_alexa_error_response(directive, 'BRIDGE_UNREACHABLE',
-                                           'Home Assistant extension disabled')
-    
-    try:
-        from ha_alexa import handle_discovery
-        return handle_discovery(directive)
-    except Exception as e:
-        log_error(f"Alexa discovery failed: {str(e)}")
-        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
+# ===== CORE OPERATIONS =====
 
-
-def handle_alexa_control(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle Alexa control directive - delegates to ha_alexa."""
-    if not is_ha_extension_enabled():
-        return _create_alexa_error_response(directive, 'ENDPOINT_UNREACHABLE',
-                                           'Home Assistant extension disabled')
-    
-    try:
-        from ha_alexa import handle_control
-        return handle_control(directive)
-    except Exception as e:
-        log_error(f"Alexa control failed: {str(e)}")
-        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
-
-
-# ===== SERVICE OPERATIONS =====
-
-def call_ha_service(domain: str, service: str, entity_id: Optional[str] = None,
+def call_ha_service(domain: str, service: str, 
+                   entity_id: Optional[str] = None,
                    service_data: Optional[Dict] = None) -> Dict[str, Any]:
     """Call Home Assistant service - delegates to ha_core."""
     if not is_ha_extension_enabled():
@@ -338,6 +310,30 @@ def validate_assistant_name(name: str) -> Dict[str, Any]:
         return {'is_valid': False, 'error': f'Reserved name: {name}'}
     
     return {'is_valid': True}
+
+
+def get_assistant_name_status() -> Dict[str, Any]:
+    """
+    Get assistant name and validation status for diagnostics.
+    Used by health checks and diagnostic requests.
+    """
+    try:
+        name = get_ha_assistant_name()
+        validation = validate_assistant_name(name)
+        
+        return create_success_response(
+            "Assistant name status retrieved",
+            {
+                'name': name,
+                'is_valid': validation.get('is_valid', False),
+                'validation_error': validation.get('error'),
+                'source': 'HA_ASSISTANT_NAME environment variable',
+                'enabled': is_ha_extension_enabled()
+            }
+        )
+    except Exception as e:
+        log_error(f"Get assistant name status failed: {str(e)}")
+        return create_error_response(str(e), 'NAME_STATUS_FAILED')
 
 
 # ===== INTERNAL HELPERS =====
