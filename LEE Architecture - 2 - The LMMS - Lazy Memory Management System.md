@@ -9,6 +9,7 @@
 ![Innovation](https://img.shields.io/badge/Memory_Revolution-82%25_Reduction-red?style=for-the-badge)
 
 **LIGS + LUGS = Complete Memory Lifecycle Management**
+***Crafted, designed, and honed by Joseph Hersey***
 
 *A revolutionary approach to managing memory in serverless environments*
 
@@ -1463,7 +1464,19 @@ Result: The impossible triangle achieved! 🎉
 
 **Version:** 2025.10.15.01  
 **Architecture:** LMMS = LIGS + LUGS  
-**License:** Apache 2.0  
 **Copyright:** 2025 Joseph Hersey
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+---
 
 ---
