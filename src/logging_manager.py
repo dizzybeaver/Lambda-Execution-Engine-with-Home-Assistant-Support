@@ -1,5 +1,5 @@
 """
-aws/logging_manager.py - Core logging manager implementation
+logging_manager.py - Core logging manager implementation
 Version: 2025.10.14.01
 Description: LoggingCore class with template optimization and error tracking
 
