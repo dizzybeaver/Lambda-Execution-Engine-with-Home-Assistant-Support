@@ -1,10 +1,10 @@
-# This project is in developement Flux, Please expect it to be broke.
+# This project is in now settled developement Flux. No major code changes are expected to implemented in this branch. I am in deployment - feature testing mode.
+## When all the deployment kinks are worked out, I will split off into a developement branch for developement and this branch untouch except for any breaking bugs found, which will be corrected.
 
-# When trying out for yourself, move all .py files to the root directory of the zip file you make before deployment.
-## I only keep them seperated here for ease of finding them.
-
-### 1. Consider this project in Alpha Stage, I will update with changes as I go. 
-### 2. The instruction are broke and 90% right and not complete but will worked on and simplified as I go.
+### 1. Consider this project in Beta Stage, I will update with changes as I go. 
+### 2. The instruction are a work in progress. But package the SRC directory as is in a zip file. Upload to Lambda. Then there is 2 enviromental variable files. 1 is a reference and the other is a scenario file. 
+        Use the scenario file and choose which scenario you are in. If you want to use SSM, its configuration is there. No SSM, its configuration is there. Crap the whole thing broke on me and I cannot figure it out. 
+        Use the fail-safe scenario. It is the exact same script I used for my home assistant for years with AWS lambda and my own backup, now built in.
 ### 3. I will do my best to address any breaking issues after it becomes fully functional.
 
 '''
@@ -22,13 +22,9 @@
 4. Extensions that are disabled must use almost zero memory and cpu. They should not be required for the LEE to work.
 
 # Work Log
-## Date: 10-13-2025 
-1.  Import errors throughout project have been hunted and removed as much as I could find.
-2.  http_client gateway interface has been optimized and websocket support added in along with normal http requests
-3.  Home Assistant Extension has been optimized to reduce size and integrate in new websocket support thru the http_client gateway interface
-4.  Cache and Singleton gateway interfaces optimized and checked for any import errors or breaking changes by other modifications.
-5.  Metrics and Logging gateway interfaces optimized and checked for any import errors or breaking changes by other modifications.
-
+## Date: 10-14-2025 
+1. Complete 16 hour rework of entire codebase.
+2. Inclusion of new fail-safe feature. This is a tiny implementation that is 100% independant of the LEE and home assistant extension. If the lee fails on you. Set the proper enviromental variables for the failsafe and you are back up with home assistant.
 
 # Below is an easy to access MD of available AWS Lambda Test Tab JSONs to be used to get information about any problems.
 
