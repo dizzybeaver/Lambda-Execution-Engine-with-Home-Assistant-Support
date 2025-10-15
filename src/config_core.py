@@ -1,5 +1,5 @@
 """
-config/config_core.py
+config_core.py
 Version: 2025.10.14.01
 Description: Configuration core implementation for Lambda Execution Engine - REFACTORED
 Split from monolithic file into: config_state.py, config_validator.py, config_loader.py, config_core.py
