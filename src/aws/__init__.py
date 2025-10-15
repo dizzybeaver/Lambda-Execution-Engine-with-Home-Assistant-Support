@@ -19,7 +19,7 @@ Copyright 2025 Joseph Hersey
 """
 
 # Logging subsystem exports
-from logging_core import (
+from aws.logging_core import (
     LogOperation,
     LogTemplate,
     ErrorLogLevel,
@@ -41,7 +41,7 @@ from logging_core import (
 )
 
 # Metrics subsystem exports - UPDATED FOR SPLIT
-from metrics_types import (
+from aws.metrics_types import (
     MetricOperation,
     MetricType,
     ResponseType,
@@ -50,17 +50,17 @@ from metrics_types import (
     CircuitBreakerMetrics,
 )
 
-from metrics_helper import (
+from aws.metrics_helper import (
     calculate_percentile,
     build_metric_key,
 )
 
-from metrics_core import (
+from aws.metrics_core import (
     MetricsCore,
     _MANAGER as _metrics_manager,
 )
 
-from metrics_operations import (
+from aws.metrics_operations import (
     execute_metrics_operation,
     get_metrics_summary,
     _execute_record_metric_implementation,
@@ -79,12 +79,6 @@ from metrics_operations import (
     _execute_record_dispatcher_timing_implementation,
     _execute_get_dispatcher_stats_implementation,
     _execute_get_operation_metrics_implementation,
-)
-
-# Usage analytics exports (from existing usage_analytics.py)
-from usage_analytics import (
-    execute_usage_operation,
-    get_usage_summary,
 )
 
 __all__ = [
@@ -150,9 +144,6 @@ __all__ = [
     '_execute_get_dispatcher_stats_implementation',
     '_execute_get_operation_metrics_implementation',
     
-    # Usage analytics
-    'execute_usage_operation',
-    'get_usage_summary',
 ]
 
 # EOF
