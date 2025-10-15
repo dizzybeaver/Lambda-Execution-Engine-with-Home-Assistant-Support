@@ -80,17 +80,46 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
 def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
     """Process Alexa Smart Home directive - delegates to ha_alexa."""
     if not is_ha_extension_enabled():
-        return create_error_response('Extension not enabled', 'HA_DISABLED')
+        return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE', 
+                                           'Home Assistant extension disabled')
     
     try:
-        from ha_alexa import process_alexa_request
-        return process_alexa_request(event)
+        from ha_alexa import process_alexa_directive
+        return process_alexa_directive(event)
     except Exception as e:
-        log_error(f"Alexa request failed: {str(e)}")
-        return create_error_response(str(e), 'ALEXA_REQUEST_FAILED')
+        log_error(f"Alexa request processing failed: {str(e)}")
+        return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
-# ===== CORE OPERATIONS =====
+def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle Alexa discovery - delegates to ha_alexa."""
+    if not is_ha_extension_enabled():
+        return _create_alexa_error_response(directive, 'BRIDGE_UNREACHABLE',
+                                           'Home Assistant extension disabled')
+    
+    try:
+        from ha_alexa import handle_discovery
+        return handle_discovery(directive)
+    except Exception as e:
+        log_error(f"Alexa discovery failed: {str(e)}")
+        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
+
+
+def handle_alexa_control(directive: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle Alexa control directive - delegates to ha_alexa."""
+    if not is_ha_extension_enabled():
+        return _create_alexa_error_response(directive, 'ENDPOINT_UNREACHABLE',
+                                           'Home Assistant extension disabled')
+    
+    try:
+        from ha_alexa import handle_control
+        return handle_control(directive)
+    except Exception as e:
+        log_error(f"Alexa control failed: {str(e)}")
+        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
+
+
+# ===== SERVICE OPERATIONS =====
 
 def call_ha_service(domain: str, service: str, 
                    entity_id: Optional[str] = None,
