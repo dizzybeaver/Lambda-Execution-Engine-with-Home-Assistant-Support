@@ -1,5 +1,5 @@
 """
-debug/debug_stats.py - Debug Statistics Operations
+debug_stats.py - Debug Statistics Operations
 Version: 2025.10.14.01
 Description: Statistics and metrics operations for debug subsystem
 
