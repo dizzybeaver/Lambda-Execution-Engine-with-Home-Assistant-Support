@@ -1,5 +1,5 @@
 """
-security/security_core.py - Security core orchestrator with dispatcher timing
+security_core.py - Security core orchestrator with dispatcher timing
 Version: 2025.10.14.01
 Description: Central security manager coordinating validation and crypto operations
 
