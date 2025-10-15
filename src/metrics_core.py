@@ -33,6 +33,26 @@ from metrics_types import (
 )
 from metrics_helper import calculate_percentile, build_metric_key
 
+from metrics_operations import (
+    _execute_record_metric_implementation,
+    _execute_increment_counter_implementation,
+    _execute_get_stats_implementation,
+    _execute_record_operation_metric_implementation,
+    _execute_record_error_response_metric_implementation,
+    _execute_record_cache_metric_implementation,
+    _execute_record_api_metric_implementation,
+    _execute_record_response_metric_implementation,
+    _execute_record_http_metric_implementation,
+    _execute_record_circuit_breaker_metric_implementation,
+    _execute_get_response_metrics_implementation,
+    _execute_get_http_metrics_implementation,
+    _execute_get_circuit_breaker_metrics_implementation,
+    _execute_record_dispatcher_timing_implementation,
+    _execute_get_dispatcher_stats_implementation,
+    _execute_get_operation_metrics_implementation,
+    execute_metrics_operation,
+    get_metrics_summary,
+)
 
 # ===== CONFIGURATION =====
 
@@ -411,6 +431,23 @@ _MANAGER = MetricsCore()
 __all__ = [
     'MetricsCore',
     '_MANAGER',
+    '_execute_record_metric_implementation',
+    '_execute_increment_counter_implementation',
+    '_execute_get_stats_implementation',
+    '_execute_record_operation_metric_implementation',
+    '_execute_record_error_response_metric_implementation',
+    '_execute_record_cache_metric_implementation',
+    '_execute_record_api_metric_implementation',
+    '_execute_record_response_metric_implementation',
+    '_execute_record_http_metric_implementation',
+    '_execute_record_circuit_breaker_metric_implementation',
+    '_execute_get_response_metrics_implementation',
+    '_execute_get_http_metrics_implementation',
+    '_execute_get_circuit_breaker_metrics_implementation',
+    '_execute_record_dispatcher_timing_implementation',
+    '_execute_get_dispatcher_stats_implementation',
+    '_execute_get_operation_metrics_implementation',
+    'execute_metrics_operation',
+    'get_metrics_summary',
 ]
-
 # EOF
