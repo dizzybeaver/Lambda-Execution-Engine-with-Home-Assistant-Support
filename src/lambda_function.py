@@ -1,7 +1,7 @@
 """
 lambda_function.py
-Version: 2025.10.13.09
-Description: Main Entry Point - Updated with HA Features Integration
+Version: 2025.10.15.01
+Description: Main Entry Point - ARCHITECTURAL FIXES APPLIED
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,7 +30,23 @@ from gateway import (
     get_gateway_stats,
     initialize_lambda
 )
-from usage_analytics import record_request_usage, get_usage_summary
+
+# ✅ CORRECT - ALL HA imports from facade only
+from homeassistant_extension import (
+    is_ha_extension_enabled,
+    get_ha_assistant_name,
+    get_ha_status,
+    get_ha_diagnostic_info,
+    get_assistant_name_status,
+    process_alexa_ha_request,
+    process_conversation,
+    trigger_automation,
+    run_script,
+    set_input_helper,
+    send_notification,
+    list_automations,
+    list_scripts
+)
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -63,11 +79,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         result = process_request(event, context, request_type)
         log_info("Request processed successfully")
         increment_counter("successful_requests")
-        gateway_stats = get_gateway_stats()
-        record_request_usage(
-            loaded_modules=gateway_stats.get('loaded_modules', []),
-            request_type=request_type
-        )
+        
         return result
 
     except Exception as e:
@@ -112,8 +124,6 @@ def process_request(event: Dict[str, Any], context: Any, request_type: str) -> D
 def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa Smart Home skill directives."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled, process_alexa_ha_request
-        
         if not is_ha_extension_enabled():
             log_error("Home Assistant extension is not enabled")
             return {
@@ -178,7 +188,6 @@ def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str,
 def _handle_launch_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa LaunchRequest with personalized assistant name."""
     try:
-        from homeassistant_extension import get_ha_assistant_name, is_ha_extension_enabled
         if not is_ha_extension_enabled():
             speech_text = "Home Assistant integration is currently disabled."
         else:
@@ -208,10 +217,6 @@ def _handle_intent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
             return _handle_set_input_helper_intent(event, context)
         elif intent_name == 'MakeAnnouncement':
             return _handle_make_announcement_intent(event, context)
-        elif intent_name == 'ControlArea':
-            return _handle_control_area_intent(event, context)
-        elif intent_name == 'ManageTimer':
-            return _handle_manage_timer_intent(event, context)
         elif intent_name == 'GetDiagnostics':
             return _handle_get_diagnostics_intent(event, context)
         elif intent_name in ['AMAZON.HelpIntent']:
@@ -230,9 +235,6 @@ def _handle_intent_request(event: Dict[str, Any], context: Any) -> Dict[str, Any
 def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle conversation with Home Assistant."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_features import process_conversation
-        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
 
@@ -261,9 +263,6 @@ def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str
 def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle automation triggering."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_features import trigger_automation
-        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
         
@@ -292,9 +291,6 @@ def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Di
 def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle script execution."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_features import run_script
-        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
         
@@ -323,9 +319,6 @@ def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, 
 def _handle_set_input_helper_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle input helper modification."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_features import set_input_helper
-        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
         
@@ -356,9 +349,6 @@ def _handle_set_input_helper_intent(event: Dict[str, Any], context: Any) -> Dict
 def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle TTS announcements."""
     try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_features import send_notification
-        
         if not is_ha_extension_enabled():
             return _create_alexa_response("Home Assistant integration is not enabled.")
         
@@ -384,111 +374,9 @@ def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dic
         return _create_alexa_response("Sorry, I couldn't make that announcement.")
 
 
-def _handle_control_area_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle area-based device control."""
-    try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_managers import get_area_devices, control_device
-        
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
-        
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        area_slot = slots.get('AreaName', {})
-        action_slot = slots.get('Action', {})
-        area_name = area_slot.get('value', '')
-        action = action_slot.get('value', 'on')
-
-        if not area_name:
-            return _create_alexa_response("I didn't hear which area you want to control.")
-
-        log_info(f"Controlling area {area_name}: {action}")
-        
-        # Get devices in area
-        devices_result = get_area_devices(area_name)
-        if not devices_result.get('success'):
-            return _create_alexa_response(f"I couldn't find the {area_name} area.")
-        
-        devices = devices_result.get('data', {}).get('devices', {})
-        total_devices = devices_result.get('data', {}).get('total_count', 0)
-        
-        if total_devices == 0:
-            return _create_alexa_response(f"There are no controllable devices in {area_name}.")
-        
-        # Control all devices in area
-        success_count = 0
-        for domain, domain_devices in devices.items():
-            for device in domain_devices:
-                entity_id = device.get('entity_id')
-                result = control_device(entity_id, f'turn_{action}')
-                if result.get('success'):
-                    success_count += 1
-        
-        if success_count > 0:
-            return _create_alexa_response(f"I've turned {action} {success_count} devices in {area_name}.")
-        else:
-            return _create_alexa_response(f"I couldn't control any devices in {area_name}.")
-
-    except Exception as e:
-        log_error(f"Control area intent failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't control that area.")
-
-
-def _handle_manage_timer_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle timer management."""
-    try:
-        from homeassistant_extension import is_ha_extension_enabled
-        from ha_managers import start_timer, cancel_timer, pause_timer
-        
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
-        
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        timer_slot = slots.get('TimerName', {})
-        action_slot = slots.get('TimerAction', {})
-        duration_slot = slots.get('Duration', {})
-        
-        timer_name = timer_slot.get('value', '')
-        action = action_slot.get('value', 'start')
-        duration = duration_slot.get('value', '10')
-
-        if not timer_name:
-            return _create_alexa_response("I didn't hear which timer you want me to manage.")
-
-        log_info(f"Managing timer {timer_name}: {action}")
-        
-        if action == 'start':
-            result = start_timer(timer_name, duration)
-            if result.get('success'):
-                return _create_alexa_response(f"I've started the {timer_name} timer for {duration}.")
-            else:
-                return _create_alexa_response(f"I couldn't start that timer. {result.get('error', '')}")
-        elif action == 'cancel':
-            result = cancel_timer(timer_name)
-            if result.get('success'):
-                return _create_alexa_response(f"I've cancelled the {timer_name} timer.")
-            else:
-                return _create_alexa_response(f"I couldn't cancel that timer. {result.get('error', '')}")
-        elif action == 'pause':
-            result = pause_timer(timer_name)
-            if result.get('success'):
-                return _create_alexa_response(f"I've paused the {timer_name} timer.")
-            else:
-                return _create_alexa_response(f"I couldn't pause that timer. {result.get('error', '')}")
-        else:
-            return _create_alexa_response(f"I don't know how to {action} a timer.")
-
-    except Exception as e:
-        log_error(f"Manage timer intent failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't manage that timer.")
-
-
 def _handle_get_diagnostics_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle diagnostics request via Alexa."""
     try:
-        from homeassistant_extension import get_ha_diagnostic_info, get_ha_assistant_name
         assistant_name = get_ha_assistant_name()
         diagnostic_result = get_ha_diagnostic_info()
 
@@ -516,10 +404,9 @@ def _handle_get_diagnostics_intent(event: Dict[str, Any], context: Any) -> Dict[
 def _handle_help_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle help request."""
     try:
-        from homeassistant_extension import get_ha_assistant_name, is_ha_extension_enabled
         if is_ha_extension_enabled():
             assistant_name = get_ha_assistant_name()
-            speech_text = f"I'm {assistant_name}, your smart home voice assistant. I can control devices, run automations, execute scripts, manage timers, and more. What would you like me to do?"
+            speech_text = f"I'm {assistant_name}, your smart home voice assistant. I can control devices, run automations, execute scripts, and more. What would you like me to do?"
         else:
             speech_text = "I'm your smart home assistant, but Home Assistant integration is currently disabled. Please check your configuration."
         return _create_alexa_response(speech_text, should_end_session=False)
@@ -546,12 +433,11 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         health_status = {
             "status": "healthy",
             "timestamp": context.aws_request_id,
-            "version": "2025.10.13.09",
+            "version": "2025.10.15.01",
             "gateway_loaded": True
         }
 
         try:
-            from homeassistant_extension import get_ha_status, is_ha_extension_enabled
             health_status["ha_extension_enabled"] = is_ha_extension_enabled()
             if is_ha_extension_enabled():
                 ha_status = get_ha_status()
@@ -571,10 +457,8 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle analytics requests."""
     try:
-        usage_summary = get_usage_summary()
         gateway_stats = get_gateway_stats()
         analytics = {
-            "usage": usage_summary,
             "gateway": gateway_stats,
             "timestamp": context.aws_request_id
         }
@@ -603,7 +487,6 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
 
         if test_type in ['full', 'homeassistant']:
             try:
-                from homeassistant_extension import get_ha_diagnostic_info
                 ha_diagnostics = get_ha_diagnostic_info()
                 diagnostics["home_assistant"] = ha_diagnostics.get('data', {})
                 if event.get('show_config'):
@@ -618,7 +501,6 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
 
         if test_type in ['full', 'configuration']:
             try:
-                from homeassistant_extension import get_assistant_name_status
                 name_status = get_assistant_name_status()
                 diagnostics["assistant_name"] = name_status.get('data', {})
             except Exception as e:
@@ -666,6 +548,5 @@ def _create_alexa_response(speech_text: str, should_end_session: bool = True) ->
             "shouldEndSession": should_end_session
         }
     }
-
 
 # EOF
