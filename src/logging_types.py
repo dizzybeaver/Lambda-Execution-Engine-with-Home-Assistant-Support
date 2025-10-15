@@ -1,5 +1,5 @@
 """
-aws/logging_types.py - Logging type definitions and enumerations
+logging_types.py - Logging type definitions and enumerations
 Version: 2025.10.14.01
 Description: Type definitions for unified logging system
 
