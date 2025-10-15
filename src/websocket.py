@@ -2,7 +2,7 @@
 websocket.py - WebSocket Interface (SUGA Gateway Pattern)
 Version: 2025.10.14.01
 Description: Single interface file for all WebSocket operations.
-             Gateway calls only this file. Internal implementations in network.websocket_core.
+             Gateway calls only this file. Internal implementations in websocket_core.
 
 Copyright 2025 Joseph Hersey
 
@@ -28,7 +28,7 @@ def websocket_connect(**kwargs) -> Dict[str, Any]:
     Establish WebSocket connection.
     Gateway operation: WEBSOCKET.connect
     """
-    from network.websocket_core import websocket_connect_implementation
+    from websocket_core import websocket_connect_implementation
     return websocket_connect_implementation(**kwargs)
 
 
@@ -37,7 +37,7 @@ def websocket_send(**kwargs) -> Dict[str, Any]:
     Send message via WebSocket.
     Gateway operation: WEBSOCKET.send
     """
-    from network.websocket_core import websocket_send_implementation
+    from websocket_core import websocket_send_implementation
     return websocket_send_implementation(**kwargs)
 
 
@@ -46,7 +46,7 @@ def websocket_receive(**kwargs) -> Dict[str, Any]:
     Receive message from WebSocket.
     Gateway operation: WEBSOCKET.receive
     """
-    from network.websocket_core import websocket_receive_implementation
+    from websocket_core import websocket_receive_implementation
     return websocket_receive_implementation(**kwargs)
 
 
@@ -55,7 +55,7 @@ def websocket_close(**kwargs) -> Dict[str, Any]:
     Close WebSocket connection.
     Gateway operation: WEBSOCKET.close
     """
-    from network.websocket_core import websocket_close_implementation
+    from websocket_core import websocket_close_implementation
     return websocket_close_implementation(**kwargs)
 
 
@@ -64,7 +64,7 @@ def websocket_request(**kwargs) -> Dict[str, Any]:
     Execute WebSocket request (send + receive).
     Gateway operation: WEBSOCKET.request
     """
-    from network.websocket_core import websocket_request_implementation
+    from websocket_core import websocket_request_implementation
     return websocket_request_implementation(**kwargs)
 
 
