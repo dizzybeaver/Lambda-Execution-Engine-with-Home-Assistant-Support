@@ -1,8 +1,9 @@
 """
 lambda_failsafe.py - Emergency Failsafe Handler
-Version: 2025.10.15.01
+Version: 2025.10.15.02
 Description: Standalone failsafe for Home Assistant Alexa integration.
              COMPLETELY INDEPENDENT - No SUGA imports, no extensions.
+             Now includes basic in-memory caching.
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -14,11 +15,14 @@ USAGE:
     HOME_ASSISTANT_TOKEN=your_long_lived_token
     HOME_ASSISTANT_VERIFY_SSL=false  (optional, default: true)
     DEBUG_MODE=false  (optional, default: false)
+    FAILSAFE_CACHE_ENABLED=true  (optional, default: true)
 """
 
 import os
 import json
 import logging
+import time
+from typing import Any, Dict, Optional
 import urllib3
 
 # Initialize logger
@@ -27,10 +31,131 @@ _logger = logging.getLogger('LEE-Failsafe')
 _logger.setLevel(logging.DEBUG if _debug else logging.INFO)
 
 
+# ===== SIMPLE CACHE IMPLEMENTATION =====
+
+class FailsafeCache:
+    """
+    Simple in-memory cache for failsafe mode.
+    Completely self-contained - no external dependencies.
+    """
+    
+    def __init__(self):
+        self._cache = {}
+        self._enabled = os.getenv('FAILSAFE_CACHE_ENABLED', 'true').lower() == 'true'
+        self._stats = {
+            'hits': 0,
+            'misses': 0,
+            'sets': 0,
+            'expired': 0
+        }
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from cache if not expired."""
+        if not self._enabled:
+            return None
+        
+        if key not in self._cache:
+            self._stats['misses'] += 1
+            return None
+        
+        entry = self._cache[key]
+        current_time = time.time()
+        
+        # Check if expired
+        if current_time - entry['timestamp'] > entry['ttl']:
+            del self._cache[key]
+            self._stats['expired'] += 1
+            self._stats['misses'] += 1
+            return None
+        
+        self._stats['hits'] += 1
+        _logger.debug(f"Cache HIT: {key}")
+        return entry['value']
+    
+    def set(self, key: str, value: Any, ttl: int = 300):
+        """Set value in cache with TTL."""
+        if not self._enabled:
+            return
+        
+        self._cache[key] = {
+            'value': value,
+            'timestamp': time.time(),
+            'ttl': ttl
+        }
+        self._stats['sets'] += 1
+        _logger.debug(f"Cache SET: {key} (TTL: {ttl}s)")
+    
+    def clear(self):
+        """Clear all cache entries."""
+        count = len(self._cache)
+        self._cache.clear()
+        _logger.info(f"Cache cleared: {count} entries removed")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total_requests = self._stats['hits'] + self._stats['misses']
+        hit_rate = (self._stats['hits'] / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            'enabled': self._enabled,
+            'entries': len(self._cache),
+            'hits': self._stats['hits'],
+            'misses': self._stats['misses'],
+            'sets': self._stats['sets'],
+            'expired': self._stats['expired'],
+            'hit_rate_percent': round(hit_rate, 2)
+        }
+
+
+# Global cache instance
+_cache = FailsafeCache()
+
+
+def _generate_cache_key(directive: Dict[str, Any], token: str) -> str:
+    """Generate cache key from directive and token."""
+    header = directive.get('header', {})
+    namespace = header.get('namespace', 'Unknown')
+    name = header.get('name', 'Unknown')
+    
+    # Use first 8 chars of token for key uniqueness per user
+    token_prefix = token[:8] if token else 'notoken'
+    
+    # For Discovery, key is just namespace+name+token
+    if namespace == 'Alexa.Discovery' and name == 'Discover':
+        return f"discovery:{token_prefix}"
+    
+    # For ReportState, include endpoint ID
+    endpoint = directive.get('endpoint', {})
+    endpoint_id = endpoint.get('endpointId', 'unknown')
+    
+    return f"{namespace}:{name}:{endpoint_id}:{token_prefix}"
+
+
+def _get_cache_ttl(directive: Dict[str, Any]) -> int:
+    """Determine appropriate TTL for directive type."""
+    header = directive.get('header', {})
+    namespace = header.get('namespace', '')
+    name = header.get('name', '')
+    
+    # Discovery responses rarely change - cache longer
+    if namespace == 'Alexa.Discovery' and name == 'Discover':
+        return 300  # 5 minutes
+    
+    # State reports change frequently - cache briefly
+    if 'ReportState' in name:
+        return 30  # 30 seconds
+    
+    # Default for other commands - don't cache
+    return 0
+
+
+# ===== MAIN HANDLER =====
+
 def lambda_handler(event, context):
     """
     Emergency failsafe handler for Home Assistant Alexa integration.
     Routes all requests directly to Home Assistant's /api/alexa/smart_home endpoint.
+    Now includes basic caching for improved performance.
     """
     _logger.info("FAILSAFE MODE ACTIVE - Routing to Home Assistant directly")
     _logger.debug(f"Event: {json.dumps(event, default=str)}")
@@ -65,83 +190,98 @@ def lambda_handler(event, context):
             'Only payloadVersion 3 is supported'
         )
     
-    # Extract access token from multiple possible locations
+    # Extract access token
     token = _extract_token(directive)
     if not token:
         _logger.error("No access token found in request")
         return _create_error_response(
             'INVALID_AUTHORIZATION_CREDENTIAL',
-            'Missing access token in request'
+            'Access token not found in request'
         )
     
-    # Setup SSL verification
+    _logger.debug("Access token extracted successfully")
+    
+    # Check cache first
+    cache_key = _generate_cache_key(directive, token)
+    cached_response = _cache.get(cache_key)
+    if cached_response:
+        _logger.info(f"Returning cached response for {cache_key}")
+        return cached_response
+    
+    # Forward to Home Assistant
+    api_endpoint = f"{base_url}/api/alexa/smart_home"
+    _logger.info(f"Forwarding request to: {api_endpoint}")
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    
+    # Configure SSL verification
     verify_ssl = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
-    _logger.debug(f"SSL verification: {verify_ssl}")
     
-    # Create HTTP pool manager
-    http = urllib3.PoolManager(
-        cert_reqs='CERT_REQUIRED' if verify_ssl else 'CERT_NONE',
-        timeout=urllib3.Timeout(connect=2.0, read=10.0)
-    )
-    
-    # Forward request to Home Assistant
     try:
-        _logger.info("Forwarding request to Home Assistant")
+        http = urllib3.PoolManager(
+            cert_reqs='CERT_REQUIRED' if verify_ssl else 'CERT_NONE',
+            timeout=urllib3.Timeout(connect=5.0, read=10.0)
+        )
+        
+        if not verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
         response = http.request(
             'POST',
-            f'{base_url}/api/alexa/smart_home',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json',
-            },
+            api_endpoint,
             body=json.dumps(event).encode('utf-8'),
+            headers=headers
         )
         
-        _logger.info(f"Home Assistant response status: {response.status}")
-        
-        # Handle error responses
-        if response.status >= 400:
-            error_message = response.data.decode('utf-8')
-            _logger.error(f"Home Assistant error: {error_message}")
+        if response.status == 200:
+            response_data = json.loads(response.data.decode('utf-8'))
+            _logger.info("Successfully received response from Home Assistant")
+            _logger.debug(f"Response: {json.dumps(response_data, default=str)}")
             
-            error_type = 'INVALID_AUTHORIZATION_CREDENTIAL' if response.status in (401, 403) else 'INTERNAL_ERROR'
-            return _create_error_response(error_type, error_message)
-        
-        # Parse and return successful response
-        response_data = json.loads(response.data.decode('utf-8'))
-        _logger.debug(f"Response: {json.dumps(response_data, default=str)}")
-        return response_data
-        
-    except urllib3.exceptions.TimeoutError as e:
-        _logger.error(f"Request timeout: {str(e)}")
+            # Cache the response if appropriate
+            ttl = _get_cache_ttl(directive)
+            if ttl > 0:
+                _cache.set(cache_key, response_data, ttl)
+                _logger.info(f"Cached response with TTL: {ttl}s")
+            
+            # Log cache stats periodically
+            if _debug:
+                stats = _cache.get_stats()
+                _logger.debug(f"Cache stats: {stats}")
+            
+            return response_data
+        else:
+            _logger.error(f"Home Assistant returned error: {response.status}")
+            _logger.error(f"Response: {response.data.decode('utf-8')}")
+            return _create_error_response(
+                'INTERNAL_ERROR',
+                f'Home Assistant returned status {response.status}'
+            )
+    
+    except urllib3.exceptions.TimeoutError:
+        _logger.error("Request to Home Assistant timed out")
         return _create_error_response(
             'INTERNAL_ERROR',
-            'Request to Home Assistant timed out'
+            'Connection to Home Assistant timed out'
         )
     except urllib3.exceptions.HTTPError as e:
-        _logger.error(f"HTTP error: {str(e)}")
+        _logger.error(f"HTTP error communicating with Home Assistant: {str(e)}")
         return _create_error_response(
             'INTERNAL_ERROR',
-            f'HTTP error communicating with Home Assistant: {str(e)}'
+            f'HTTP error: {str(e)}'
         )
     except Exception as e:
-        _logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+        _logger.error(f"Unexpected error: {str(e)}")
         return _create_error_response(
             'INTERNAL_ERROR',
             f'Unexpected error: {str(e)}'
         )
 
 
-def _extract_token(directive: dict) -> str:
-    """
-    Extract access token from directive.
-    Tries multiple locations in order:
-      1. endpoint.scope.token
-      2. payload.grantee.token (for Linking directives)
-      3. payload.scope.token (for Discovery directives)
-      4. HOME_ASSISTANT_TOKEN env var (debug mode only)
-    """
-    # Try endpoint.scope
+def _extract_token(directive: Dict[str, Any]) -> Optional[str]:
     scope = directive.get('endpoint', {}).get('scope')
     if scope and scope.get('type') == 'BearerToken':
         token = scope.get('token')
