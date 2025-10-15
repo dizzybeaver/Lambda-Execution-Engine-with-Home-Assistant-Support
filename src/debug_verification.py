@@ -1,5 +1,5 @@
 """
-debug/debug_verification.py - Debug Registry Verification Operations
+debug_verification.py - Debug Registry Verification Operations
 Version: 2025.10.14.01
 Description: Registry verification operations for debug subsystem
 
