@@ -1,29 +1,21 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.14.01
+Version: 2025.10.16.01
 Description: Core HTTPClientCore class and gateway implementation functions.
-             Internal module - accessed via http_client.py interface.
+
+CHANGELOG:
+- 2025.10.16.01: Fixed imports - removed 'network.' prefix from 3 import statements
+                 Files are at root level, not in network/ subdirectory
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import json
 import time
 import urllib3
 from typing import Dict, Any, Optional
-from network.http_client_utilities import get_standard_headers
+from http_client_utilities import get_standard_headers  # FIXED: Removed 'network.' prefix
 
 
 class HTTPClientCore:
@@ -64,70 +56,77 @@ class HTTPClientCore:
     
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
-        from gateway import create_success_response, create_error_response
-        
-        headers = kwargs.get('headers', get_standard_headers())
-        body = kwargs.get('body')
-        
         try:
-            if body and isinstance(body, dict):
+            headers = kwargs.get('headers', {})
+            if not headers:
+                headers = get_standard_headers()
+            
+            body = kwargs.get('json')
+            if body:
                 body = json.dumps(body)
             
             response = self.http.request(
-                method,
-                url,
+                method=method,
+                url=url,
+                body=body,
                 headers=headers,
-                body=body
+                timeout=kwargs.get('timeout', 30.0)
             )
             
-            try:
-                data = json.loads(response.data.decode('utf-8'))
-            except:
-                data = response.data.decode('utf-8')
+            self._stats['requests'] += 1
             
-            return create_success_response(
-                f"{method} request successful",
-                {
+            if 200 <= response.status < 300:
+                self._stats['successful'] += 1
+                return {
+                    'success': True,
                     'status_code': response.status,
-                    'headers': dict(response.headers),
-                    'data': data
+                    'data': json.loads(response.data.decode('utf-8')) if response.data else {},
+                    'headers': dict(response.headers)
                 }
-            )
-            
+            else:
+                self._stats['failed'] += 1
+                return {
+                    'success': False,
+                    'status_code': response.status,
+                    'error': f"HTTP {response.status}",
+                    'data': response.data.decode('utf-8') if response.data else ''
+                }
+                
         except Exception as e:
-            return create_error_response(f"Request failed: {str(e)}", 'HTTP_ERROR')
+            self._stats['failed'] += 1
+            return {
+                'success': False,
+                'error': str(e),
+                'error_type': type(e).__name__
+            }
     
     def make_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
-        """Make HTTP request with retry logic."""
-        from gateway import log_info, log_error, increment_counter
-        
+        """Execute HTTP request with retry logic."""
         max_attempts = self._retry_config['max_attempts']
         
-        self._stats['requests'] += 1
-        
         for attempt in range(max_attempts):
-            response = self._execute_request(method, url, **kwargs)
+            result = self._execute_request(method, url, **kwargs)
             
-            if response.get('success'):
-                self._stats['successful'] += 1
-                increment_counter('http_client.success')
-                return response
+            if result.get('success'):
+                return result
             
-            status_code = response.get('data', {}).get('status_code', 0)
+            status_code = result.get('status_code', 0)
+            if attempt < max_attempts - 1 and self._is_retriable_error(status_code):
+                self._stats['retries'] += 1
+                backoff = self._calculate_backoff(attempt)
+                time.sleep(backoff)
+                continue
             
-            if not self._is_retriable_error(status_code) or attempt == max_attempts - 1:
-                self._stats['failed'] += 1
-                increment_counter('http_client.failure')
-                return response
-            
-            self._stats['retries'] += 1
-            backoff = self._calculate_backoff(attempt)
-            log_info(f"Retry {attempt + 1}/{max_attempts} after {backoff}s")
-            time.sleep(backoff)
+            return result
         
-        self._stats['failed'] += 1
-        return response
+        return {
+            'success': False,
+            'error': 'Max retry attempts exceeded',
+            'attempts': max_attempts
+        }
 
+
+# ===== SINGLETON ACCESS =====
 
 def get_http_client() -> HTTPClientCore:
     """Get singleton HTTP client instance."""
@@ -185,13 +184,15 @@ def http_delete_implementation(**kwargs) -> Dict[str, Any]:
 
 def get_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for get state."""
-    from network.http_client_state import get_client_state
+    # FIXED: Removed 'network.' prefix
+    from http_client_state import get_client_state
     return get_client_state(**kwargs)
 
 
 def reset_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for reset state."""
-    from network.http_client_state import reset_client_state
+    # FIXED: Removed 'network.' prefix
+    from http_client_state import reset_client_state
     return reset_client_state(**kwargs)
 
 
