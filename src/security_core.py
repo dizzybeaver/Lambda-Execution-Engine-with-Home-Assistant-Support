@@ -1,6 +1,6 @@
 """
 security_core.py - Security core orchestrator with dispatcher timing
-Version: 2025.10.14.01
+Version: 2025.10.16.01
 Description: Central security manager coordinating validation and crypto operations
 
 Copyright 2025 Joseph Hersey
@@ -43,50 +43,125 @@ class SecurityCore:
     
     def _execute_operation_logic(self, operation: SecurityOperation, *args, **kwargs) -> Any:
         """Execute the actual operation logic."""
+        
+        # VALIDATE_REQUEST
         if operation == SecurityOperation.VALIDATE_REQUEST:
             request = args[0] if args else kwargs.get('request')
+            if request is None:
+                raise ValueError("validate_request requires 'request' parameter")
             return self._validator.validate_request(request)
+        
+        # VALIDATE_TOKEN
         elif operation == SecurityOperation.VALIDATE_TOKEN:
             token = args[0] if args else kwargs.get('token')
+            if token is None:
+                raise ValueError("validate_token requires 'token' parameter")
             return self._validator.validate_token(token)
+        
+        # VALIDATE_STRING
         elif operation == SecurityOperation.VALIDATE_STRING:
             value = args[0] if args else kwargs.get('value')
+            if value is None:
+                raise ValueError("validate_string requires 'value' parameter")
             min_length = args[1] if len(args) > 1 else kwargs.get('min_length', 0)
             max_length = args[2] if len(args) > 2 else kwargs.get('max_length', 1000)
             return self._validator.validate_string(value, min_length, max_length)
+        
+        # VALIDATE_EMAIL
         elif operation == SecurityOperation.VALIDATE_EMAIL:
             email = args[0] if args else kwargs.get('email')
+            if email is None:
+                raise ValueError("validate_email requires 'email' parameter")
             return self._validator.validate_email(email)
+        
+        # VALIDATE_URL
         elif operation == SecurityOperation.VALIDATE_URL:
             url = args[0] if args else kwargs.get('url')
+            if url is None:
+                raise ValueError("validate_url requires 'url' parameter")
             return self._validator.validate_url(url)
+        
+        # ENCRYPT
         elif operation == SecurityOperation.ENCRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key', self._crypto._default_key)
+            if data is None:
+                raise ValueError("encrypt requires 'data' parameter")
+            if not isinstance(data, str):
+                raise TypeError(f"encrypt requires string data, got {type(data).__name__}")
+            key = args[1] if len(args) > 1 else kwargs.get('key')
+            if key is None:
+                key = self._crypto.get_default_key()
             return self._crypto.encrypt_data(data, key)
+        
+        # DECRYPT
         elif operation == SecurityOperation.DECRYPT:
             data = args[0] if args else kwargs.get('data')
-            key = args[1] if len(args) > 1 else kwargs.get('key', self._crypto._default_key)
+            if data is None:
+                raise ValueError("decrypt requires 'data' parameter")
+            if not isinstance(data, str):
+                raise TypeError(f"decrypt requires string data, got {type(data).__name__}")
+            key = args[1] if len(args) > 1 else kwargs.get('key')
+            if key is None:
+                key = self._crypto.get_default_key()
             return self._crypto.decrypt_data(data, key)
+        
+        # HASH
         elif operation == SecurityOperation.HASH:
             data = args[0] if args else kwargs.get('data')
+            if data is None:
+                raise ValueError("hash requires 'data' parameter")
+            if not isinstance(data, str):
+                raise TypeError(f"hash requires string data, got {type(data).__name__}")
             return self._crypto.hash_data(data)
+        
+        # VERIFY_HASH
         elif operation == SecurityOperation.VERIFY_HASH:
             data = args[0] if args else kwargs.get('data')
             hash_value = args[1] if len(args) > 1 else kwargs.get('hash_value')
+            if data is None:
+                raise ValueError("verify_hash requires 'data' parameter")
+            if hash_value is None:
+                raise ValueError("verify_hash requires 'hash_value' parameter")
+            if not isinstance(data, str):
+                raise TypeError(f"verify_hash requires string data, got {type(data).__name__}")
             return self._crypto.verify_hash(data, hash_value)
+        
+        # SANITIZE
         elif operation == SecurityOperation.SANITIZE:
             data = args[0] if args else kwargs.get('data')
+            if data is None:
+                return ""  # Sanitize None to empty string
             return self._validator.sanitize_input(data)
+        
+        # GENERATE_CORRELATION_ID
         elif operation == SecurityOperation.GENERATE_CORRELATION_ID:
             return self._crypto.generate_correlation_id()
-        return None
+        
+        # UNKNOWN OPERATION
+        else:
+            raise ValueError(f"Unknown security operation: {operation}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get combined security statistics."""
+        """Get combined security statistics with prefixed keys to prevent collisions."""
         validator_stats = self._validator.get_stats()
         crypto_stats = self._crypto.get_stats()
-        return {**validator_stats, **crypto_stats}
+        
+        # Prefix keys to prevent collisions
+        prefixed_stats = {}
+        for key, value in validator_stats.items():
+            prefixed_stats[f'validator_{key}'] = value
+        for key, value in crypto_stats.items():
+            prefixed_stats[f'crypto_{key}'] = value
+        
+        return prefixed_stats
+    
+    def get_validator(self) -> SecurityValidator:
+        """Public accessor for validator (encapsulation fix)."""
+        return self._validator
+    
+    def get_crypto(self) -> SecurityCrypto:
+        """Public accessor for crypto (encapsulation fix)."""
+        return self._crypto
 
 
 # ===== MODULE SINGLETON =====
@@ -105,7 +180,8 @@ def _record_dispatcher_metric(operation: SecurityOperation, duration_ms: float):
             operation_name=operation.value,
             duration_ms=duration_ms
         )
-    except Exception:
+    except (ImportError, AttributeError, KeyError):
+        # Expected errors when metrics not available or misconfigured
         pass
 
 
@@ -198,17 +274,17 @@ def _execute_sanitize_input_implementation(data: Any, **kwargs) -> Any:
 
 def validate_string_input(value: str, min_length: int = 0, max_length: int = 1000) -> bool:
     """Public interface for string validation."""
-    return _MANAGER._validator.validate_string(value, min_length, max_length)
+    return _MANAGER.get_validator().validate_string(value, min_length, max_length)
 
 
 def validate_email_input(email: str) -> bool:
     """Public interface for email validation."""
-    return _MANAGER._validator.validate_email(email)
+    return _MANAGER.get_validator().validate_email(email)
 
 
 def validate_url_input(url: str) -> bool:
     """Public interface for URL validation."""
-    return _MANAGER._validator.validate_url(url)
+    return _MANAGER.get_validator().validate_url(url)
 
 
 def get_security_stats() -> Dict[str, Any]:
