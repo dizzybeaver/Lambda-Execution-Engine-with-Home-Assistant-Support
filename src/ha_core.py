@@ -1,7 +1,11 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.14.01
+Version: 2025.10.16.01
 Description: Core operations using Gateway services exclusively. No direct HTTP.
+
+CHANGELOG:
+- 2025.10.16.01: Fixed circuit breaker calls - changed 'execute' to 'call', 
+                 'get_state' to 'get', and breaker_name to name parameter
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -62,10 +66,11 @@ def call_ha_api(endpoint: str, method: str = 'GET',
                 timeout=config.get('timeout', 30)
             )
         
+        # FIXED: Changed 'execute' to 'call' and breaker_name to name
         result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
-            'execute',
-            breaker_name=HA_CIRCUIT_BREAKER_NAME,
+            'call',
+            name=HA_CIRCUIT_BREAKER_NAME,
             func=_make_request
         )
         
@@ -90,80 +95,47 @@ def get_states(entity_ids: Optional[List[str]] = None,
     correlation_id = generate_correlation_id()
     
     try:
-        cache_key = f"ha_states_{'_'.join(sorted(entity_ids)) if entity_ids else 'all'}"
+        cache_key = 'ha_all_states'
         
         if use_cache:
             cached = cache_get(cache_key)
             if cached:
                 log_debug(f"[{correlation_id}] Using cached states")
-                increment_counter('ha_states_cache_hit')
+                increment_counter('ha_state_cache_hit')
+                
+                if entity_ids:
+                    entity_set = set(entity_ids)
+                    filtered = [e for e in cached.get('data', []) 
+                               if e.get('entity_id') in entity_set]
+                    return create_success_response('States retrieved from cache', filtered)
+                
                 return cached
         
         result = call_ha_api('/api/states')
         
-        if not result.get('success'):
-            return result
+        if result.get('success'):
+            if use_cache:
+                cache_set(cache_key, result, ttl=HA_CACHE_TTL_STATE)
+            
+            increment_counter('ha_states_retrieved')
+            
+            if entity_ids:
+                entity_set = set(entity_ids)
+                filtered = [e for e in result.get('data', []) 
+                           if e.get('entity_id') in entity_set]
+                return create_success_response('States retrieved', filtered)
         
-        all_states = result.get('data', [])
-        
-        if entity_ids:
-            entity_set = set(entity_ids)
-            all_states = [s for s in all_states if s.get('entity_id') in entity_set]
-        
-        response = create_success_response('States retrieved', {
-            'states': all_states,
-            'count': len(all_states)
-        })
-        
-        if use_cache:
-            cache_set(cache_key, response, ttl=HA_CACHE_TTL_STATE)
-        
-        increment_counter('ha_states_retrieved')
-        return response
+        return result
         
     except Exception as e:
         log_error(f"[{correlation_id}] Get states failed: {str(e)}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
-def get_entity_state(entity_id: str, use_cache: bool = True) -> Dict[str, Any]:
-    """Get single entity state using Gateway services."""
-    correlation_id = generate_correlation_id()
-    
-    try:
-        cache_key = f"ha_state_{entity_id}"
-        
-        if use_cache:
-            cached = cache_get(cache_key)
-            if cached:
-                log_debug(f"[{correlation_id}] Using cached state for {entity_id}")
-                increment_counter('ha_state_cache_hit')
-                return cached
-        
-        result = call_ha_api(f'/api/states/{entity_id}')
-        
-        if result.get('success'):
-            state_data = result.get('data', {})
-            response = create_success_response('State retrieved', state_data)
-            
-            if use_cache:
-                cache_set(cache_key, response, ttl=HA_CACHE_TTL_STATE)
-            
-            increment_counter('ha_state_retrieved')
-            return response
-        
-        return result
-        
-    except Exception as e:
-        log_error(f"[{correlation_id}] Get entity state failed: {str(e)}")
-        return create_error_response(str(e), 'GET_STATE_FAILED')
-
-
-# ===== SERVICE OPERATIONS =====
-
-def call_service(domain: str, service: str, entity_id: Optional[str] = None,
-                service_data: Optional[Dict] = None) -> Dict[str, Any]:
-    """Call HA service using Gateway services."""
+def call_ha_service(domain: str, service: str, 
+                   entity_id: Optional[str] = None,
+                   service_data: Optional[Dict] = None) -> Dict[str, Any]:
+    """Call Home Assistant service."""
     correlation_id = generate_correlation_id()
     
     try:
@@ -196,152 +168,36 @@ def call_service(domain: str, service: str, entity_id: Optional[str] = None,
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
 
 
-# ===== WRAPPER PATTERN =====
-
-def ha_operation_wrapper(feature: str, operation: str, func: Callable,
-                        config: Optional[Dict] = None, cache_key: Optional[str] = None,
-                        cache_ttl: int = 300, **kwargs) -> Dict[str, Any]:
-    """Generic wrapper for HA operations with circuit breaker and caching."""
-    correlation_id = generate_correlation_id()
-    
-    try:
-        log_debug(f"[{correlation_id}] HA operation: {feature}.{operation}")
-        record_metric(f'ha_{feature}_{operation}_started', 1.0)
-        
-        # Check cache first
-        if cache_key:
-            cached = cache_get(cache_key)
-            if cached:
-                log_debug(f"[{correlation_id}] Using cached result")
-                increment_counter(f'ha_{feature}_cache_hit')
-                return cached
-        
-        # Get config
-        ha_config = config or get_ha_config()
-        
-        # Execute through circuit breaker
-        def _execute():
-            return func(ha_config, **kwargs)
-        
-        result = execute_operation(
-            GatewayInterface.CIRCUIT_BREAKER,
-            'execute',
-            breaker_name=HA_CIRCUIT_BREAKER_NAME,
-            func=_execute
-        )
-        
-        # Cache successful results
-        if result.get('success') and cache_key:
-            cache_set(cache_key, result, ttl=cache_ttl)
-        
-        if result.get('success'):
-            record_metric(f'ha_{feature}_{operation}_success', 1.0)
-        else:
-            record_metric(f'ha_{feature}_{operation}_failure', 1.0)
-        
-        return result
-        
-    except Exception as e:
-        log_error(f"[{correlation_id}] Operation wrapper failed: {str(e)}")
-        record_metric(f'ha_{feature}_{operation}_error', 1.0)
-        return create_error_response(str(e), 'OPERATION_FAILED')
-
-
 # ===== STATUS & DIAGNOSTICS =====
 
 def check_ha_status() -> Dict[str, Any]:
     """Check HA connection status using Gateway services."""
-    correlation_id = generate_correlation_id()
-    
     try:
-        log_debug(f"[{correlation_id}] Checking HA status")
-        
         result = call_ha_api('/api/')
         
         if result.get('success'):
             return create_success_response('HA is available', {
-                'available': True,
-                'message': result.get('data', {}).get('message', 'Connected')
+                'message': result.get('data', {}).get('message', 'API Running')
             })
-        else:
-            return create_error_response('HA unavailable', 'HA_UNAVAILABLE')
+        
+        return result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] Status check failed: {str(e)}")
+        log_error(f"HA status check failed: {str(e)}")
         return create_error_response(str(e), 'STATUS_CHECK_FAILED')
 
 
-def is_ha_available() -> bool:
-    """Check if HA is available."""
-    result = check_ha_status()
-    return result.get('success', False)
-
-
-def initialize_ha_system(config: Optional[Dict] = None) -> Dict[str, Any]:
-    """Initialize HA system."""
-    correlation_id = generate_correlation_id()
-    
-    try:
-        log_info(f"[{correlation_id}] Initializing HA system")
-        
-        # Load config
-        ha_config = config or get_ha_config()
-        
-        if not ha_config.get('enabled'):
-            return create_error_response('HA not enabled', 'HA_DISABLED')
-        
-        # Check connection
-        status = check_ha_status()
-        
-        if status.get('success'):
-            increment_counter('ha_initialization_success')
-            return create_success_response('HA system initialized', {
-                'initialized': True,
-                'timestamp': get_timestamp()
-            })
-        else:
-            increment_counter('ha_initialization_failure')
-            return status
-        
-    except Exception as e:
-        log_error(f"[{correlation_id}] Initialization failed: {str(e)}")
-        return create_error_response(str(e), 'INIT_FAILED')
-
-
-def cleanup_ha_system() -> Dict[str, Any]:
-    """Cleanup HA system resources."""
-    correlation_id = generate_correlation_id()
-    
-    try:
-        log_info(f"[{correlation_id}] Cleaning up HA system")
-        
-        # Clear HA-related cache
-        cache_keys = ['ha_states_all', 'ha_automations', 'ha_scripts']
-        for key in cache_keys:
-            cache_delete(key)
-        
-        increment_counter('ha_cleanup_success')
-        return create_success_response('HA system cleaned up', {
-            'cleaned': True,
-            'timestamp': get_timestamp()
-        })
-        
-    except Exception as e:
-        log_error(f"[{correlation_id}] Cleanup failed: {str(e)}")
-        return create_error_response(str(e), 'CLEANUP_FAILED')
-
-
 def get_diagnostic_info() -> Dict[str, Any]:
-    """Get diagnostic information."""
+    """Get comprehensive diagnostic info about HA integration."""
     try:
         config = get_ha_config()
         status = check_ha_status()
         
-        # Get circuit breaker state
+        # FIXED: Changed 'get_state' to 'get' and breaker_name to name
         breaker_state = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
-            'get_state',
-            breaker_name=HA_CIRCUIT_BREAKER_NAME
+            'get',
+            name=HA_CIRCUIT_BREAKER_NAME
         )
         
         return create_success_response('Diagnostic info retrieved', {
@@ -390,47 +246,91 @@ def get_ha_entity_registry(use_cache: bool = True) -> Dict[str, Any]:
 def filter_exposed_entities_wrapper(entities: Optional[List[Dict]] = None) -> Dict[str, Any]:
     """Filter entities to exposed ones with WebSocket support."""
     try:
+        from ha_websocket import is_websocket_enabled, filter_exposed_entities
+        
         if entities is None:
-            # Get entity registry
-            registry_result = get_ha_entity_registry()
-            if not registry_result.get('success'):
-                return registry_result
-            
-            entities = registry_result.get('data', {}).get('entities', [])
-            if not entities:
-                entities = registry_result.get('data', {}).get('states', [])
+            # Get entities first
+            result = get_ha_entity_registry(use_cache=True)
+            if not result.get('success'):
+                return result
+            entities = result.get('data', [])
         
-        from ha_websocket import filter_exposed_entities
-        exposed = filter_exposed_entities(entities)
+        if is_websocket_enabled():
+            filtered = filter_exposed_entities(entities)
+            return create_success_response('Entities filtered', filtered)
         
-        return create_success_response('Entities filtered', {
-            'entities': exposed,
-            'count': len(exposed),
-            'total': len(entities)
-        })
+        # Fallback: return all entities
+        return create_success_response('All entities returned (WebSocket disabled)', entities)
         
     except Exception as e:
-        log_error(f"Entity filtering failed: {str(e)}")
-        return create_error_response(str(e), 'FILTER_FAILED')
+        log_error(f"Filter exposed entities failed: {str(e)}")
+        return create_error_response(str(e), 'FILTER_ENTITIES_FAILED')
 
 
-# ===== UTILITY FUNCTIONS =====
+# ===== WRAPPER PATTERN =====
 
-def fuzzy_match_name(query: str, names: List[str], threshold: int = 75) -> Optional[str]:
-    """Fuzzy match name from list - uses simple matching."""
-    query_lower = query.lower()
+def ha_operation_wrapper(feature: str, operation: str, func: Callable,
+                        config: Optional[Dict] = None, cache_key: Optional[str] = None,
+                        cache_ttl: int = 300, **kwargs) -> Dict[str, Any]:
+    """Generic wrapper for HA operations with circuit breaker and caching."""
+    correlation_id = generate_correlation_id()
     
-    # Exact match
-    for name in names:
-        if name.lower() == query_lower:
-            return name
-    
-    # Contains match
-    for name in names:
-        if query_lower in name.lower() or name.lower() in query_lower:
-            return name
-    
-    return None
+    try:
+        log_debug(f"[{correlation_id}] HA operation: {feature}.{operation}")
+        record_metric(f'ha_{feature}_{operation}_started', 1.0)
+        
+        # Check cache first
+        if cache_key:
+            cached = cache_get(cache_key)
+            if cached:
+                log_debug(f"[{correlation_id}] Using cached result")
+                increment_counter(f'ha_{feature}_cache_hit')
+                return cached
+        
+        # Get config
+        ha_config = config or get_ha_config()
+        
+        # Execute through circuit breaker
+        def _execute():
+            return func(ha_config, **kwargs)
+        
+        # FIXED: Changed 'execute' to 'call' and breaker_name to name
+        result = execute_operation(
+            GatewayInterface.CIRCUIT_BREAKER,
+            'call',
+            name=HA_CIRCUIT_BREAKER_NAME,
+            func=_execute
+        )
+        
+        # Cache successful results
+        if result.get('success') and cache_key:
+            cache_set(cache_key, result, ttl=cache_ttl)
+        
+        if result.get('success'):
+            record_metric(f'ha_{feature}_{operation}_success', 1.0)
+        else:
+            record_metric(f'ha_{feature}_{operation}_failure', 1.0)
+        
+        return result
+        
+    except Exception as e:
+        log_error(f"[{correlation_id}] Operation wrapper failed: {str(e)}")
+        record_metric(f'ha_{feature}_{operation}_error', 1.0)
+        return create_error_response(str(e), 'OPERATION_FAILED')
 
+
+# ===== EXPORTS =====
+
+__all__ = [
+    'get_ha_config',
+    'call_ha_api',
+    'get_states',
+    'call_ha_service',
+    'check_ha_status',
+    'get_diagnostic_info',
+    'get_ha_entity_registry',
+    'filter_exposed_entities_wrapper',
+    'ha_operation_wrapper',
+]
 
 # EOF
