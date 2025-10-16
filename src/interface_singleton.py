@@ -26,11 +26,11 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Singleton interface
 from singleton_core import (
-    singleton_get_implementation,
-    singleton_has_implementation,
-    singleton_delete_implementation,
-    singleton_clear_implementation,
-    singleton_stats_implementation
+    _execute_get_implementation,
+    _execute_has_implementation,
+    _execute_delete_implementation,
+    _execute_clear_implementation,
+    _execute_get_stats_implementation
 )
 
 
@@ -51,19 +51,19 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
     """
     
     if operation == 'get':
-        return singleton_get_implementation(**kwargs)
+        return _execute_get_implementation(**kwargs)
     
     elif operation == 'has':
-        return singleton_has_implementation(**kwargs)
+        return _execute_has_implementation(**kwargs)
     
     elif operation == 'delete':
-        return singleton_delete_implementation(**kwargs)
+        return _execute_delete_implementation(**kwargs)
     
     elif operation == 'clear':
-        return singleton_clear_implementation(**kwargs)
+        return _execute_clear_implementation(**kwargs)
     
-    elif operation == 'stats':
-        return singleton_stats_implementation(**kwargs)
+    elif operation == 'stats' or operation == 'get_stats':
+        return _execute_get_stats_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown singleton operation: {operation}")
