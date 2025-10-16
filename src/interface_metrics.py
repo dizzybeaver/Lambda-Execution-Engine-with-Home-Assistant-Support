@@ -25,14 +25,14 @@ Copyright 2025 Joseph Hersey
 from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Metrics interface
-from metrics_core import (
-    record_metric_implementation,
-    increment_counter_implementation,
-    get_metrics_stats_implementation,
-    record_operation_metric_implementation,
-    record_error_metric_implementation,
-    record_cache_metric_implementation,
-    record_api_metric_implementation
+from metrics_operations import (
+    _execute_record_metric_implementation,
+    _execute_increment_counter_implementation,
+    _execute_get_stats_implementation,
+    _execute_record_operation_metric_implementation,
+    _execute_record_error_response_metric_implementation,
+    _execute_record_cache_metric_implementation,
+    _execute_record_api_metric_implementation
 )
 
 
@@ -52,26 +52,26 @@ def execute_metrics_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
-    if operation == 'record_metric':
-        return record_metric_implementation(**kwargs)
+    if operation == 'record' or operation == 'record_metric':
+        return _execute_record_metric_implementation(**kwargs)
     
-    elif operation == 'increment_counter':
-        return increment_counter_implementation(**kwargs)
+    elif operation == 'increment' or operation == 'increment_counter':
+        return _execute_increment_counter_implementation(**kwargs)
     
     elif operation == 'get_stats':
-        return get_metrics_stats_implementation(**kwargs)
+        return _execute_get_stats_implementation(**kwargs)
     
-    elif operation == 'record_operation_metric':
-        return record_operation_metric_implementation(**kwargs)
+    elif operation == 'record_operation' or operation == 'record_operation_metric':
+        return _execute_record_operation_metric_implementation(**kwargs)
     
-    elif operation == 'record_error_metric':
-        return record_error_metric_implementation(**kwargs)
+    elif operation == 'record_error' or operation == 'record_error_metric':
+        return _execute_record_error_response_metric_implementation(**kwargs)
     
-    elif operation == 'record_cache_metric':
-        return record_cache_metric_implementation(**kwargs)
+    elif operation == 'record_cache' or operation == 'record_cache_metric':
+        return _execute_record_cache_metric_implementation(**kwargs)
     
-    elif operation == 'record_api_metric':
-        return record_api_metric_implementation(**kwargs)
+    elif operation == 'record_api' or operation == 'record_api_metric':
+        return _execute_record_api_metric_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown metrics operation: {operation}")
