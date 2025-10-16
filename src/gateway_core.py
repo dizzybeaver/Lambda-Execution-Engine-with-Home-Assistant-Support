@@ -162,11 +162,11 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     # UTILITY Operations (shared_utilities.py)
     # NOTE: No interface router yet - still routes directly to core
     # ========================================================================
-    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', 'format_response_implementation'),
-    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', 'parse_json_implementation'),
-    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', 'safe_get_implementation'),
-    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', 'generate_uuid_implementation'),
-    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', 'get_timestamp_implementation'),
+    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
+    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', '_execute_parse_json_implementation'),
+    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
+    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
+    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
     
     # ========================================================================
     # DEBUG Operations (debug_core.py)
