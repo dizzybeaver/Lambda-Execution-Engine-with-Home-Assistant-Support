@@ -102,17 +102,23 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # NORMAL LEE OPERATION
     # ✅ Lazy imports - only load what we need when we need it
     # ========================================================================
+    print("[DEBUG] Starting gateway imports")
     from gateway import (
         log_info, log_error, log_debug, log_warning,
         increment_counter,
         format_response,
         get_gateway_stats
     )
+    print("[DEBUG] Gateway imports complete")
     
     try:
+        print("[DEBUG] About to call log_info")
         log_info("Lambda invocation started", context={"request_id": context.aws_request_id})
+        print("[DEBUG] log_info complete")
         increment_counter("lambda_invocations")
+        print("[DEBUG] increment_counter complete")
         request_type = _determine_request_type(event)
+        print(f"[DEBUG] Request type: {request_type}")
         log_debug(f"Processing request type: {request_type}")
 
         # ========================================================================
