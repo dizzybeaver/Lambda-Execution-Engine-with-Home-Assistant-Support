@@ -1,9 +1,14 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.16.01
+Version: 2025.10.16.03
 Description: Core HTTPClientCore class and gateway implementation functions.
 
 CHANGELOG:
+- 2025.10.16.03: Fixed data/json parameter handling and headers merging
+                 POST/PUT now correctly handle both 'data' and 'json' parameters
+                 Headers now merge user headers with standard headers
+- 2025.10.16.02: Fixed parameter passing - changed .get() to .pop() in 5 implementation 
+                 functions to prevent "multiple values for argument" error
 - 2025.10.16.01: Fixed imports - removed 'network.' prefix from 3 import statements
                  Files are at root level, not in network/ subdirectory
 
@@ -15,7 +20,7 @@ import json
 import time
 import urllib3
 from typing import Dict, Any, Optional
-from http_client_utilities import get_standard_headers  # FIXED: Removed 'network.' prefix
+from http_client_utilities import get_standard_headers
 
 
 class HTTPClientCore:
@@ -57,13 +62,21 @@ class HTTPClientCore:
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
         try:
-            headers = kwargs.get('headers', {})
-            if not headers:
-                headers = get_standard_headers()
+            # FIXED: Merge user headers with standard headers instead of replacing
+            standard_headers = get_standard_headers()
+            user_headers = kwargs.get('headers', {})
+            headers = {**standard_headers, **user_headers}  # User headers override standards
             
-            body = kwargs.get('json')
-            if body:
-                body = json.dumps(body)
+            # FIXED: Handle both 'json' and 'data' parameters
+            body = None
+            if 'json' in kwargs:
+                body = json.dumps(kwargs['json'])
+            elif 'data' in kwargs:
+                data = kwargs['data']
+                if isinstance(data, dict):
+                    body = json.dumps(data)
+                else:
+                    body = data  # Already a string
             
             response = self.http.request(
                 method=method,
@@ -77,19 +90,38 @@ class HTTPClientCore:
             
             if 200 <= response.status < 300:
                 self._stats['successful'] += 1
+                
+                # Try to parse JSON response
+                response_data = {}
+                if response.data:
+                    try:
+                        response_data = json.loads(response.data.decode('utf-8'))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        # If not JSON, return raw data
+                        response_data = response.data.decode('utf-8', errors='replace')
+                
                 return {
                     'success': True,
                     'status_code': response.status,
-                    'data': json.loads(response.data.decode('utf-8')) if response.data else {},
+                    'data': response_data,
                     'headers': dict(response.headers)
                 }
             else:
                 self._stats['failed'] += 1
+                
+                # Try to get error message from response
+                error_data = ''
+                if response.data:
+                    try:
+                        error_data = response.data.decode('utf-8', errors='replace')
+                    except Exception:
+                        error_data = str(response.data)
+                
                 return {
                     'success': False,
                     'status_code': response.status,
                     'error': f"HTTP {response.status}",
-                    'data': response.data.decode('utf-8') if response.data else ''
+                    'data': error_data
                 }
                 
         except Exception as e:
@@ -153,45 +185,48 @@ def _make_http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
 
 def http_request_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP request."""
-    method = kwargs.get('method', 'GET')
-    url = kwargs.get('url', '')
+    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
+    method = kwargs.pop('method', 'GET')
+    url = kwargs.pop('url', '')
     return _make_http_request(method, url, **kwargs)
 
 
 def http_get_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP GET."""
-    url = kwargs.get('url', '')
+    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
+    url = kwargs.pop('url', '')
     return _make_http_request('GET', url, **kwargs)
 
 
 def http_post_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP POST."""
-    url = kwargs.get('url', '')
+    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
+    url = kwargs.pop('url', '')
     return _make_http_request('POST', url, **kwargs)
 
 
 def http_put_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP PUT."""
-    url = kwargs.get('url', '')
+    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
+    url = kwargs.pop('url', '')
     return _make_http_request('PUT', url, **kwargs)
 
 
 def http_delete_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP DELETE."""
-    url = kwargs.get('url', '')
+    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
+    url = kwargs.pop('url', '')
     return _make_http_request('DELETE', url, **kwargs)
 
 
 def get_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for get state."""
-    # FIXED: Removed 'network.' prefix
     from http_client_state import get_client_state
     return get_client_state(**kwargs)
 
 
 def reset_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for reset state."""
-    # FIXED: Removed 'network.' prefix
     from http_client_state import reset_client_state
     return reset_client_state(**kwargs)
 
