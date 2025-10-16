@@ -300,7 +300,11 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
             _fast_path_cache[registry_key] = func
         
         # Execute the operation
-        return func(**kwargs)
+        # CRITICAL: interface_* routers need operation as first positional arg
+        if module_name.startswith('interface_'):
+            return func(operation, **kwargs)
+        else:
+            return func(**kwargs)
     
     except ImportError as e:
         raise ImportError(f"Failed to load {module_name}.{func_name}: {e}")
