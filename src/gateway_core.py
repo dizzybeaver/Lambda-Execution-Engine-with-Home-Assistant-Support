@@ -1,13 +1,14 @@
 """
 gateway_core.py - Core Gateway Routing Engine
-Version: 2025.10.15.03
-Description: Universal gateway routing with operation registry and fast-path optimization
-            ALL MODULE PATHS CORRECTED - 73 fixes applied
+Version: 2025.10.15.04
+Description: Universal gateway routing with SUGA-ISP interface routers
+            UPDATED: All core interfaces now route through interface routers
 
 ARCHITECTURAL NOTES:
 - This file contains INTENTIONAL design patterns documented inline
 - Do NOT flag DEBUG special handling as an issue - it's a dispatcher pattern
 - Do NOT flag CIRCUIT_BREAKER 'call' operation - it's correctly named
+- SUGA-ISP: All operations now route through interface_<name>.py routers
 - See inline comments for full architectural rationale
 
 Copyright 2025 Joseph Hersey
@@ -48,141 +49,134 @@ class GatewayInterface(Enum):
 
 # ===== OPERATION REGISTRY =====
 # Maps (interface, operation) → (module_name, function_name)
+# SUGA-ISP PATTERN: Core interfaces route through interface_<name> routers
 
 _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     # ========================================================================
-    # CACHE Operations (memory/ directory)
+    # CACHE Operations - Routes through interface_cache.py
     # ========================================================================
-    (GatewayInterface.CACHE, 'get'): ('cache_core', '_execute_get_implementation'),
-    (GatewayInterface.CACHE, 'set'): ('cache_core', '_execute_set_implementation'),
-    (GatewayInterface.CACHE, 'exists'): ('cache_core', '_execute_exists_implementation'),
-    (GatewayInterface.CACHE, 'delete'): ('cache_core', '_execute_delete_implementation'),
-    (GatewayInterface.CACHE, 'clear'): ('cache_core', '_execute_clear_implementation'),
-    (GatewayInterface.CACHE, 'get_stats'): ('cache_core', '_execute_get_stats_implementation'),
+    (GatewayInterface.CACHE, 'get'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'set'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'exists'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'delete'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'clear'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'get_stats'): ('interface_cache', 'execute_cache_operation'),
     
     # ========================================================================
-    # LOGGING Operations (aws/ directory)
+    # LOGGING Operations - Routes through interface_logging.py
     # ========================================================================
-    (GatewayInterface.LOGGING, 'log_info'): ('logging_core', '_execute_log_info_implementation'),
-    (GatewayInterface.LOGGING, 'log_error'): ('logging_core', '_execute_log_error_implementation'),
-    (GatewayInterface.LOGGING, 'log_warning'): ('logging_core', '_execute_log_warning_implementation'),
-    (GatewayInterface.LOGGING, 'log_debug'): ('logging_core', '_execute_log_debug_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_start'): ('logging_core', '_execute_log_operation_start_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_success'): ('logging_core', '_execute_log_operation_success_implementation'),
-    (GatewayInterface.LOGGING, 'log_operation_failure'): ('logging_core', '_execute_log_operation_failure_implementation'),
+    (GatewayInterface.LOGGING, 'log_info'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_error'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_warning'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_debug'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_operation_start'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_operation_success'): ('interface_logging', 'execute_logging_operation'),
+    (GatewayInterface.LOGGING, 'log_operation_failure'): ('interface_logging', 'execute_logging_operation'),
     
     # ========================================================================
-    # SECURITY Operations (security/ directory)
+    # SECURITY Operations - Routes through interface_security.py
     # ========================================================================
-    (GatewayInterface.SECURITY, 'validate_request'): ('security_core', '_execute_validate_request_implementation'),
-    (GatewayInterface.SECURITY, 'validate_token'): ('security_core', '_execute_validate_token_implementation'),
-    (GatewayInterface.SECURITY, 'encrypt'): ('security_core', '_execute_encrypt_data_implementation'),
-    (GatewayInterface.SECURITY, 'decrypt'): ('security_core', '_execute_decrypt_data_implementation'),
-    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('security_core', '_execute_generate_correlation_id_implementation'),
-    (GatewayInterface.SECURITY, 'validate_string'): ('security_core', '_execute_validate_string_implementation'),
-    (GatewayInterface.SECURITY, 'validate_email'): ('security_core', '_execute_validate_email_implementation'),
-    (GatewayInterface.SECURITY, 'validate_url'): ('security_core', '_execute_validate_url_implementation'),
-    (GatewayInterface.SECURITY, 'hash'): ('security_core', '_execute_hash_data_implementation'),
-    (GatewayInterface.SECURITY, 'verify_hash'): ('security_core', '_execute_verify_hash_implementation'),
-    (GatewayInterface.SECURITY, 'sanitize'): ('security_core', '_execute_sanitize_input_implementation'),
+    (GatewayInterface.SECURITY, 'validate_request'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'validate_token'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'encrypt'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'decrypt'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'validate_string'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'validate_email'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'validate_url'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'hash'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'verify_hash'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'sanitize'): ('interface_security', 'execute_security_operation'),
     
     # ========================================================================
-    # METRICS Operations (aws/ directory)
+    # METRICS Operations - Routes through interface_metrics.py
     # ========================================================================
-    (GatewayInterface.METRICS, 'record'): ('metrics_core', '_execute_record_metric_implementation'),
-    (GatewayInterface.METRICS, 'increment'): ('metrics_core', '_execute_increment_counter_implementation'),
-    (GatewayInterface.METRICS, 'get_stats'): ('metrics_core', '_execute_get_stats_implementation'),
-    (GatewayInterface.METRICS, 'record_operation'): ('metrics_core', '_execute_record_operation_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_error'): ('metrics_core', '_execute_record_error_response_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_cache'): ('metrics_core', '_execute_record_cache_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_api'): ('metrics_core', '_execute_record_api_metric_implementation'),
-    (GatewayInterface.METRICS, 'record_dispatcher_timing'): ('metrics_core', '_execute_record_dispatcher_timing_implementation'),
-    (GatewayInterface.METRICS, 'get_dispatcher_stats'): ('metrics_core', '_execute_get_dispatcher_stats_implementation'),
-    (GatewayInterface.METRICS, 'get_operation_metrics'): ('metrics_core', '_execute_get_operation_metrics_implementation'),
+    (GatewayInterface.METRICS, 'record'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'increment'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'get_stats'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'record_operation'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'record_error'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'record_cache'): ('interface_metrics', 'execute_metrics_operation'),
+    (GatewayInterface.METRICS, 'record_api'): ('interface_metrics', 'execute_metrics_operation'),
     
     # ========================================================================
-    # CONFIG Operations (config/ directory)
+    # CONFIG Operations - Routes through interface_config.py
     # ========================================================================
-    (GatewayInterface.CONFIG, 'get_parameter'): ('config_core', '_get_parameter_implementation'),
-    (GatewayInterface.CONFIG, 'set_parameter'): ('config_core', '_set_parameter_implementation'),
-    (GatewayInterface.CONFIG, 'get_category'): ('config_core', '_get_category_implementation'),
-    (GatewayInterface.CONFIG, 'reload'): ('config_core', '_reload_implementation'),
-    (GatewayInterface.CONFIG, 'switch_preset'): ('config_core', '_switch_preset_implementation'),
-    (GatewayInterface.CONFIG, 'get_state'): ('config_core', '_get_state_implementation'),
-    (GatewayInterface.CONFIG, 'load_environment'): ('config_core', '_load_environment_implementation'),
-    (GatewayInterface.CONFIG, 'load_file'): ('config_core', '_load_file_implementation'),
-    (GatewayInterface.CONFIG, 'validate'): ('config_core', '_validate_all_implementation'),
+    (GatewayInterface.CONFIG, 'get'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'set'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'get_category'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'reload'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'switch_preset'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'get_state'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'load_environment'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'load_file'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'validate'): ('interface_config', 'execute_config_operation'),
     
     # ========================================================================
-    # SINGLETON Operations (memory/ directory)
+    # SINGLETON Operations - Routes through interface_singleton.py
     # ========================================================================
-    (GatewayInterface.SINGLETON, 'get'): ('singleton_core', '_execute_get_implementation'),
-    (GatewayInterface.SINGLETON, 'has'): ('singleton_core', '_execute_has_implementation'),
-    (GatewayInterface.SINGLETON, 'delete'): ('singleton_core', '_execute_delete_implementation'),
-    (GatewayInterface.SINGLETON, 'clear'): ('singleton_core', '_execute_clear_implementation'),
-    (GatewayInterface.SINGLETON, 'get_stats'): ('singleton_core', '_execute_get_stats_implementation'),
+    (GatewayInterface.SINGLETON, 'get'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'has'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'delete'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'clear'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'get_stats'): ('interface_singleton', 'execute_singleton_operation'),
     
     # ========================================================================
-    # INITIALIZATION Operations (initialization/ directory)
+    # INITIALIZATION Operations - Routes through interface_initialization.py
     # ========================================================================
-    (GatewayInterface.INITIALIZATION, 'initialize'): ('initialization_core', '_execute_initialize_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_status'): ('initialization_core', '_execute_get_status_implementation'),
-    (GatewayInterface.INITIALIZATION, 'set_flag'): ('initialization_core', '_execute_set_flag_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_flag'): ('initialization_core', '_execute_get_flag_implementation'),
+    (GatewayInterface.INITIALIZATION, 'initialize'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'get_status'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'set_flag'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'get_flag'): ('interface_initialization', 'execute_initialization_operation'),
     
     # ========================================================================
-    # HTTP_CLIENT Operations (network/ directory)
+    # HTTP_CLIENT Operations - Routes through interface_http.py
     # ========================================================================
-    (GatewayInterface.HTTP_CLIENT, 'request'): ('http_client_core', 'http_request_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'get'): ('http_client_core', 'http_get_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'post'): ('http_client_core', 'http_post_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'put'): ('http_client_core', 'http_put_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'delete'): ('http_client_core', 'http_delete_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'get_state'): ('http_client_core', 'get_state_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('http_client_core', 'reset_state_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'request'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'get'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'post'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'put'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'delete'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'get_state'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('interface_http', 'execute_http_operation'),
     
     # ========================================================================
-    # WEBSOCKET Operations (network/ directory)
+    # WEBSOCKET Operations - Routes through interface_websocket.py
     # ========================================================================
-    (GatewayInterface.WEBSOCKET, 'connect'): ('websocket_core', 'websocket_connect_implementation'),
-    (GatewayInterface.WEBSOCKET, 'send'): ('websocket_core', 'websocket_send_implementation'),
-    (GatewayInterface.WEBSOCKET, 'receive'): ('websocket_core', 'websocket_receive_implementation'),
-    (GatewayInterface.WEBSOCKET, 'close'): ('websocket_core', 'websocket_close_implementation'),
-    (GatewayInterface.WEBSOCKET, 'request'): ('websocket_core', 'websocket_request_implementation'),
+    (GatewayInterface.WEBSOCKET, 'connect'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'send'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'receive'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'close'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'request'): ('interface_websocket', 'execute_websocket_operation'),
     
     # ========================================================================
-    # CIRCUIT_BREAKER Operations (network/ directory)
+    # CIRCUIT_BREAKER Operations (circuit_breaker_core.py)
+    # NOTE: No interface router yet - still routes directly to core
     # ========================================================================
-    # ARCHITECTURAL NOTE - DO NOT FLAG AS ISSUE:
-    # The 'call' operation name is INTENTIONAL and CORRECT.
-    # 
-    # Circuit Breaker Pattern uses 'call' to match the standard pattern:
-    #   breaker.call(function, *args, **kwargs)
-    # 
-    # This is consistent with circuit breaker literature and implementations.
-    # The wrapper function execute_with_circuit_breaker is just a convenience
-    # name for users, but the underlying operation is correctly named 'call'.
-    # ========================================================================
-    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_circuit_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'call_circuit_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
     
     # ========================================================================
-    # UTILITY Operations (ROOT directory - NO PREFIX NEEDED)
+    # UTILITY Operations (shared_utilities.py)
+    # NOTE: No interface router yet - still routes directly to core
     # ========================================================================
-    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
-    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', '_execute_parse_json_implementation'),
-    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
-    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
-    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
+    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', 'format_response_implementation'),
+    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', 'parse_json_implementation'),
+    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', 'safe_get_implementation'),
+    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', 'generate_uuid_implementation'),
+    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', 'get_timestamp_implementation'),
     
     # ========================================================================
-    # DEBUG Operations (debug/ directory)
+    # DEBUG Operations (debug_core.py)
+    # NOTE: Uses dispatcher pattern - see detailed explanation below
     # ========================================================================
-    # ARCHITECTURAL NOTE - DEBUG DISPATCHER PATTERN:
+    # ARCHITECTURAL PATTERN: DEBUG DISPATCHER
+    # ========================================================================
+    # The DEBUG interface uses a special dispatcher pattern where ALL debug
+    # operations route to a single function: generic_debug_operation().
     # 
-    # ALL DEBUG operations route through a SINGLE generic_debug_operation function.
     # This is NOT a mistake - it's an intentional dispatcher pattern that:
     # 
     # 1. Reduces registry size (18 operations → 1 function)
