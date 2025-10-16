@@ -1,9 +1,10 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.16.08
+Version: 2025.10.16.09
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.16.09: Added SKIP_HA_HEALTH_CHECK environment variable option
 - 2025.10.16.08: Added missing log_error import in diagnostic exception handler
 - 2025.10.16.07: Fixed all HA extension import names to match actual functions
 - 2025.10.16.06: Fixed import names - process_alexa_* → handle_alexa_*
