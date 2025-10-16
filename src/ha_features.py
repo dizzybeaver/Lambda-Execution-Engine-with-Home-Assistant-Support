@@ -1,7 +1,10 @@
 """
 ha_features.py - Home Assistant Features
-Version: 2025.10.14.01
+Version: 2025.10.16.01
 Description: HA features (automations, scripts, conversation) using Gateway services.
+
+CHANGELOG:
+- 2025.10.16.01: Fixed import names - get_states → get_ha_states, call_service → call_ha_service
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -14,11 +17,12 @@ from gateway import (
     increment_counter,
     create_success_response, create_error_response
 )
+# FIXED 2025.10.16.01: Corrected function names
 from ha_core import (
     ha_operation_wrapper,
     get_ha_config,
-    call_service,
-    get_states,
+    call_ha_service,
+    get_ha_states,
     fuzzy_match_name,
     HA_CACHE_TTL_ENTITIES
 )
@@ -28,11 +32,12 @@ from ha_core import (
 def list_automations(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all automations using wrapper."""
     def _list(config, **kwargs):
-        response = get_states()
+        # FIXED 2025.10.16.01: Use get_ha_states instead of get_states
+        response = get_ha_states()
         if not response.get('success'):
             return response
         
-        states = response.get('data', {}).get('states', [])
+        states = response.get('data', [])
         automations = [
             {
                 'entity_id': s.get('entity_id'),
@@ -70,7 +75,8 @@ def trigger_automation(automation_id: str, skip_condition: bool = False,
         if skip_condition:
             service_data['skip_condition'] = True
         
-        result = call_service('automation', 'trigger', entity_id, service_data)
+        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
+        result = call_ha_service('automation', 'trigger', entity_id, service_data)
         
         if result.get('success'):
             increment_counter('ha_automation_trigger')
@@ -120,11 +126,12 @@ def _resolve_automation_id(automation_id: str, config: Dict[str, Any]) -> Option
 def list_scripts(ha_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List all scripts using wrapper."""
     def _list(config, **kwargs):
-        response = get_states()
+        # FIXED 2025.10.16.01: Use get_ha_states instead of get_states
+        response = get_ha_states()
         if not response.get('success'):
             return response
         
-        states = response.get('data', {}).get('states', [])
+        states = response.get('data', [])
         scripts = [
             {
                 'entity_id': s.get('entity_id'),
@@ -160,7 +167,8 @@ def run_script(script_id: str, variables: Optional[Dict[str, Any]] = None,
         if variables:
             service_data.update(variables)
         
-        result = call_service('script', 'turn_on', entity_id, service_data)
+        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
+        result = call_ha_service('script', 'turn_on', entity_id, service_data)
         
         if result.get('success'):
             increment_counter('ha_script_execute')
@@ -218,11 +226,12 @@ def list_input_helpers(helper_type: Optional[str] = None,
                                             'INVALID_TYPE')
             domains = [helper_type]
         
-        response = get_states()
+        # FIXED 2025.10.16.01: Use get_ha_states instead of get_states
+        response = get_ha_states()
         if not response.get('success'):
             return response
         
-        states = response.get('data', {}).get('states', [])
+        states = response.get('data', [])
         all_helpers = {}
         
         for domain in domains:
@@ -280,7 +289,8 @@ def set_input_helper(helper_id: str, value: Union[str, int, float, bool],
         elif domain in ['input_number', 'input_text']:
             service_data['value'] = value
         
-        result = call_service(domain, service, helper_id, service_data)
+        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
+        result = call_ha_service(domain, service, helper_id, service_data)
         
         if result.get('success'):
             increment_counter(f'ha_input_helper_{domain}')
@@ -308,7 +318,8 @@ def send_notification(message: str, title: Optional[str] = None,
         if target:
             service_data['target'] = target
         
-        result = call_service('notify', 'notify', None, service_data)
+        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
+        result = call_ha_service('notify', 'notify', None, service_data)
         
         if result.get('success'):
             increment_counter('ha_notification_sent')
@@ -332,7 +343,8 @@ def process_conversation(query: str, ha_config: Optional[Dict[str, Any]] = None)
             return create_error_response('Query cannot be empty', 'EMPTY_QUERY')
         
         service_data = {'text': query}
-        result = call_service('conversation', 'process', None, service_data)
+        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
+        result = call_ha_service('conversation', 'process', None, service_data)
         
         if result.get('success'):
             increment_counter('ha_conversation_processed')
@@ -352,6 +364,5 @@ def process_conversation(query: str, ha_config: Optional[Dict[str, Any]] = None)
         return result
     
     return ha_operation_wrapper('conversation', 'process', _process, config=ha_config)
-
 
 # EOF
