@@ -1,11 +1,18 @@
 """
 interface_initialization.py - Initialization Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
-Description: Firewall router for Initialization interface
+Version: 2025.10.16.01
+Description: Firewall router for Initialization interface - BUGS FIXED
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
+
+FIXES APPLIED:
+- Added missing 'get_config' operation route
+- Added missing 'is_initialized' operation route
+- Added missing 'reset' operation route
+- Added 3 missing implementation function imports
+- Improved error handling with complete operation list
 
 Copyright 2025 Joseph Hersey
 
@@ -27,6 +34,9 @@ from typing import Any
 # ✅ ALLOWED: Import internal files within same Initialization interface
 from initialization_core import (
     _execute_initialize_implementation,
+    _execute_get_config_implementation,
+    _execute_is_initialized_implementation,
+    _execute_reset_implementation,
     _execute_get_status_implementation,
     _execute_set_flag_implementation,
     _execute_get_flag_implementation
@@ -39,7 +49,7 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The initialization operation to execute ('initialize_system', 'get_state', etc.)
+        operation: The initialization operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
@@ -47,6 +57,15 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
         
     Raises:
         ValueError: If operation is unknown
+        
+    Valid operations:
+        - initialize, initialize_system
+        - get_status, get_state
+        - get_config
+        - is_initialized
+        - reset
+        - set_flag
+        - get_flag
     """
     
     if operation == 'initialize' or operation == 'initialize_system':
@@ -55,6 +74,15 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
     elif operation == 'get_status' or operation == 'get_state':
         return _execute_get_status_implementation(**kwargs)
     
+    elif operation == 'get_config':
+        return _execute_get_config_implementation(**kwargs)
+    
+    elif operation == 'is_initialized':
+        return _execute_is_initialized_implementation(**kwargs)
+    
+    elif operation == 'reset':
+        return _execute_reset_implementation(**kwargs)
+    
     elif operation == 'set_flag':
         return _execute_set_flag_implementation(**kwargs)
     
@@ -62,7 +90,11 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
         return _execute_get_flag_implementation(**kwargs)
     
     else:
-        raise ValueError(f"Unknown initialization operation: {operation}")
+        raise ValueError(
+            f"Unknown initialization operation: '{operation}'. "
+            f"Valid operations: initialize, get_status, get_config, "
+            f"is_initialized, reset, set_flag, get_flag"
+        )
 
 
 __all__ = [
