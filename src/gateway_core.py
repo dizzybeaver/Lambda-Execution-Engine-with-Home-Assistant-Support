@@ -1,21 +1,14 @@
 """
 gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.03
+Version: 2025.10.16.04
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
 
 CHANGELOG:
+- 2025.10.16.04: Fixed DEBUG import path: debug.debug_types → debug_types
 - 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
                  parameter to interface routers (interface_* modules)
 - 2025.10.16.02: Updated routers, fixed function names, removed unsupported operations
 - 2025.10.16.01: Fixed JSON serialization for tuple keys
-
-FIXED 2025-10-16:
-- Updated SINGLETON to use interface_singleton router
-- Updated INITIALIZATION to use interface_initialization router  
-- Updated HTTP_CLIENT to use interface_http router
-- Removed 6 unsupported CONFIG operations
-- Fixed CIRCUIT_BREAKER function names
-- CRITICAL: Fixed interface router calls to pass operation parameter
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -69,6 +62,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.SECURITY, 'validate_token'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'encrypt'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'decrypt'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'hash'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'verify_hash'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'sanitize'): ('interface_security', 'execute_security_operation'),
@@ -131,18 +125,11 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.HTTP_CLIENT, 'get_state'): ('interface_http', 'execute_http_operation'),
     (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('interface_http', 'execute_http_operation'),
     
-    # WEBSOCKET Operations
-    (GatewayInterface.WEBSOCKET, 'send_message'): ('interface_websocket', 'execute_websocket_operation'),
-    (GatewayInterface.WEBSOCKET, 'broadcast'): ('interface_websocket', 'execute_websocket_operation'),
-    (GatewayInterface.WEBSOCKET, 'get_connections'): ('interface_websocket', 'execute_websocket_operation'),
-    (GatewayInterface.WEBSOCKET, 'disconnect'): ('interface_websocket', 'execute_websocket_operation'),
-    (GatewayInterface.WEBSOCKET, 'register_handler'): ('interface_websocket', 'execute_websocket_operation'),
-    
-    # CIRCUIT_BREAKER Operations  
+    # CIRCUIT_BREAKER Operations
     (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_breakers_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_breakers_implementation'),
     
     # UTILITY Operations
     (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
@@ -150,6 +137,13 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
     (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
     (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
+    
+    # WEBSOCKET Operations
+    (GatewayInterface.WEBSOCKET, 'connect'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'send'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'receive'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'close'): ('interface_websocket', 'execute_websocket_operation'),
+    (GatewayInterface.WEBSOCKET, 'request'): ('interface_websocket', 'execute_websocket_operation'),
     
     # DEBUG Operations
     (GatewayInterface.DEBUG, 'check_component_health'): ('debug_core', 'generic_debug_operation'),
@@ -173,7 +167,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
 }
 
 # ===== FAST PATH CACHE =====
-_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str]] = {}  # Now stores (func, module_name)
+_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str]] = {}
 _fast_path_enabled = True
 _operation_call_counts = defaultdict(int)
 
@@ -182,7 +176,6 @@ _operation_call_counts = defaultdict(int)
 def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> Any:
     """
     Execute operation through the gateway.
-    
     CRITICAL FIX 2025.10.16.03: Now correctly passes operation parameter to interface routers
     """
     registry_key = (interface, operation)
@@ -216,7 +209,7 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
             func = getattr(module, func_name)
             
             # Convert operation string to DebugOperation enum
-            from debug.debug_types import DebugOperation
+            from debug_types import DebugOperation  # FIXED 2025.10.16.04: No 'debug' directory
             operation_enum = DebugOperation[operation.upper()]
             kwargs['operation'] = operation_enum
         else:
