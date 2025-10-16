@@ -1,7 +1,8 @@
 """
 metrics_operations.py - Gateway implementation functions for metrics
-Version: 2025.10.14.04
+Version: 2025.10.15.02
 Description: Gateway-compatible implementation functions for metrics operations
+            FIXED: Moved _MANAGER import inside functions to avoid circular import
 
 Copyright 2025 Joseph Hersey
 
@@ -20,29 +21,36 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any, Optional
 
-from metrics_core import _MANAGER
 from metrics_types import MetricOperation, ResponseType
+
+# CIRCULAR IMPORT FIX: Do NOT import _MANAGER at module level
+# Import it inside each function instead to avoid:
+# interface_metrics → metrics_operations → metrics_core → metrics_operations
 
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
 
 def _execute_record_metric_implementation(name: str, value: float, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
     """Execute record metric operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.execute_metric_operation(MetricOperation.RECORD, name, value, dimensions)
 
 
 def _execute_increment_counter_implementation(name: str, value: int = 1, **kwargs) -> int:
     """Execute increment counter operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.execute_metric_operation(MetricOperation.INCREMENT, name, value)
 
 
 def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get stats operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.execute_metric_operation(MetricOperation.GET_STATS)
 
 
 def _execute_record_operation_metric_implementation(operation: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
     """Execute record operation metric."""
+    from metrics_core import _MANAGER
     dimensions = {'operation': operation, 'success': str(success)}
     if error_type:
         dimensions['error_type'] = error_type
@@ -54,6 +62,7 @@ def _execute_record_operation_metric_implementation(operation: str, success: boo
 
 def _execute_record_error_response_metric_implementation(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict] = None, **kwargs) -> bool:
     """Execute record error response metric."""
+    from metrics_core import _MANAGER
     dimensions = {'error_type': error_type, 'severity': severity, 'category': category}
     _MANAGER.record_metric('error.response.count', 1.0, dimensions)
     return True
@@ -61,73 +70,85 @@ def _execute_record_error_response_metric_implementation(error_type: str, severi
 
 def _execute_record_cache_metric_implementation(operation: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
     """Execute record cache metric."""
+    from metrics_core import _MANAGER
     dimensions = {'operation': operation}
     if hit:
+        dimensions['result'] = 'hit'
         _MANAGER.record_metric('cache.hit', 1.0, dimensions)
     if miss:
+        dimensions['result'] = 'miss'
         _MANAGER.record_metric('cache.miss', 1.0, dimensions)
     if eviction:
         _MANAGER.record_metric('cache.eviction', 1.0, dimensions)
     if duration_ms > 0:
-        _MANAGER.record_metric('cache.operation.duration_ms', duration_ms, dimensions)
+        _MANAGER.record_metric('cache.duration_ms', duration_ms, dimensions)
     return True
 
 
-def _execute_record_api_metric_implementation(endpoint: str, method: str, status_code: int, duration_ms: float, success: bool = True, **kwargs) -> bool:
+def _execute_record_api_metric_implementation(api: str, method: str = 'GET', status_code: int = 200, duration_ms: float = 0, **kwargs) -> bool:
     """Execute record API metric."""
-    dimensions = {'endpoint': endpoint, 'method': method, 'status_code': str(status_code), 'success': str(success)}
-    _MANAGER.record_metric('api.request.count', 1.0, dimensions)
-    _MANAGER.record_metric('api.request.duration_ms', duration_ms, dimensions)
-    _MANAGER.record_metric(f'api.status.{status_code}', 1.0, dimensions)
+    from metrics_core import _MANAGER
+    dimensions = {'api': api, 'method': method, 'status': str(status_code)}
+    _MANAGER.record_metric('api.request', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric('api.duration_ms', duration_ms, dimensions)
     return True
 
 
-def _execute_record_response_metric_implementation(response_type: str, response_time_ms: float = 0.0, **kwargs) -> None:
+def _execute_record_response_metric_implementation(response_type: ResponseType, status_code: int, duration_ms: float = 0, **kwargs) -> bool:
     """Execute record response metric."""
-    try:
-        response_type_enum = ResponseType(response_type)
-        _MANAGER.record_response_metric(response_type_enum, response_time_ms)
-    except ValueError:
-        pass
+    from metrics_core import _MANAGER
+    _MANAGER.record_response_metric(response_type, status_code, duration_ms)
+    return True
 
 
-def _execute_record_http_metric_implementation(success: bool, response_time_ms: float = 0.0, method: Optional[str] = None, status_code: Optional[int] = None, **kwargs) -> None:
+def _execute_record_http_metric_implementation(method: str, url: str, status_code: int, duration_ms: float, response_size: Optional[int] = None, **kwargs) -> bool:
     """Execute record HTTP metric."""
-    _MANAGER.record_http_request(success, response_time_ms, method, status_code)
+    from metrics_core import _MANAGER
+    _MANAGER.record_http_metric(method, url, status_code, duration_ms, response_size)
+    return True
 
 
-def _execute_record_circuit_breaker_metric_implementation(circuit_name: str, event_type: str, success: Optional[bool] = None, **kwargs) -> None:
+def _execute_record_circuit_breaker_metric_implementation(circuit_name: str, event_type: str, success: bool = True, **kwargs) -> bool:
     """Execute record circuit breaker metric."""
+    from metrics_core import _MANAGER
     _MANAGER.record_circuit_breaker_event(circuit_name, event_type, success)
+    return True
 
 
 def _execute_get_response_metrics_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get response metrics operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.get_response_metrics()
 
 
 def _execute_get_http_metrics_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get HTTP metrics operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.get_http_metrics()
 
 
 def _execute_get_circuit_breaker_metrics_implementation(circuit_name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
     """Execute get circuit breaker metrics operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.get_circuit_breaker_metrics(circuit_name)
 
 
 def _execute_record_dispatcher_timing_implementation(interface_name: str, operation_name: str, duration_ms: float, **kwargs) -> bool:
     """Execute record dispatcher timing operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.record_dispatcher_timing(interface_name, operation_name, duration_ms)
 
 
 def _execute_get_dispatcher_stats_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get dispatcher stats operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.get_dispatcher_stats()
 
 
 def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get operation metrics operation."""
+    from metrics_core import _MANAGER
     return _MANAGER.get_operation_metrics()
 
 
@@ -135,11 +156,13 @@ def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
 
 def execute_metrics_operation(operation: MetricOperation, **kwargs) -> Any:
     """Execute metrics operation via MetricsCore."""
+    from metrics_core import _MANAGER
     return _MANAGER.execute_metric_operation(operation, **kwargs)
 
 
 def get_metrics_summary() -> Dict[str, Any]:
     """Get comprehensive metrics summary."""
+    from metrics_core import _MANAGER
     return {
         'stats': _MANAGER.get_stats(),
         'response_metrics': _MANAGER.get_response_metrics(),
