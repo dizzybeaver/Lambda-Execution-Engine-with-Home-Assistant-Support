@@ -26,15 +26,15 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Config interface
 from config_core import (
-    get_config_implementation,
-    set_config_implementation,
-    get_config_category_implementation,
-    reload_config_implementation,
-    switch_config_preset_implementation,
-    get_config_state_implementation,
-    load_config_from_environment_implementation,
-    load_config_from_file_implementation,
-    validate_all_config_implementation
+    _get_parameter_implementation,
+    _set_parameter_implementation,
+    _get_category_implementation,
+    _reload_implementation,
+    _switch_preset_implementation,
+    _get_state_implementation,
+    _load_environment_implementation,
+    _load_file_implementation,
+    _validate_all_implementation
 )
 
 
@@ -54,32 +54,32 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
-    if operation == 'get':
-        return get_config_implementation(**kwargs)
+    if operation == 'get' or operation == 'get_parameter':
+        return _get_parameter_implementation(**kwargs)
     
-    elif operation == 'set':
-        return set_config_implementation(**kwargs)
+    elif operation == 'set' or operation == 'set_parameter':
+        return _set_parameter_implementation(**kwargs)
     
     elif operation == 'get_category':
-        return get_config_category_implementation(**kwargs)
+        return _get_category_implementation(**kwargs)
     
     elif operation == 'reload':
-        return reload_config_implementation(**kwargs)
+        return _reload_implementation(**kwargs)
     
     elif operation == 'switch_preset':
-        return switch_config_preset_implementation(**kwargs)
+        return _switch_preset_implementation(**kwargs)
     
     elif operation == 'get_state':
-        return get_config_state_implementation(**kwargs)
+        return _get_state_implementation(**kwargs)
     
-    elif operation == 'load_from_environment':
-        return load_config_from_environment_implementation(**kwargs)
+    elif operation == 'load_environment' or operation == 'load_from_environment':
+        return _load_environment_implementation(**kwargs)
     
-    elif operation == 'load_from_file':
-        return load_config_from_file_implementation(**kwargs)
+    elif operation == 'load_file' or operation == 'load_from_file':
+        return _load_file_implementation(**kwargs)
     
-    elif operation == 'validate_all':
-        return validate_all_config_implementation(**kwargs)
+    elif operation == 'validate' or operation == 'validate_all':
+        return _validate_all_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown config operation: {operation}")
