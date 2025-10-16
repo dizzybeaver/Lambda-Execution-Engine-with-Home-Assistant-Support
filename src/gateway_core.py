@@ -1,7 +1,14 @@
 """
 gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.01
+Version: 2025.10.16.02
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
+
+FIXED 2025-10-16:
+- Updated SINGLETON to use interface_singleton router
+- Updated INITIALIZATION to use interface_initialization router  
+- Updated HTTP_CLIENT to use interface_http router
+- Removed 6 unsupported CONFIG operations
+- Fixed CIRCUIT_BREAKER function names
 
 Copyright 2025 Joseph Hersey
 
@@ -107,53 +114,49 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     
     # ========================================================================
     # CONFIG Operations - Routes through interface_config.py
+    # FIXED 2025-10-16: Removed 6 unsupported operations (get_all, get_environment,
+    # get_stage, get_region, is_debug_mode, get_log_level)
     # ========================================================================
     (GatewayInterface.CONFIG, 'get'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'set'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'get_all'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'get_environment'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'get_stage'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'get_region'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'is_debug_mode'): ('interface_config', 'execute_config_operation'),
-    (GatewayInterface.CONFIG, 'get_log_level'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'get_category'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'reload'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'switch_preset'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'get_state'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'load_environment'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'load_file'): ('interface_config', 'execute_config_operation'),
+    (GatewayInterface.CONFIG, 'validate'): ('interface_config', 'execute_config_operation'),
     
     # ========================================================================
-    # SINGLETON Operations (singleton_registry.py)
-    # NOTE: No interface router yet - still routes directly to core
+    # SINGLETON Operations - Routes through interface_singleton.py
+    # FIXED 2025-10-16: Changed from singleton_registry to interface_singleton router
     # ========================================================================
-    (GatewayInterface.SINGLETON, 'get'): ('singleton_registry', 'get_singleton_implementation'),
-    (GatewayInterface.SINGLETON, 'register'): ('singleton_registry', 'register_singleton_implementation'),
-    (GatewayInterface.SINGLETON, 'clear'): ('singleton_registry', 'clear_singleton_implementation'),
-    (GatewayInterface.SINGLETON, 'clear_all'): ('singleton_registry', 'clear_all_singletons_implementation'),
-    (GatewayInterface.SINGLETON, 'get_all'): ('singleton_registry', 'get_all_singletons_implementation'),
-    (GatewayInterface.SINGLETON, 'exists'): ('singleton_registry', 'singleton_exists_implementation'),
-    (GatewayInterface.SINGLETON, 'get_registry_state'): ('singleton_registry', 'get_registry_state_implementation'),
-    (GatewayInterface.SINGLETON, 'safe_get'): ('singleton_registry', 'safe_get_singleton_implementation'),
+    (GatewayInterface.SINGLETON, 'get'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'has'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'delete'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'clear'): ('interface_singleton', 'execute_singleton_operation'),
+    (GatewayInterface.SINGLETON, 'get_stats'): ('interface_singleton', 'execute_singleton_operation'),
     
     # ========================================================================
-    # INITIALIZATION Operations (initialization.py)
-    # NOTE: No interface router yet - still routes directly to core
+    # INITIALIZATION Operations - Routes through interface_initialization.py
+    # FIXED 2025-10-16: Changed from initialization to interface_initialization router
     # ========================================================================
-    (GatewayInterface.INITIALIZATION, 'initialize'): ('initialization', 'initialize_system_implementation'),
-    (GatewayInterface.INITIALIZATION, 'initialize_component'): ('initialization', 'initialize_component_implementation'),
-    (GatewayInterface.INITIALIZATION, 'shutdown'): ('initialization', 'shutdown_system_implementation'),
-    (GatewayInterface.INITIALIZATION, 'shutdown_component'): ('initialization', 'shutdown_component_implementation'),
-    (GatewayInterface.INITIALIZATION, 'get_status'): ('initialization', 'get_initialization_status_implementation'),
-    (GatewayInterface.INITIALIZATION, 'reset'): ('initialization', 'reset_system_implementation'),
-    (GatewayInterface.INITIALIZATION, 'health_check'): ('initialization', 'system_health_check_implementation'),
-    (GatewayInterface.INITIALIZATION, 'validate_dependencies'): ('initialization', 'validate_dependencies_implementation'),
+    (GatewayInterface.INITIALIZATION, 'initialize'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'get_status'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'set_flag'): ('interface_initialization', 'execute_initialization_operation'),
+    (GatewayInterface.INITIALIZATION, 'get_flag'): ('interface_initialization', 'execute_initialization_operation'),
     
     # ========================================================================
-    # HTTP_CLIENT Operations (http_client.py)
-    # NOTE: No interface router yet - still routes directly to core
+    # HTTP_CLIENT Operations - Routes through interface_http.py
+    # FIXED 2025-10-16: Changed from http_client to interface_http router
     # ========================================================================
-    (GatewayInterface.HTTP_CLIENT, 'get'): ('http_client', 'http_get_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'post'): ('http_client', 'http_post_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'put'): ('http_client', 'http_put_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'delete'): ('http_client', 'http_delete_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'request'): ('http_client', 'http_request_implementation'),
-    (GatewayInterface.HTTP_CLIENT, 'get_stats'): ('http_client', 'get_http_stats_implementation'),
+    (GatewayInterface.HTTP_CLIENT, 'request'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'get'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'post'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'put'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'delete'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'get_state'): ('interface_http', 'execute_http_operation'),
+    (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('interface_http', 'execute_http_operation'),
     
     # ========================================================================
     # WEBSOCKET Operations (websocket_manager.py)
@@ -167,10 +170,11 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     
     # ========================================================================
     # CIRCUIT_BREAKER Operations (circuit_breaker_core.py)
+    # FIXED 2025-10-16: Corrected function names
     # NOTE: No interface router yet - still routes directly to core
     # ========================================================================
-    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_circuit_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'call_circuit_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
     
@@ -377,7 +381,7 @@ def initialize_lambda(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any
 
 def get_gateway_stats() -> Dict[str, Any]:
     """Get gateway operation statistics."""
-    # FIX: Convert tuple keys to strings for JSON serialization
+    # FIXED 2025-10-16: Convert tuple keys to strings for JSON serialization
     operation_counts_json_safe = {}
     for key, count in _operation_call_counts.items():
         # Convert (GatewayInterface.CACHE, 'get') -> "cache.get"
