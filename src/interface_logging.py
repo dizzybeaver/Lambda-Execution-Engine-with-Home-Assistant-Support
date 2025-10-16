@@ -26,13 +26,13 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Logging interface
 from logging_core import (
-    log_info_implementation,
-    log_error_implementation,
-    log_warning_implementation,
-    log_debug_implementation,
-    log_operation_start_implementation,
-    log_operation_success_implementation,
-    log_operation_failure_implementation
+    _execute_log_info_implementation,
+    _execute_log_error_implementation,
+    _execute_log_warning_implementation,
+    _execute_log_debug_implementation,
+    _execute_log_operation_start_implementation,
+    _execute_log_operation_success_implementation,
+    _execute_log_operation_failure_implementation
 )
 
 
@@ -52,26 +52,26 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
-    if operation == 'info':
-        return log_info_implementation(**kwargs)
+    if operation == 'info' or operation == 'log_info':
+        return _execute_log_info_implementation(**kwargs)
     
-    elif operation == 'error':
-        return log_error_implementation(**kwargs)
+    elif operation == 'error' or operation == 'log_error':
+        return _execute_log_error_implementation(**kwargs)
     
-    elif operation == 'warning':
-        return log_warning_implementation(**kwargs)
+    elif operation == 'warning' or operation == 'log_warning':
+        return _execute_log_warning_implementation(**kwargs)
     
-    elif operation == 'debug':
-        return log_debug_implementation(**kwargs)
+    elif operation == 'debug' or operation == 'log_debug':
+        return _execute_log_debug_implementation(**kwargs)
     
-    elif operation == 'operation_start':
-        return log_operation_start_implementation(**kwargs)
+    elif operation == 'operation_start' or operation == 'log_operation_start':
+        return _execute_log_operation_start_implementation(**kwargs)
     
-    elif operation == 'operation_success':
-        return log_operation_success_implementation(**kwargs)
+    elif operation == 'operation_success' or operation == 'log_operation_success':
+        return _execute_log_operation_success_implementation(**kwargs)
     
-    elif operation == 'operation_failure':
-        return log_operation_failure_implementation(**kwargs)
+    elif operation == 'operation_failure' or operation == 'log_operation_failure':
+        return _execute_log_operation_failure_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown logging operation: {operation}")
