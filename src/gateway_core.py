@@ -4,7 +4,7 @@ Version: 2025.10.16.04
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
 
 CHANGELOG:
-- 2025.10.16.04: Fixed DEBUG import path: debug.debug_types → debug_types
+- 2025.10.16.04: Fixed DEBUG import path: debug_types → debug_types
 - 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
                  parameter to interface routers (interface_* modules)
 - 2025.10.16.02: Updated routers, fixed function names, removed unsupported operations
