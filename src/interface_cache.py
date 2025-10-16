@@ -26,12 +26,12 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Cache interface
 from cache_core import (
-    cache_get_implementation,
-    cache_set_implementation,
-    cache_exists_implementation,
-    cache_delete_implementation,
-    cache_clear_implementation,
-    cache_stats_implementation
+    _execute_get_implementation,
+    _execute_set_implementation,
+    _execute_exists_implementation,
+    _execute_delete_implementation,
+    _execute_clear_implementation,
+    _execute_get_stats_implementation
 )
 
 
@@ -52,22 +52,22 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     """
     
     if operation == 'get':
-        return cache_get_implementation(**kwargs)
+        return _execute_get_implementation(**kwargs)
     
     elif operation == 'set':
-        return cache_set_implementation(**kwargs)
+        return _execute_set_implementation(**kwargs)
     
     elif operation == 'exists':
-        return cache_exists_implementation(**kwargs)
+        return _execute_exists_implementation(**kwargs)
     
     elif operation == 'delete':
-        return cache_delete_implementation(**kwargs)
+        return _execute_delete_implementation(**kwargs)
     
     elif operation == 'clear':
-        return cache_clear_implementation(**kwargs)
+        return _execute_clear_implementation(**kwargs)
     
-    elif operation == 'stats':
-        return cache_stats_implementation(**kwargs)
+    elif operation == 'stats' or operation == 'get_stats':
+        return _execute_get_stats_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown cache operation: {operation}")
