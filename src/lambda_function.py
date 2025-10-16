@@ -1,9 +1,10 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.16.04
+Version: 2025.10.16.05
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.16.05: Fixed context attribute - request_id → aws_request_id
 - 2025.10.16.04: Removed debug print statements, re-enabled validation
 - 2025.10.16.03: Added LAMBDA_MODE support (normal/failsafe/diagnostic/emergency)
 - 2025.10.16.02: Added lazy imports to fix timeouts
@@ -73,7 +74,7 @@ def lambda_handler_normal(event: Dict[str, Any], context: Any) -> Dict[str, Any]
     
     try:
         log_info("Lambda invocation started", 
-                request_id=context.request_id,
+                request_id=context.aws_request_id,
                 function_name=context.function_name,
                 memory_limit=context.memory_limit_in_mb,
                 remaining_time=context.get_remaining_time_in_millis())
@@ -274,7 +275,7 @@ def create_alexa_error_response(event: Dict[str, Any], error_type: str,
 
 # ===== VERSION INFO =====
 
-__version__ = "2025.10.16.04"
+__version__ = "2025.10.16.05"
 __all__ = ['lambda_handler']
 
 # EOF
