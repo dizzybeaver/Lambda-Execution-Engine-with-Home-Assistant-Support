@@ -1,14 +1,14 @@
 """
 gateway_core.py - Core Gateway Routing Engine
-Version: 2025.10.15.04
+Version: 2025.10.15.05
 Description: Universal gateway routing with SUGA-ISP interface routers
-            UPDATED: All core interfaces now route through interface routers
+            FIXED: execute_operation now passes 'operation' parameter to interface routers
 
 ARCHITECTURAL NOTES:
 - This file contains INTENTIONAL design patterns documented inline
 - Do NOT flag DEBUG special handling as an issue - it's a dispatcher pattern
 - Do NOT flag CIRCUIT_BREAKER 'call' operation - it's correctly named
-- SUGA-ISP: All operations now route through interface_<name>.py routers
+- SUGA-ISP: All operations now route through interface_<n>.py routers
 - See inline comments for full architectural rationale
 
 Copyright 2025 Joseph Hersey
@@ -49,7 +49,7 @@ class GatewayInterface(Enum):
 
 # ===== OPERATION REGISTRY =====
 # Maps (interface, operation) → (module_name, function_name)
-# SUGA-ISP PATTERN: Core interfaces route through interface_<name> routers
+# SUGA-ISP PATTERN: Core interfaces route through interface_<n> routers
 
 _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     # ========================================================================
@@ -303,6 +303,18 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
             from debug.debug_core import DebugOperation
             op_enum = DebugOperation(operation)
             return fast_func(op_enum, **kwargs)
+        
+        # ====================================================================
+        # SUGA-ISP INTERFACE ROUTER PATTERN
+        # ====================================================================
+        # Interface routers expect (operation, **kwargs) signature
+        # Check if this is an interface router based on function name pattern
+        # ====================================================================
+        func_name = fast_func.__name__
+        if func_name.startswith('execute_') and func_name.endswith('_operation'):
+            return fast_func(operation, **kwargs)
+        
+        # Legacy direct implementations don't need operation parameter
         return fast_func(**kwargs)
     
     # Registry lookup
@@ -330,10 +342,30 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
             op_enum = DebugOperation(operation)
             return generic_debug_operation(op_enum, **kwargs)
         
-        # Standard operation handling
+        # ====================================================================
+        # SUGA-ISP INTERFACE ROUTER PATTERN
+        # ====================================================================
+        # Interface routers (execute_*_operation functions) expect the operation
+        # parameter to route to internal implementations.
+        # 
+        # Check if this is an interface router:
+        # - Function name follows pattern: execute_<interface>_operation
+        # - All interface routers need the operation parameter
+        # 
+        # Legacy direct implementations (like circuit_breaker_core functions)
+        # do NOT need the operation parameter and work with **kwargs only.
+        # ====================================================================
         mod = __import__(module_name, fromlist=[func_name])
         func = getattr(mod, func_name)
-        return func(**kwargs)
+        
+        # Check if this is an interface router function
+        if func_name.startswith('execute_') and func_name.endswith('_operation'):
+            # Interface router - pass operation parameter
+            return func(operation, **kwargs)
+        else:
+            # Legacy direct implementation - no operation parameter needed
+            return func(**kwargs)
+            
     except (ImportError, AttributeError) as e:
         raise RuntimeError(f"Failed to load {module_name}.{func_name}: {str(e)}")
 
