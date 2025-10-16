@@ -1,7 +1,13 @@
 """
 ha_websocket.py - WebSocket Operations
-Version: 2025.10.14.01
+Version: 2025.10.16.01
 Description: WebSocket communication with Home Assistant using Gateway services.
+
+FIXES APPLIED (2025.10.16):
+- BUG #1: Fixed parameter mismatch - changed ws_id to connection throughout
+- BUG #1: Fixed double serialization - pass dict not json.dumps(message)
+- Added missing close_websocket_connection function
+- Fixed connection object handling in all functions
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -38,7 +44,8 @@ def establish_websocket_connection(url: str, timeout: int = 10) -> Dict[str, Any
             GatewayInterface.WEBSOCKET,
             'connect',
             url=url,
-            timeout=timeout
+            timeout=timeout,
+            correlation_id=correlation_id
         )
         
         if result.get('success'):
@@ -56,18 +63,20 @@ def establish_websocket_connection(url: str, timeout: int = 10) -> Dict[str, Any
         return create_error_response(str(e), 'WEBSOCKET_CONNECT_FAILED')
 
 
-def send_websocket_message(ws_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
+def send_websocket_message(connection: Any, message: Dict[str, Any]) -> Dict[str, Any]:
     """Send WebSocket message using Gateway."""
     correlation_id = generate_correlation_id()
     
     try:
         log_debug(f"[{correlation_id}] Sending WebSocket message")
         
+        # FIXED: Pass connection and dict message (not json.dumps)
         result = execute_operation(
             GatewayInterface.WEBSOCKET,
             'send',
-            ws_id=ws_id,
-            message=json.dumps(message)
+            connection=connection,
+            message=message,
+            correlation_id=correlation_id
         )
         
         if result.get('success'):
@@ -82,30 +91,24 @@ def send_websocket_message(ws_id: str, message: Dict[str, Any]) -> Dict[str, Any
         return create_error_response(str(e), 'WEBSOCKET_SEND_FAILED')
 
 
-def receive_websocket_message(ws_id: str, timeout: int = 10) -> Dict[str, Any]:
+def receive_websocket_message(connection: Any, timeout: int = 10) -> Dict[str, Any]:
     """Receive WebSocket message using Gateway."""
     correlation_id = generate_correlation_id()
     
     try:
         log_debug(f"[{correlation_id}] Receiving WebSocket message")
         
+        # FIXED: Pass connection not ws_id
         result = execute_operation(
             GatewayInterface.WEBSOCKET,
             'receive',
-            ws_id=ws_id,
-            timeout=timeout
+            connection=connection,
+            timeout=timeout,
+            correlation_id=correlation_id
         )
         
         if result.get('success'):
             increment_counter('ha_websocket_receive_success')
-            
-            # Parse JSON response
-            data = result.get('data', '')
-            if isinstance(data, str):
-                try:
-                    result['data'] = json.loads(data)
-                except json.JSONDecodeError:
-                    pass
         else:
             increment_counter('ha_websocket_receive_failure')
         
@@ -116,22 +119,25 @@ def receive_websocket_message(ws_id: str, timeout: int = 10) -> Dict[str, Any]:
         return create_error_response(str(e), 'WEBSOCKET_RECEIVE_FAILED')
 
 
-def close_websocket_connection(ws_id: str) -> Dict[str, Any]:
+def close_websocket_connection(connection: Any) -> Dict[str, Any]:
     """Close WebSocket connection using Gateway."""
     correlation_id = generate_correlation_id()
     
     try:
-        log_debug(f"[{correlation_id}] Closing WebSocket")
+        log_debug(f"[{correlation_id}] Closing WebSocket connection")
         
+        # FIXED: Pass connection not ws_id
         result = execute_operation(
             GatewayInterface.WEBSOCKET,
             'close',
-            ws_id=ws_id
+            connection=connection,
+            correlation_id=correlation_id
         )
         
         if result.get('success'):
             increment_counter('ha_websocket_close_success')
-            log_info(f"[{correlation_id}] WebSocket closed")
+        else:
+            increment_counter('ha_websocket_close_failure')
         
         return result
         
@@ -140,17 +146,17 @@ def close_websocket_connection(ws_id: str) -> Dict[str, Any]:
         return create_error_response(str(e), 'WEBSOCKET_CLOSE_FAILED')
 
 
-# ===== HOME ASSISTANT WEBSOCKET API =====
+# ===== WEBSOCKET AUTHENTICATION =====
 
-def authenticate_websocket(ws_id: str, access_token: str) -> Dict[str, Any]:
-    """Authenticate WebSocket connection with HA."""
+def authenticate_websocket(connection: Any, access_token: str) -> Dict[str, Any]:
+    """Authenticate WebSocket connection with Home Assistant."""
     correlation_id = generate_correlation_id()
     
     try:
         log_info(f"[{correlation_id}] Authenticating WebSocket")
         
         # Wait for auth_required message
-        auth_req = receive_websocket_message(ws_id, timeout=5)
+        auth_req = receive_websocket_message(connection, timeout=5)
         if not auth_req.get('success'):
             return auth_req
         
@@ -160,16 +166,16 @@ def authenticate_websocket(ws_id: str, access_token: str) -> Dict[str, Any]:
             'access_token': access_token
         }
         
-        send_result = send_websocket_message(ws_id, auth_msg)
+        send_result = send_websocket_message(connection, auth_msg)
         if not send_result.get('success'):
             return send_result
         
         # Wait for auth_ok or auth_invalid
-        auth_resp = receive_websocket_message(ws_id, timeout=5)
+        auth_resp = receive_websocket_message(connection, timeout=5)
         if not auth_resp.get('success'):
             return auth_resp
         
-        response_data = auth_resp.get('data', {})
+        response_data = auth_resp.get('data', {}).get('message', {})
         msg_type = response_data.get('type', '')
         
         if msg_type == 'auth_ok':
@@ -187,7 +193,7 @@ def authenticate_websocket(ws_id: str, access_token: str) -> Dict[str, Any]:
         return create_error_response(str(e), 'WEBSOCKET_AUTH_FAILED')
 
 
-def websocket_request(ws_id: str, message_type: str, 
+def websocket_request(connection: Any, message_type: str, 
                      params: Optional[Dict] = None,
                      request_id: Optional[int] = None) -> Dict[str, Any]:
     """Send WebSocket request and receive response."""
@@ -208,16 +214,16 @@ def websocket_request(ws_id: str, message_type: str,
         log_debug(f"[{correlation_id}] WebSocket request: {message_type}")
         
         # Send request
-        send_result = send_websocket_message(ws_id, message)
+        send_result = send_websocket_message(connection, message)
         if not send_result.get('success'):
             return send_result
         
         # Receive response
-        response = receive_websocket_message(ws_id, timeout=HA_WEBSOCKET_TIMEOUT)
+        response = receive_websocket_message(connection, timeout=HA_WEBSOCKET_TIMEOUT)
         if not response.get('success'):
             return response
         
-        response_data = response.get('data', {})
+        response_data = response.get('data', {}).get('message', {})
         
         # Check for error
         if response_data.get('type') == 'result':
@@ -275,17 +281,21 @@ def get_entity_registry_via_websocket(use_cache: bool = True) -> Dict[str, Any]:
         if not conn_result.get('success'):
             return conn_result
         
-        ws_id = conn_result.get('data', {}).get('ws_id')
+        # FIXED: Extract connection object not ws_id
+        connection = conn_result.get('data', {}).get('connection')
+        
+        if not connection:
+            return create_error_response('No connection in result', 'WEBSOCKET_NO_CONNECTION')
         
         try:
             # Authenticate
-            auth_result = authenticate_websocket(ws_id, config['access_token'])
+            auth_result = authenticate_websocket(connection, config['access_token'])
             if not auth_result.get('success'):
                 return auth_result
             
             # Request entity registry
             registry_result = websocket_request(
-                ws_id,
+                connection,
                 'config/entity_registry/list'
             )
             
@@ -311,7 +321,7 @@ def get_entity_registry_via_websocket(use_cache: bool = True) -> Dict[str, Any]:
             
         finally:
             # Always close connection
-            close_websocket_connection(ws_id)
+            close_websocket_connection(connection)
         
     except Exception as e:
         log_error(f"[{correlation_id}] Entity registry fetch failed: {str(e)}")
