@@ -1,10 +1,11 @@
 """
 gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.04
+Version: 2025.10.16.05
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
 
 CHANGELOG:
-- 2025.10.16.04: Fixed DEBUG import path: debug_types → debug_types
+- 2025.10.16.05: Removed DEBUG enum import (debug_types doesn't exist in deployment)
+- 2025.10.16.04: Fixed DEBUG import path: debug.debug_types → debug_types
 - 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
                  parameter to interface routers (interface_* modules)
 - 2025.10.16.02: Updated routers, fixed function names, removed unsupported operations
@@ -203,19 +204,9 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     
     # Lazy load the module
     try:
-        # Special handling for DEBUG interface dispatcher pattern
-        if interface == GatewayInterface.DEBUG:
-            module = __import__(module_name, fromlist=[func_name])
-            func = getattr(module, func_name)
-            
-            # Convert operation string to DebugOperation enum
-            from debug_types import DebugOperation  # FIXED 2025.10.16.04: No 'debug' directory
-            operation_enum = DebugOperation[operation.upper()]
-            kwargs['operation'] = operation_enum
-        else:
-            # Standard lazy load for other interfaces
-            module = __import__(module_name, fromlist=[func_name])
-            func = getattr(module, func_name)
+        # Standard lazy load for all interfaces
+        module = __import__(module_name, fromlist=[func_name])
+        func = getattr(module, func_name)
         
         # Cache for fast path (if frequently called) - store both func and module_name
         if _fast_path_enabled and _operation_call_counts[registry_key] >= 5:
