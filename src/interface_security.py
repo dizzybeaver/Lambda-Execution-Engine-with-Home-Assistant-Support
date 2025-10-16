@@ -26,17 +26,17 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Security interface
 from security_core import (
-    validate_request_implementation,
-    validate_token_implementation,
-    encrypt_data_implementation,
-    decrypt_data_implementation,
-    generate_correlation_id_implementation,
-    validate_string_implementation,
-    validate_email_implementation,
-    validate_url_implementation,
-    hash_data_implementation,
-    verify_hash_implementation,
-    sanitize_input_implementation
+    _execute_validate_request_implementation,
+    _execute_validate_token_implementation,
+    _execute_encrypt_data_implementation,
+    _execute_decrypt_data_implementation,
+    _execute_generate_correlation_id_implementation,
+    _execute_validate_string_implementation,
+    _execute_validate_email_implementation,
+    _execute_validate_url_implementation,
+    _execute_hash_data_implementation,
+    _execute_verify_hash_implementation,
+    _execute_sanitize_input_implementation
 )
 
 
@@ -57,37 +57,37 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
     """
     
     if operation == 'validate_request':
-        return validate_request_implementation(**kwargs)
+        return _execute_validate_request_implementation(**kwargs)
     
     elif operation == 'validate_token':
-        return validate_token_implementation(**kwargs)
+        return _execute_validate_token_implementation(**kwargs)
     
-    elif operation == 'encrypt_data':
-        return encrypt_data_implementation(**kwargs)
+    elif operation == 'encrypt' or operation == 'encrypt_data':
+        return _execute_encrypt_data_implementation(**kwargs)
     
-    elif operation == 'decrypt_data':
-        return decrypt_data_implementation(**kwargs)
+    elif operation == 'decrypt' or operation == 'decrypt_data':
+        return _execute_decrypt_data_implementation(**kwargs)
     
     elif operation == 'generate_correlation_id':
-        return generate_correlation_id_implementation(**kwargs)
+        return _execute_generate_correlation_id_implementation(**kwargs)
     
     elif operation == 'validate_string':
-        return validate_string_implementation(**kwargs)
+        return _execute_validate_string_implementation(**kwargs)
     
     elif operation == 'validate_email':
-        return validate_email_implementation(**kwargs)
+        return _execute_validate_email_implementation(**kwargs)
     
     elif operation == 'validate_url':
-        return validate_url_implementation(**kwargs)
+        return _execute_validate_url_implementation(**kwargs)
     
-    elif operation == 'hash_data':
-        return hash_data_implementation(**kwargs)
+    elif operation == 'hash' or operation == 'hash_data':
+        return _execute_hash_data_implementation(**kwargs)
     
     elif operation == 'verify_hash':
-        return verify_hash_implementation(**kwargs)
+        return _execute_verify_hash_implementation(**kwargs)
     
-    elif operation == 'sanitize_input':
-        return sanitize_input_implementation(**kwargs)
+    elif operation == 'sanitize' or operation == 'sanitize_input':
+        return _execute_sanitize_input_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown security operation: {operation}")
