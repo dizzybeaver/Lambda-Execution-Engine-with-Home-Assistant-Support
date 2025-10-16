@@ -1,37 +1,35 @@
 """
 circuit_breaker_core.py - Circuit Breaker Pattern Implementation
-Version: 2025.10.14.01
+Version: 2025.10.16.01
+Description: Circuit breaker with shared_utilities integration for metrics
+
+CHANGELOG:
+- 2025.10.16.01: Fixed record_operation_metrics calls - changed execution_time 
+                 to duration parameter, removed unsupported parameters
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import time
-from typing import Any, Callable, Dict
+from typing import Callable, Dict, Any, Optional
 from threading import Lock
 from enum import Enum
 
 
+# ===== CIRCUIT BREAKER STATE =====
+
 class CircuitState(Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"         # Failing, reject calls
+    HALF_OPEN = "half_open"  # Testing recovery
 
+
+# ===== CIRCUIT BREAKER =====
 
 class CircuitBreaker:
-    """Circuit breaker with error handling and state management."""
+    """Single circuit breaker instance with shared_utilities integration."""
     
     def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 60):
         self.name = name
@@ -57,14 +55,14 @@ class CircuitBreaker:
                 if self.last_failure_time and (time.time() - self.last_failure_time) > self.timeout:
                     self.state = CircuitState.HALF_OPEN
                 else:
-                    execution_time = (time.time() - start_time) * 1000
+                    duration_ms = (time.time() - start_time) * 1000
+                    # FIXED: Changed execution_time to duration, removed extra params
                     record_operation_metrics(
                         interface='circuit_breaker',
                         operation='call_blocked',
-                        execution_time=execution_time,
+                        duration=duration_ms,
                         success=False,
-                        circuit_name=self.name,
-                        circuit_state=self.state.value
+                        correlation_id=context.get('correlation_id')
                     )
                     close_operation_context(context, success=False)
                     return handle_operation_error(
@@ -75,32 +73,32 @@ class CircuitBreaker:
         
         try:
             result = func(*args, **kwargs)
-            execution_time = (time.time() - start_time) * 1000
+            duration_ms = (time.time() - start_time) * 1000
             self._on_success()
             
+            # FIXED: Changed execution_time to duration, removed extra params
             record_operation_metrics(
                 interface='circuit_breaker',
                 operation='call',
-                execution_time=execution_time,
+                duration=duration_ms,
                 success=True,
-                circuit_name=self.name,
-                circuit_state=self.state.value
+                correlation_id=context.get('correlation_id')
             )
             
             close_operation_context(context, success=True, result=result)
             return result
             
         except Exception as e:
-            execution_time = (time.time() - start_time) * 1000
+            duration_ms = (time.time() - start_time) * 1000
             self._on_failure()
             
+            # FIXED: Changed execution_time to duration, removed extra params
             record_operation_metrics(
                 interface='circuit_breaker',
                 operation='call',
-                execution_time=execution_time,
+                duration=duration_ms,
                 success=False,
-                circuit_name=self.name,
-                circuit_state=self.state.value
+                correlation_id=context.get('correlation_id')
             )
             
             close_operation_context(context, success=False)
@@ -132,14 +130,13 @@ class CircuitBreaker:
             self.failures = 0
             self.last_failure_time = None
         
-        execution_time = (time.time() - start_time) * 1000
+        duration_ms = (time.time() - start_time) * 1000
+        # FIXED: Changed execution_time to duration, removed extra params
         record_operation_metrics(
             interface='circuit_breaker',
             operation='reset',
-            execution_time=execution_time,
-            success=True,
-            circuit_name=self.name,
-            circuit_state=self.state.value
+            duration=duration_ms,
+            success=True
         )
     
     def get_state(self) -> Dict[str, Any]:
