@@ -1,9 +1,9 @@
 """
-shared_utilities_validation_advanced.py - Advanced Validation
-Version: 2025.10.16.03
+utility_validation_advanced.py - Advanced Validation (Internal)
+Version: 2025.10.16.04
 Description: Decorators and factory validators for complex validation scenarios
 
-Part of shared_utilities modularization (File 5 of 7)
+SUGA-ISP: Internal module - only accessed via interface_utility.py
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -12,7 +12,7 @@ Licensed under the Apache License, Version 2.0
 from typing import Callable
 import functools
 
-from shared_utilities_validation_core import (
+from utility_validation_core import (
     ValidationError,
     TypeValidationError,
     validate_required_impl,
