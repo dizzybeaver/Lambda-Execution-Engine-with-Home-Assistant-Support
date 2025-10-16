@@ -1,7 +1,7 @@
 """
 lambda_function.py
-Version: 2025.10.15.03
-Description: Main Entry Point with Emergency Failsafe - Fixed timeout issues
+Version: 2025.10.15.04
+Description: Main Entry Point with Multi-Mode Operation Support
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,30 +24,30 @@ from typing import Dict, Any
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda handler with Emergency Failsafe.
+    Main Lambda handler with Multi-Mode Operation.
     
-    FAILSAFE MODE:
-      If LEE_FAILSAFE_ENABLED=true, routes ALL requests to lambda_failsafe.py
-      bypassing the entire LEE and extension system.
+    LAMBDA_MODE Environment Variable:
+      - 'normal' (default): Full LEE with gateway architecture
+      - 'failsafe': Direct Home Assistant passthrough (lambda_failsafe.py)
+      - 'diagnostic': Diagnostic mode for testing imports (lambda_diagnostic.py)
+      - 'emergency': Emergency bypass mode (lambda_emergency.py)
       
-    NORMAL MODE:
-      Uses Revolutionary Gateway Architecture and extensions.
+    All non-normal modes bypass the entire LEE system.
     """
     
     # ========================================================================
-    # FAILSAFE CHECK - MUST BE FIRST - NO SUGA DEPENDENCIES
+    # MODE SELECTION - MUST BE FIRST - NO SUGA DEPENDENCIES
     # ========================================================================
-    if os.getenv('LEE_FAILSAFE_ENABLED', 'false').lower() == 'true':
+    lambda_mode = os.getenv('LAMBDA_MODE', 'normal').lower()
+    
+    if lambda_mode == 'failsafe':
         try:
-            # Import failsafe handler (standalone, no SUGA dependencies)
             import lambda_failsafe
             return lambda_failsafe.lambda_handler(event, context)
         except ImportError as e:
-            # Failsafe file not found - log error and continue with LEE
-            print(f"ERROR: Failsafe enabled but lambda_failsafe.py not found: {e}")
+            print(f"ERROR: Failsafe mode enabled but lambda_failsafe.py not found: {e}")
             print("Falling back to normal LEE operation")
         except Exception as e:
-            # Failsafe crashed - return error
             print(f"CRITICAL: Failsafe handler crashed: {e}")
             return {
                 'event': {
@@ -64,9 +64,43 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             }
     
+    elif lambda_mode == 'diagnostic':
+        try:
+            import lambda_diagnostic
+            return lambda_diagnostic.lambda_handler(event, context)
+        except ImportError as e:
+            print(f"ERROR: Diagnostic mode enabled but lambda_diagnostic.py not found: {e}")
+            print("Falling back to normal LEE operation")
+        except Exception as e:
+            print(f"CRITICAL: Diagnostic handler crashed: {e}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({
+                    "status": "diagnostic_failed",
+                    "error": str(e)
+                })
+            }
+    
+    elif lambda_mode == 'emergency':
+        try:
+            import lambda_emergency
+            return lambda_emergency.lambda_handler(event, context)
+        except ImportError as e:
+            print(f"ERROR: Emergency mode enabled but lambda_emergency.py not found: {e}")
+            print("Falling back to normal LEE operation")
+        except Exception as e:
+            print(f"CRITICAL: Emergency handler crashed: {e}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({
+                    "status": "emergency_failed",
+                    "error": str(e)
+                })
+            }
+    
     # ========================================================================
     # NORMAL LEE OPERATION
-    # âœ… Lazy imports - only load what we need when we need it
+    # ✅ Lazy imports - only load what we need when we need it
     # ========================================================================
     from gateway import (
         log_info, log_error, log_debug, log_warning,
@@ -142,7 +176,7 @@ def process_request(event: Dict[str, Any], context: Any, request_type: str) -> D
 
 def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa Smart Home skill directives."""
-    # âœ… Lazy imports - only load HA extension when handling Alexa requests
+    # ✅ Lazy imports - only load HA extension when handling Alexa requests
     from gateway import log_info, log_error, log_debug, increment_counter
     from homeassistant_extension import process_alexa_ha_request, is_ha_extension_enabled
     
@@ -172,7 +206,7 @@ def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, A
 
 def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa Custom Skill requests."""
-    # âœ… Lazy imports
+    # ✅ Lazy imports
     from gateway import log_info, log_error, increment_counter
     from homeassistant_extension import is_ha_extension_enabled
     
@@ -474,7 +508,7 @@ def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dic
 
 def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle health check requests."""
-    # âœ… Lazy imports - minimal for health checks
+    # ✅ Lazy imports - minimal for health checks
     from gateway import log_info, log_error, format_response, get_gateway_stats
     
     try:
@@ -489,7 +523,7 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "gateway": get_gateway_stats()
         }
 
-        # Only check HA if explicitly requested or if extension is enabled
+        # Only check HA if explicitly requested
         if event.get('check_ha', False):
             from homeassistant_extension import get_ha_status, is_ha_extension_enabled
             if is_ha_extension_enabled():
@@ -524,7 +558,7 @@ def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, 
 
 def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle comprehensive diagnostic requests."""
-    # âœ… Lazy imports - only load what's needed for this specific test type
+    # ✅ Lazy imports - only load what's needed for this specific test type
     from gateway import log_info, log_error, format_response, get_gateway_stats
     
     try:
@@ -541,7 +575,7 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
             "gateway_stats": get_gateway_stats()
         }
 
-        # âœ… CRITICAL: Only import HA extension if test actually needs it
+        # ✅ CRITICAL: Only import HA extension if test actually needs it
         if test_type in ['full', 'homeassistant']:
             try:
                 from homeassistant_extension import get_ha_diagnostic_info
@@ -554,12 +588,12 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
                         "HOME_ASSISTANT_TOKEN": os.getenv('HOME_ASSISTANT_TOKEN', '')[0:20] + '...',
                         "HOME_ASSISTANT_ENABLED": os.getenv('HOME_ASSISTANT_ENABLED'),
                         "USE_PARAMETER_STORE": os.getenv('USE_PARAMETER_STORE'),
-                        "LEE_FAILSAFE_ENABLED": os.getenv('LEE_FAILSAFE_ENABLED', 'false')
+                        "LAMBDA_MODE": os.getenv('LAMBDA_MODE', 'normal')
                     }
             except Exception as e:
                 diagnostics["home_assistant_error"] = str(e)
 
-        # âœ… Configuration test - no HA imports needed
+        # ✅ Configuration test - no HA imports needed
         if test_type in ['full', 'configuration']:
             try:
                 from homeassistant_extension import get_assistant_name_status
