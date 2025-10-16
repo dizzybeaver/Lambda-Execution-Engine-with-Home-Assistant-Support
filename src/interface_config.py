@@ -1,6 +1,6 @@
 """
 interface_config.py - Config Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
+Version: 2025.10.16.01
 Description: Firewall router for Config interface
 
 This file acts as the interface router (firewall) between the SUGA-ISP
@@ -24,8 +24,9 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any
 
-# ✅ ALLOWED: Import internal files within same Config interface
+# âœ… ALLOWED: Import internal files within same Config interface
 from config_core import (
+    _initialize_implementation,
     _get_parameter_implementation,
     _set_parameter_implementation,
     _get_category_implementation,
@@ -44,7 +45,7 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The config operation to execute ('get', 'set', 'reload', etc.)
+        operation: The config operation to execute ('initialize', 'get', 'set', 'reload', etc.)
         **kwargs: Operation-specific parameters
         
     Returns:
@@ -54,7 +55,10 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
-    if operation == 'get' or operation == 'get_parameter':
+    if operation == 'initialize':
+        return _initialize_implementation(**kwargs)
+    
+    elif operation == 'get' or operation == 'get_parameter':
         return _get_parameter_implementation(**kwargs)
     
     elif operation == 'set' or operation == 'set_parameter':
