@@ -1,12 +1,11 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.16.07
+Version: 2025.10.16.08
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.16.08: Added missing log_error import in diagnostic exception handler
 - 2025.10.16.07: Fixed all HA extension import names to match actual functions
-                 is_ha_available → is_ha_extension_enabled + get_ha_status
-                 get_assistant_name → get_assistant_name_status
 - 2025.10.16.06: Fixed import names - process_alexa_* → handle_alexa_*
 - 2025.10.16.05: Fixed context attribute - request_id → aws_request_id
 - 2025.10.16.04: Removed debug print statements, re-enabled validation
@@ -232,6 +231,7 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
                 from homeassistant_extension import get_ha_diagnostic_info
                 response_data["home_assistant"] = get_ha_diagnostic_info()
             except Exception as e:
+                from gateway import log_error
                 log_error(f"Diagnostic info failed: {str(e)}")
                 response_data["home_assistant"] = {}
         
@@ -256,6 +256,7 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         return format_response(200, response_data)
         
     except Exception as e:
+        from gateway import log_error  # Lazy import for error logging
         log_error(f"Diagnostic request failed: {str(e)}", error=e)
         return format_response(500, {
             "error": str(e),
@@ -290,7 +291,7 @@ def create_alexa_error_response(event: Dict[str, Any], error_type: str,
 
 # ===== VERSION INFO =====
 
-__version__ = "2025.10.16.07"
+__version__ = "2025.10.16.08"
 __all__ = ['lambda_handler']
 
 # EOF
