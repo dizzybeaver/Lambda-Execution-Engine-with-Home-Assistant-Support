@@ -1,11 +1,16 @@
 """
 interface_singleton.py - Singleton Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
-Description: Firewall router for Singleton interface
+Version: 2025.10.16.01
+Description: Firewall router for Singleton interface - BUGS FIXED
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
+
+FIXES APPLIED:
+- Added missing 'set' operation route
+- Added _execute_set_implementation to imports
+- Improved error handling
 
 Copyright 2025 Joseph Hersey
 
@@ -27,6 +32,7 @@ from typing import Any
 # ✅ ALLOWED: Import internal files within same Singleton interface
 from singleton_core import (
     _execute_get_implementation,
+    _execute_set_implementation,
     _execute_has_implementation,
     _execute_delete_implementation,
     _execute_clear_implementation,
@@ -40,7 +46,7 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The singleton operation to execute ('get', 'has', 'delete', etc.)
+        operation: The singleton operation to execute ('get', 'set', 'has', 'delete', etc.)
         **kwargs: Operation-specific parameters
         
     Returns:
@@ -52,6 +58,9 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
     
     if operation == 'get':
         return _execute_get_implementation(**kwargs)
+    
+    elif operation == 'set':
+        return _execute_set_implementation(**kwargs)
     
     elif operation == 'has':
         return _execute_has_implementation(**kwargs)
@@ -66,7 +75,10 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
         return _execute_get_stats_implementation(**kwargs)
     
     else:
-        raise ValueError(f"Unknown singleton operation: {operation}")
+        raise ValueError(
+            f"Unknown singleton operation: '{operation}'. "
+            f"Valid operations: get, set, has, delete, clear, stats"
+        )
 
 
 __all__ = [
