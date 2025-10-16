@@ -1,16 +1,11 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.16.03
+Version: 2025.10.16.02
 Description: Core HTTPClientCore class and gateway implementation functions.
 
 CHANGELOG:
-- 2025.10.16.03: Fixed data/json parameter handling and headers merging
-                 POST/PUT now correctly handle both 'data' and 'json' parameters
-                 Headers now merge user headers with standard headers
-- 2025.10.16.02: Fixed parameter passing - changed .get() to .pop() in 5 implementation 
-                 functions to prevent "multiple values for argument" error
-- 2025.10.16.01: Fixed imports - removed 'network.' prefix from 3 import statements
-                 Files are at root level, not in network/ subdirectory
+- 2025.10.16.02: Bug fixes - JSON parsing, header merging, error handling, validation
+- 2025.10.16.01: Fixed imports - removed 'network.' prefix from import statements
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -59,31 +54,67 @@ class HTTPClientCore:
         multiplier = self._retry_config['backoff_multiplier']
         return (base_ms * (multiplier ** attempt)) / 1000.0
     
+    def _validate_timeout(self, timeout: float) -> float:
+        """Validate and bound timeout value."""
+        if timeout <= 0:
+            return 30.0
+        if timeout > 900:  # Max 15 minutes for Lambda
+            return 900.0
+        return timeout
+    
+    def _parse_response_data(self, response_data: bytes, content_type: str) -> Any:
+        """Parse response data based on content type."""
+        if not response_data:
+            return {}
+        
+        try:
+            decoded = response_data.decode('utf-8')
+            
+            # Try JSON first if content-type suggests it
+            if 'application/json' in content_type.lower():
+                try:
+                    return json.loads(decoded)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails but content-type says JSON, log warning
+                    from gateway import log_warning
+                    log_warning(f"Failed to parse JSON response despite content-type: {content_type}")
+                    return decoded
+            
+            # For other content types, try JSON anyway, fallback to string
+            try:
+                return json.loads(decoded)
+            except json.JSONDecodeError:
+                return decoded
+                
+        except UnicodeDecodeError as e:
+            from gateway import log_error
+            log_error(f"Failed to decode response data: {e}")
+            return response_data.hex()  # Return hex string for binary data
+    
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
         try:
-            # FIXED: Merge user headers with standard headers instead of replacing
-            standard_headers = get_standard_headers()
-            user_headers = kwargs.get('headers', {})
-            headers = {**standard_headers, **user_headers}  # User headers override standards
+            # Merge headers - start with standard, then add custom
+            headers = get_standard_headers()
+            custom_headers = kwargs.get('headers', {})
+            if custom_headers:
+                headers.update(custom_headers)
             
-            # FIXED: Handle both 'json' and 'data' parameters
-            body = None
-            if 'json' in kwargs:
-                body = json.dumps(kwargs['json'])
-            elif 'data' in kwargs:
-                data = kwargs['data']
-                if isinstance(data, dict):
-                    body = json.dumps(data)
-                else:
-                    body = data  # Already a string
+            # Get body from 'json' kwarg
+            body = kwargs.get('json')
+            if body:
+                body = json.dumps(body)
+                headers['Content-Type'] = 'application/json'
+            
+            # Validate timeout
+            timeout = self._validate_timeout(kwargs.get('timeout', 30.0))
             
             response = self.http.request(
                 method=method,
                 url=url,
                 body=body,
                 headers=headers,
-                timeout=kwargs.get('timeout', 30.0)
+                timeout=timeout
             )
             
             self._stats['requests'] += 1
@@ -91,31 +122,19 @@ class HTTPClientCore:
             if 200 <= response.status < 300:
                 self._stats['successful'] += 1
                 
-                # Try to parse JSON response
-                response_data = {}
-                if response.data:
-                    try:
-                        response_data = json.loads(response.data.decode('utf-8'))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        # If not JSON, return raw data
-                        response_data = response.data.decode('utf-8', errors='replace')
+                # Get content type for parsing
+                content_type = dict(response.headers).get('content-type', '')
+                parsed_data = self._parse_response_data(response.data, content_type)
                 
                 return {
                     'success': True,
                     'status_code': response.status,
-                    'data': response_data,
+                    'data': parsed_data,
                     'headers': dict(response.headers)
                 }
             else:
                 self._stats['failed'] += 1
-                
-                # Try to get error message from response
-                error_data = ''
-                if response.data:
-                    try:
-                        error_data = response.data.decode('utf-8', errors='replace')
-                    except Exception:
-                        error_data = str(response.data)
+                error_data = response.data.decode('utf-8') if response.data else ''
                 
                 return {
                     'success': False,
@@ -124,7 +143,27 @@ class HTTPClientCore:
                     'data': error_data
                 }
                 
+        except urllib3.exceptions.HTTPError as e:
+            from gateway import log_error
+            log_error(f"HTTP request failed: {str(e)}", error=e)
+            self._stats['failed'] += 1
+            return {
+                'success': False,
+                'error': str(e),
+                'error_type': 'HTTPError'
+            }
+        except json.JSONDecodeError as e:
+            from gateway import log_error
+            log_error(f"JSON encoding failed: {str(e)}", error=e)
+            self._stats['failed'] += 1
+            return {
+                'success': False,
+                'error': f"JSON encoding error: {str(e)}",
+                'error_type': 'JSONDecodeError'
+            }
         except Exception as e:
+            from gateway import log_error
+            log_error(f"Unexpected HTTP error: {str(e)}", error=e)
             self._stats['failed'] += 1
             return {
                 'success': False,
@@ -185,37 +224,32 @@ def _make_http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
 
 def http_request_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP request."""
-    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
-    method = kwargs.pop('method', 'GET')
-    url = kwargs.pop('url', '')
+    method = kwargs.get('method', 'GET')
+    url = kwargs.get('url', '')
     return _make_http_request(method, url, **kwargs)
 
 
 def http_get_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP GET."""
-    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
-    url = kwargs.pop('url', '')
+    url = kwargs.get('url', '')
     return _make_http_request('GET', url, **kwargs)
 
 
 def http_post_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP POST."""
-    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
-    url = kwargs.pop('url', '')
+    url = kwargs.get('url', '')
     return _make_http_request('POST', url, **kwargs)
 
 
 def http_put_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP PUT."""
-    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
-    url = kwargs.pop('url', '')
+    url = kwargs.get('url', '')
     return _make_http_request('PUT', url, **kwargs)
 
 
 def http_delete_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP DELETE."""
-    # FIXED: Use .pop() to remove from kwargs and avoid duplicate parameter error
-    url = kwargs.pop('url', '')
+    url = kwargs.get('url', '')
     return _make_http_request('DELETE', url, **kwargs)
 
 
