@@ -1,7 +1,12 @@
 """
-cache_core.py - Dynamic caching with dispatcher timing integration
-Version: 2025.10.15.02
-Description: Dynamic caching with LUGS integration and dispatcher timing (Phase 4 Task #7)
+cache_core.py - LUGS-Integrated Cache Core Implementation
+Version: 2025.10.16.02
+Description: Thread-safe cache with LUGS metadata tracking and dispatcher timing
+
+CHANGELOG:
+- 2025.10.16.02: Fixed exists() implementation, TTL defaults, error handling, type hints
+- 2025.10.15.02: Added dispatcher timing integration
+- 2025.10.15.01: Initial LUGS-integrated cache implementation
 
 Copyright 2025 Joseph Hersey
 
@@ -19,6 +24,7 @@ Copyright 2025 Joseph Hersey
 """
 
 import os
+import sys
 import time
 import threading
 from typing import Dict, Any, Optional, Set, Callable
@@ -45,7 +51,7 @@ class CacheOperation(Enum):
 
 @dataclass
 class CacheEntry:
-    """Cache entry with LUGS metadata."""
+    """Cache entry with LUGS metadata and type hints."""
     value: Any
     timestamp: float
     ttl: float
@@ -54,10 +60,10 @@ class CacheEntry:
     last_access: float = 0.0
 
 
-# ===== LUGS INTEGRATED CACHE =====
+# ===== LUGS-INTEGRATED CACHE =====
 
 class LUGSIntegratedCache:
-    """Cache with LUGS module dependency tracking."""
+    """Thread-safe cache with LUGS dependency tracking."""
     
     def __init__(self):
         self._lock = threading.Lock()
@@ -88,6 +94,7 @@ class LUGSIntegratedCache:
             self._cache[key] = entry
             self._stats['total_sets'] += 1
         
+        # Notify LUGS of cache dependency
         if source_module:
             try:
                 from gateway import add_cache_module_dependency
@@ -96,7 +103,7 @@ class LUGSIntegratedCache:
                 pass
     
     def get(self, key: str) -> Optional[Any]:
-        """Get cache value with LUGS awareness."""
+        """Get cache entry with access tracking."""
         current_time = time.time()
         
         with self._lock:
@@ -121,6 +128,24 @@ class LUGSIntegratedCache:
             self._stats['cache_hits'] += 1
             
             return entry.value
+    
+    def exists(self, key: str) -> bool:
+        """Check if key exists without updating access metadata."""
+        current_time = time.time()
+        
+        with self._lock:
+            if key not in self._cache:
+                return False
+            
+            entry = self._cache[key]
+            
+            # Check expiration without updating access metadata
+            if current_time - entry.timestamp > entry.ttl:
+                del self._cache[key]
+                self._stats['entries_expired'] += 1
+                return False
+            
+            return True
     
     def delete(self, key: str) -> bool:
         """Delete cache entry."""
@@ -161,14 +186,16 @@ class LUGSIntegratedCache:
             stats.update({
                 'entries_count': len(self._cache),
                 'cache_hit_rate': (
-                    self._stats['cache_hits'] / max(self._stats['total_gets'], 1) * 100
-                ) if self._stats['total_gets'] > 0 else 0
+                    (self._stats['cache_hits'] / self._stats['total_gets'] * 100)
+                    if self._stats['total_gets'] > 0
+                    else 0.0
+                )
             })
         
         return stats
     
     def get_module_dependencies(self) -> Dict[str, Set[str]]:
-        """Get all cache entries by source module."""
+        """Get all cache entries by source module for LUGS integration."""
         dependencies = {}
         
         with self._lock:
@@ -190,15 +217,18 @@ def execute_cache_operation(operation: CacheOperation, *args, **kwargs):
     """Universal cache operation executor with dispatcher performance monitoring."""
     start_time = time.time()
     
-    if not _USE_GENERIC_OPERATIONS:
-        result = _execute_legacy_operation(operation, *args, **kwargs)
-    else:
-        result = _execute_generic_operation(operation, *args, **kwargs)
+    try:
+        if not _USE_GENERIC_OPERATIONS:
+            result = _execute_legacy_operation(operation, *args, **kwargs)
+        else:
+            result = _execute_generic_operation(operation, *args, **kwargs)
+        
+        return result
     
-    duration_ms = (time.time() - start_time) * 1000
-    _record_dispatcher_metric(operation, duration_ms)
-    
-    return result
+    finally:
+        # Record dispatcher timing
+        duration_ms = (time.time() - start_time) * 1000
+        _record_dispatcher_metric(operation, duration_ms)
 
 
 def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
@@ -206,6 +236,7 @@ def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
     if operation == CacheOperation.GET:
         key = args[0] if args else kwargs.get('key')
         return _cache_instance.get(key)
+    
     elif operation == CacheOperation.SET:
         key = args[0] if args else kwargs.get('key')
         value = args[1] if len(args) > 1 else kwargs.get('value')
@@ -213,15 +244,20 @@ def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
         source_module = kwargs.get('source_module')
         _cache_instance.set(key, value, ttl, source_module)
         return None
+    
     elif operation == CacheOperation.DELETE:
         key = args[0] if args else kwargs.get('key')
         return _cache_instance.delete(key)
+    
     elif operation == CacheOperation.CLEAR:
         return _cache_instance.clear()
+    
     elif operation == CacheOperation.CLEANUP_EXPIRED:
         return _cache_instance.cleanup_expired()
+    
     elif operation == CacheOperation.GET_STATS:
         return _cache_instance.get_stats()
+    
     elif operation == CacheOperation.GET_MODULE_DEPENDENCIES:
         return _cache_instance.get_module_dependencies()
     
@@ -230,9 +266,9 @@ def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
 
 def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
     """Legacy operation execution for rollback compatibility."""
-    # Fallback to direct method calls
     if operation == CacheOperation.GET:
         return _cache_instance.get(args[0] if args else kwargs.get('key'))
+    
     elif operation == CacheOperation.SET:
         return _cache_instance.set(
             args[0] if args else kwargs.get('key'),
@@ -240,14 +276,19 @@ def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
             args[2] if len(args) > 2 else kwargs.get('ttl', 300),
             kwargs.get('source_module')
         )
+    
     elif operation == CacheOperation.DELETE:
         return _cache_instance.delete(args[0] if args else kwargs.get('key'))
+    
     elif operation == CacheOperation.CLEAR:
         return _cache_instance.clear()
+    
     elif operation == CacheOperation.CLEANUP_EXPIRED:
         return _cache_instance.cleanup_expired()
+    
     elif operation == CacheOperation.GET_STATS:
         return _cache_instance.get_stats()
+    
     elif operation == CacheOperation.GET_MODULE_DEPENDENCIES:
         return _cache_instance.get_module_dependencies()
     
@@ -255,7 +296,7 @@ def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
 
 
 def _record_dispatcher_metric(operation: CacheOperation, duration_ms: float):
-    """Record dispatcher performance metric using centralized METRICS operation (Phase 4 Task #7)."""
+    """Record dispatcher performance metric using centralized METRICS operation."""
     try:
         from gateway import execute_operation, GatewayInterface
         execute_operation(
@@ -265,8 +306,9 @@ def _record_dispatcher_metric(operation: CacheOperation, duration_ms: float):
             operation_name=operation.value,
             duration_ms=duration_ms
         )
-    except Exception:
-        pass
+    except Exception as e:
+        # Don't break cache operation, but log the error
+        print(f"[CACHE] Warning: Failed to record metrics: {e}", file=sys.stderr)
 
 
 # ===== CONVENIENCE FUNCTIONS =====
@@ -338,9 +380,8 @@ def _execute_get_implementation(key: str, default: Any = None, **kwargs) -> Opti
     return result if result is not None else default
 
 
-def _execute_set_implementation(key: str, value: Any, ttl: Optional[float] = None, source_module: Optional[str] = None, **kwargs) -> None:
-    """Execute set operation."""
-    ttl = ttl if ttl is not None else 300
+def _execute_set_implementation(key: str, value: Any, ttl: float = 300, source_module: Optional[str] = None, **kwargs) -> None:
+    """Execute set operation with default TTL of 300 seconds."""
     execute_cache_operation(CacheOperation.SET, key, value, ttl, source_module=source_module, **kwargs)
 
 
@@ -365,8 +406,8 @@ def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
 
 
 def _execute_exists_implementation(key: str, **kwargs) -> bool:
-    """Execute exists operation - legacy wrapper."""
-    return execute_cache_operation(CacheOperation.GET, key, **kwargs) is not None
+    """Execute exists operation - checks without updating access metadata."""
+    return _cache_instance.exists(key)
 
 
 # ===== EXPORTS =====
