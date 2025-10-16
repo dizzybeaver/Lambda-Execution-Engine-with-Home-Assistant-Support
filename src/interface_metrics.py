@@ -1,7 +1,8 @@
 """
 interface_metrics.py - Metrics Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
+Version: 2025.10.16.01
 Description: Firewall router for Metrics interface
+            FIXED: Added all missing operation handlers and imports
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
@@ -32,7 +33,16 @@ from metrics_operations import (
     _execute_record_operation_metric_implementation,
     _execute_record_error_response_metric_implementation,
     _execute_record_cache_metric_implementation,
-    _execute_record_api_metric_implementation
+    _execute_record_api_metric_implementation,
+    _execute_record_response_metric_implementation,
+    _execute_record_http_metric_implementation,
+    _execute_record_circuit_breaker_metric_implementation,
+    _execute_get_response_metrics_implementation,
+    _execute_get_http_metrics_implementation,
+    _execute_get_circuit_breaker_metrics_implementation,
+    _execute_record_dispatcher_timing_implementation,
+    _execute_get_dispatcher_stats_implementation,
+    _execute_get_operation_metrics_implementation
 )
 
 
@@ -52,6 +62,7 @@ def execute_metrics_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
+    # Basic metric operations
     if operation == 'record' or operation == 'record_metric':
         return _execute_record_metric_implementation(**kwargs)
     
@@ -61,6 +72,7 @@ def execute_metrics_operation(operation: str, **kwargs) -> Any:
     elif operation == 'get_stats':
         return _execute_get_stats_implementation(**kwargs)
     
+    # Specialized recording operations
     elif operation == 'record_operation' or operation == 'record_operation_metric':
         return _execute_record_operation_metric_implementation(**kwargs)
     
@@ -72,6 +84,35 @@ def execute_metrics_operation(operation: str, **kwargs) -> Any:
     
     elif operation == 'record_api' or operation == 'record_api_metric':
         return _execute_record_api_metric_implementation(**kwargs)
+    
+    elif operation == 'record_response' or operation == 'record_response_metric':
+        return _execute_record_response_metric_implementation(**kwargs)
+    
+    elif operation == 'record_http' or operation == 'record_http_metric':
+        return _execute_record_http_metric_implementation(**kwargs)
+    
+    elif operation == 'record_circuit_breaker' or operation == 'record_circuit_breaker_metric':
+        return _execute_record_circuit_breaker_metric_implementation(**kwargs)
+    
+    # Metrics retrieval operations
+    elif operation == 'get_response_metrics':
+        return _execute_get_response_metrics_implementation(**kwargs)
+    
+    elif operation == 'get_http_metrics':
+        return _execute_get_http_metrics_implementation(**kwargs)
+    
+    elif operation == 'get_circuit_breaker_metrics':
+        return _execute_get_circuit_breaker_metrics_implementation(**kwargs)
+    
+    # Dispatcher and operation metrics
+    elif operation == 'record_dispatcher_timing':
+        return _execute_record_dispatcher_timing_implementation(**kwargs)
+    
+    elif operation == 'get_dispatcher_stats' or operation == 'get_dispatcher_metrics':
+        return _execute_get_dispatcher_stats_implementation(**kwargs)
+    
+    elif operation == 'get_operation_metrics':
+        return _execute_get_operation_metrics_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown metrics operation: {operation}")
