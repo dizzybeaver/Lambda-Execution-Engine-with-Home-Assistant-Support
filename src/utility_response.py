@@ -1,9 +1,9 @@
 """
-shared_utilities_response.py - Response Formatting
-Version: 2025.10.16.03
+utility_response.py - Response Formatting (Internal)
+Version: 2025.10.16.04
 Description: Response formatting methods for success/error responses and Lambda responses
 
-Part of shared_utilities modularization (File 3 of 7)
+SUGA-ISP: Internal module - only accessed via interface_utility.py
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -15,7 +15,7 @@ import os
 from typing import Dict, Any, Optional
 import logging as stdlib_logging
 
-from shared_utilities_types import (
+from utility_types import (
     SUCCESS_TEMPLATE,
     SUCCESS_WITH_CORRELATION,
     ERROR_TEMPLATE,
