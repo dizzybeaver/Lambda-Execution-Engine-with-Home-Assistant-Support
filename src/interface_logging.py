@@ -1,11 +1,19 @@
 """
 interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
+Version: 2025.10.16.02
 Description: Firewall router for Logging interface
+             VERIFIED: Architecture-compliant error handling
+             FIXED: Function name mismatches and parameter passing
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
+
+Error Handling Philosophy:
+- Router raises ValueError for unknown operations (appropriate)
+- Implementation errors bubble up naturally to gateway/caller
+- Centralized error handling exists in shared_utilities.handle_operation_error()
+- This follows SUGA-ISP principle: routers route, implementations implement
 
 Copyright 2025 Joseph Hersey
 
@@ -70,8 +78,13 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
     elif operation == 'operation_success' or operation == 'log_operation_success':
         return _execute_log_operation_success_implementation(**kwargs)
     
-    elif operation == 'operation_failure' or operation == 'log_operation_failure':
+    elif operation == 'operation_failure' or operation == 'log_operation_failure' or operation == 'operation_error' or operation == 'log_operation_error':
+        # FIXED: Support both 'failure' and 'error' naming for compatibility
         return _execute_log_operation_failure_implementation(**kwargs)
+    
+    elif operation == 'operation_end' or operation == 'log_operation_end':
+        # operation_end is just an alias for operation_success with no result
+        return _execute_log_operation_success_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown logging operation: {operation}")
