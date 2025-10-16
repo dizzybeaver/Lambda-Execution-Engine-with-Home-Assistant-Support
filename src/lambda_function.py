@@ -1,7 +1,7 @@
 """
 lambda_function.py
-Version: 2025.10.15.02
-Description: Main Entry Point with Emergency Failsafe
+Version: 2025.10.15.03
+Description: Main Entry Point with Emergency Failsafe - Fixed timeout issues
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -65,33 +65,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
     
     # ========================================================================
-    # NORMAL LEE OPERATION - Gateway and Extensions
+    # NORMAL LEE OPERATION
+    # âœ… Lazy imports - only load what we need when we need it
     # ========================================================================
     from gateway import (
         log_info, log_error, log_debug, log_warning,
         validate_request, validate_token,
-        cache_get, cache_set,
-        record_metric, increment_counter,
+        increment_counter,
         format_response,
-        get_gateway_stats,
-        initialize_lambda
-    )
-
-    # ✅ CORRECT - ALL HA imports from facade only
-    from homeassistant_extension import (
-        is_ha_extension_enabled,
-        get_ha_assistant_name,
-        get_ha_status,
-        get_ha_diagnostic_info,
-        get_assistant_name_status,
-        process_alexa_ha_request,
-        process_conversation,
-        trigger_automation,
-        run_script,
-        set_input_helper,
-        send_notification,
-        list_automations,
-        list_scripts
+        get_gateway_stats
     )
     
     try:
@@ -160,6 +142,7 @@ def process_request(event: Dict[str, Any], context: Any, request_type: str) -> D
 
 def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle Alexa Smart Home skill directives."""
+    # âœ… Lazy imports - only load HA extension when handling Alexa requests
     from gateway import log_info, log_error, log_debug, increment_counter
     from homeassistant_extension import process_alexa_ha_request, is_ha_extension_enabled
     
@@ -169,71 +152,48 @@ def _handle_alexa_smart_home(event: Dict[str, Any], context: Any) -> Dict[str, A
         name = directive.get('header', {}).get('name', 'Unknown')
         
         log_info(f"Processing Alexa directive: {namespace}.{name}")
-        increment_counter("alexa_directives")
+        log_debug(f"Full directive: {json.dumps(directive)}")
+        increment_counter("alexa_smart_home_requests")
         
         if not is_ha_extension_enabled():
             log_error("Home Assistant extension not enabled")
-            increment_counter("ha_disabled_requests")
-            return {
-                'event': {
-                    'header': {
-                        'namespace': 'Alexa',
-                        'name': 'ErrorResponse',
-                        'messageId': directive.get('header', {}).get('messageId', 'unknown'),
-                        'payloadVersion': '3'
-                    },
-                    'payload': {
-                        'type': 'INTERNAL_ERROR',
-                        'message': 'Home Assistant integration is not enabled'
-                    }
-                }
-            }
+            return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
+                                               'Home Assistant integration is not available')
         
         result = process_alexa_ha_request(event)
-        increment_counter("alexa_directives_success")
+        increment_counter("alexa_smart_home_success")
         return result
         
     except Exception as e:
-        log_error(f"Alexa Smart Home directive failed: {str(e)}")
-        increment_counter("alexa_directives_failed")
-        return {
-            'event': {
-                'header': {
-                    'namespace': 'Alexa',
-                    'name': 'ErrorResponse',
-                    'messageId': 'error',
-                    'payloadVersion': '3'
-                },
-                'payload': {
-                    'type': 'INTERNAL_ERROR',
-                    'message': str(e)
-                }
-            }
-        }
+        log_error(f"Alexa Smart Home request failed: {str(e)}")
+        increment_counter("alexa_smart_home_failed")
+        return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def _handle_alexa_custom_skill(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle Alexa Custom Skill intents."""
+    """Handle Alexa Custom Skill requests."""
+    # âœ… Lazy imports
     from gateway import log_info, log_error, increment_counter
     from homeassistant_extension import is_ha_extension_enabled
     
     try:
-        request = event.get('request', {})
-        request_type = request.get('type', 'Unknown')
+        request_type = event.get('request', {}).get('type', 'Unknown')
+        log_info(f"Processing Alexa custom skill request: {request_type}")
+        increment_counter("alexa_custom_requests")
         
-        log_info(f"Processing Alexa custom skill: {request_type}")
-        increment_counter("alexa_custom_intents")
+        if not is_ha_extension_enabled():
+            return _create_alexa_response("Home Assistant integration is not available.")
         
         if request_type == 'LaunchRequest':
             return _handle_launch_request(event, context)
-        elif request_type == 'IntentRequest':
-            intent_name = request.get('intent', {}).get('name', 'Unknown')
-            log_info(f"Intent: {intent_name}")
-            return _handle_intent_request(event, context, intent_name)
         elif request_type == 'SessionEndedRequest':
             return _handle_session_ended_request(event, context)
+        elif request_type == 'IntentRequest':
+            intent_name = event.get('request', {}).get('intent', {}).get('name', '')
+            return _handle_intent_request(event, context, intent_name)
         else:
-            return _create_alexa_response("I didn't understand that request.")
+            log_error(f"Unknown custom skill request type: {request_type}")
+            return _create_alexa_response("I don't understand that request.")
             
     except Exception as e:
         log_error(f"Custom skill request failed: {str(e)}")
@@ -312,79 +272,32 @@ def _handle_stop_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 
 def _handle_status_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle status check."""
-    from gateway import log_info, log_error
-    from homeassistant_extension import get_ha_status, is_ha_extension_enabled
+    """Handle status check intent."""
+    from gateway import log_info
+    from homeassistant_extension import get_ha_status
     
-    try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
-        
-        log_info("Checking Home Assistant status")
-        status = get_ha_status()
-        
-        if status.get('success'):
-            data = status.get('data', {})
-            version = data.get('version', 'unknown')
-            return _create_alexa_response(f"Home Assistant is running version {version}.")
-        else:
-            error = status.get('error', 'Unknown error')
-            return _create_alexa_response(f"I couldn't check the status. {error}")
-            
-    except Exception as e:
-        log_error(f"Status check failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't check the Home Assistant status.")
-
-
-def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle conversation with Home Assistant."""
-    from gateway import log_info, log_error
-    from homeassistant_extension import process_conversation, is_ha_extension_enabled
+    log_info("Status check requested via Alexa")
+    status = get_ha_status()
     
-    try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
-        
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        text_slot = slots.get('ConversationText', {})
-        conversation_text = text_slot.get('value', '')
-
-        if not conversation_text:
-            return _create_alexa_response("I didn't hear what you wanted to say.")
-
-        log_info(f"Processing conversation: {conversation_text}")
-        result = process_conversation(conversation_text)
-        
-        if result.get('success'):
-            response_text = result.get('data', {}).get('response', 'Done.')
-            return _create_alexa_response(response_text)
-        else:
-            error = result.get('error', 'Unknown error')
-            return _create_alexa_response(f"I couldn't process that. {error}")
-            
-    except Exception as e:
-        log_error(f"Conversation failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't understand that.")
+    if status.get('success'):
+        return _create_alexa_response("Home Assistant is connected and running.")
+    else:
+        error = status.get('error', 'Unknown error')
+        return _create_alexa_response(f"Home Assistant is not available. {error}")
 
 
 def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle automation triggering."""
+    """Handle trigger automation intent."""
     from gateway import log_info, log_error
-    from homeassistant_extension import trigger_automation, is_ha_extension_enabled
+    from homeassistant_extension import trigger_automation
     
     try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
+        slots = event.get('request', {}).get('intent', {}).get('slots', {})
+        automation_name = slots.get('AutomationName', {}).get('value', '')
         
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        automation_slot = slots.get('AutomationName', {})
-        automation_name = automation_slot.get('value', '')
-
         if not automation_name:
-            return _create_alexa_response("I didn't hear which automation you want to trigger.")
-
+            return _create_alexa_response("I didn't catch the automation name. Please try again.")
+        
         log_info(f"Triggering automation: {automation_name}")
         result = trigger_automation(automation_name)
         
@@ -395,77 +308,49 @@ def _handle_trigger_automation_intent(event: Dict[str, Any], context: Any) -> Di
             return _create_alexa_response(f"I couldn't trigger that automation. {error}")
             
     except Exception as e:
-        log_error(f"Automation trigger failed: {str(e)}")
+        log_error(f"Trigger automation failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't trigger that automation.")
 
 
-def _handle_list_automations_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle listing automations."""
+def _handle_conversation_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Handle conversation intent."""
     from gateway import log_info, log_error
-    from homeassistant_extension import list_automations, is_ha_extension_enabled
+    from homeassistant_extension import process_conversation
     
     try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
+        slots = event.get('request', {}).get('intent', {}).get('slots', {})
+        message = slots.get('Message', {}).get('value', '')
         
-        log_info("Listing automations")
-        result = list_automations()
+        if not message:
+            return _create_alexa_response("I didn't hear what you said. Please try again.")
         
-        if result.get('success'):
-            automations = result.get('data', {}).get('automations', [])
-            count = len(automations)
-            return _create_alexa_response(f"You have {count} automations configured.")
-        else:
-            error = result.get('error', 'Unknown error')
-            return _create_alexa_response(f"I couldn't list your automations. {error}")
-            
-    except Exception as e:
-        log_error(f"List automations failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't list your automations.")
-
-
-def _handle_list_scripts_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle listing scripts."""
-    from gateway import log_info, log_error
-    from homeassistant_extension import list_scripts, is_ha_extension_enabled
-    
-    try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
-        
-        log_info("Listing scripts")
-        result = list_scripts()
+        log_info(f"Processing conversation: {message}")
+        result = process_conversation(message)
         
         if result.get('success'):
-            scripts = result.get('data', {}).get('scripts', [])
-            count = len(scripts)
-            return _create_alexa_response(f"You have {count} scripts configured.")
+            response_text = result.get('data', {}).get('response', {}).get('speech', {}).get('plain', {}).get('speech', 'Done.')
+            return _create_alexa_response(response_text)
         else:
             error = result.get('error', 'Unknown error')
-            return _create_alexa_response(f"I couldn't list your scripts. {error}")
+            return _create_alexa_response(f"I couldn't process that. {error}")
             
     except Exception as e:
-        log_error(f"List scripts failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't list your scripts.")
+        log_error(f"Conversation failed: {str(e)}")
+        return _create_alexa_response("Sorry, I couldn't understand that.")
 
 
 def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle script execution."""
+    """Handle run script intent."""
     from gateway import log_info, log_error
-    from homeassistant_extension import run_script, is_ha_extension_enabled
+    from homeassistant_extension import run_script
     
     try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
+        slots = event.get('request', {}).get('intent', {}).get('slots', {})
+        script_name = slots.get('ScriptName', {}).get('value', '')
         
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        script_slot = slots.get('ScriptName', {})
-        script_name = script_slot.get('value', '')
-
         if not script_name:
-            return _create_alexa_response("I didn't hear which script you want me to run.")
-
+            return _create_alexa_response("I didn't catch the script name. Please try again.")
+        
         log_info(f"Running script: {script_name}")
         result = run_script(script_name)
         
@@ -474,62 +359,105 @@ def _handle_run_script_intent(event: Dict[str, Any], context: Any) -> Dict[str, 
         else:
             error = result.get('error', 'Unknown error')
             return _create_alexa_response(f"I couldn't run that script. {error}")
-
+            
     except Exception as e:
-        log_error(f"Run script intent failed: {str(e)}")
+        log_error(f"Run script failed: {str(e)}")
         return _create_alexa_response("Sorry, I couldn't run that script.")
 
 
 def _handle_set_input_helper_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle input helper modification."""
+    """Handle set input helper intent."""
     from gateway import log_info, log_error
-    from homeassistant_extension import set_input_helper, is_ha_extension_enabled
+    from homeassistant_extension import set_input_helper
     
     try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
+        slots = event.get('request', {}).get('intent', {}).get('slots', {})
+        helper_name = slots.get('HelperName', {}).get('value', '')
+        helper_value = slots.get('HelperValue', {}).get('value', '')
         
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        helper_slot = slots.get('HelperName', {})
-        value_slot = slots.get('HelperValue', {})
-        helper_name = helper_slot.get('value', '')
-        helper_value = value_slot.get('value', '')
-
         if not helper_name or not helper_value:
-            return _create_alexa_response("I need both a helper name and value to set an input helper.")
-
-        log_info(f"Setting input helper {helper_name} to {helper_value}")
+            return _create_alexa_response("I need both the helper name and value. Please try again.")
+        
+        log_info(f"Setting input helper: {helper_name} = {helper_value}")
         result = set_input_helper(helper_name, helper_value)
         
         if result.get('success'):
             return _create_alexa_response(f"I've set {helper_name} to {helper_value}.")
         else:
             error = result.get('error', 'Unknown error')
-            return _create_alexa_response(f"I couldn't set that input helper. {error}")
-
+            return _create_alexa_response(f"I couldn't set that helper. {error}")
+            
     except Exception as e:
-        log_error(f"Set input helper intent failed: {str(e)}")
-        return _create_alexa_response("Sorry, I couldn't set that input helper.")
+        log_error(f"Set input helper failed: {str(e)}")
+        return _create_alexa_response("Sorry, I couldn't set that helper.")
+
+
+def _handle_list_automations_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Handle list automations intent."""
+    from gateway import log_info, log_error
+    from homeassistant_extension import list_automations
+    
+    try:
+        log_info("Listing automations")
+        result = list_automations()
+        
+        if result.get('success'):
+            automations = result.get('data', [])
+            count = len(automations)
+            if count == 0:
+                return _create_alexa_response("You don't have any automations.")
+            elif count == 1:
+                return _create_alexa_response("You have one automation available.")
+            else:
+                return _create_alexa_response(f"You have {count} automations available.")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't list the automations. {error}")
+            
+    except Exception as e:
+        log_error(f"List automations failed: {str(e)}")
+        return _create_alexa_response("Sorry, I couldn't list the automations.")
+
+
+def _handle_list_scripts_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Handle list scripts intent."""
+    from gateway import log_info, log_error
+    from homeassistant_extension import list_scripts
+    
+    try:
+        log_info("Listing scripts")
+        result = list_scripts()
+        
+        if result.get('success'):
+            scripts = result.get('data', [])
+            count = len(scripts)
+            if count == 0:
+                return _create_alexa_response("You don't have any scripts.")
+            elif count == 1:
+                return _create_alexa_response("You have one script available.")
+            else:
+                return _create_alexa_response(f"You have {count} scripts available.")
+        else:
+            error = result.get('error', 'Unknown error')
+            return _create_alexa_response(f"I couldn't list the scripts. {error}")
+            
+    except Exception as e:
+        log_error(f"List scripts failed: {str(e)}")
+        return _create_alexa_response("Sorry, I couldn't list the scripts.")
 
 
 def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle TTS announcements."""
+    """Handle make announcement intent."""
     from gateway import log_info, log_error
-    from homeassistant_extension import send_notification, is_ha_extension_enabled
+    from homeassistant_extension import send_notification
     
     try:
-        if not is_ha_extension_enabled():
-            return _create_alexa_response("Home Assistant integration is not enabled.")
+        slots = event.get('request', {}).get('intent', {}).get('slots', {})
+        message = slots.get('Message', {}).get('value', '')
         
-        intent = event.get('request', {}).get('intent', {})
-        slots = intent.get('slots', {})
-        message_slot = slots.get('Message', {})
-        message = message_slot.get('value', '')
-
         if not message:
-            return _create_alexa_response("I didn't hear what you want me to announce.")
-
+            return _create_alexa_response("I didn't hear the announcement. Please try again.")
+        
         log_info(f"Sending notification: {message}")
         result = send_notification(message)
         
@@ -546,8 +474,8 @@ def _handle_make_announcement_intent(event: Dict[str, Any], context: Any) -> Dic
 
 def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle health check requests."""
+    # âœ… Lazy imports - minimal for health checks
     from gateway import log_info, log_error, format_response, get_gateway_stats
-    from homeassistant_extension import get_ha_status, is_ha_extension_enabled
     
     try:
         log_info("Health check requested")
@@ -561,11 +489,14 @@ def _handle_health_check(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "gateway": get_gateway_stats()
         }
 
-        if is_ha_extension_enabled():
-            ha_status = get_ha_status()
-            health["home_assistant"] = ha_status.get('data', {})
-        else:
-            health["home_assistant"] = {"enabled": False}
+        # Only check HA if explicitly requested or if extension is enabled
+        if event.get('check_ha', False):
+            from homeassistant_extension import get_ha_status, is_ha_extension_enabled
+            if is_ha_extension_enabled():
+                ha_status = get_ha_status()
+                health["home_assistant"] = ha_status.get('data', {})
+            else:
+                health["home_assistant"] = {"enabled": False}
 
         return format_response(200, health)
 
@@ -593,8 +524,8 @@ def _handle_analytics_request(event: Dict[str, Any], context: Any) -> Dict[str, 
 
 def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Handle comprehensive diagnostic requests."""
+    # âœ… Lazy imports - only load what's needed for this specific test type
     from gateway import log_info, log_error, format_response, get_gateway_stats
-    from homeassistant_extension import get_ha_diagnostic_info, get_assistant_name_status
     
     try:
         test_type = event.get('test_type', 'full')
@@ -610,10 +541,13 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
             "gateway_stats": get_gateway_stats()
         }
 
+        # âœ… CRITICAL: Only import HA extension if test actually needs it
         if test_type in ['full', 'homeassistant']:
             try:
+                from homeassistant_extension import get_ha_diagnostic_info
                 ha_diagnostics = get_ha_diagnostic_info()
                 diagnostics["home_assistant"] = ha_diagnostics.get('data', {})
+                
                 if event.get('show_config'):
                     diagnostics["environment"] = {
                         "HOME_ASSISTANT_URL": os.getenv('HOME_ASSISTANT_URL'),
@@ -625,8 +559,10 @@ def _handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str,
             except Exception as e:
                 diagnostics["home_assistant_error"] = str(e)
 
+        # âœ… Configuration test - no HA imports needed
         if test_type in ['full', 'configuration']:
             try:
+                from homeassistant_extension import get_assistant_name_status
                 name_status = get_assistant_name_status()
                 diagnostics["assistant_name"] = name_status.get('data', {})
             except Exception as e:
@@ -674,6 +610,29 @@ def _create_alexa_response(speech_text: str, should_end_session: bool = True) ->
                 "text": speech_text
             },
             "shouldEndSession": should_end_session
+        }
+    }
+
+
+def _create_alexa_error_response(event: Dict[str, Any], error_type: str, message: str) -> Dict[str, Any]:
+    """Create Alexa error response."""
+    from gateway import generate_correlation_id
+    
+    header = event.get('directive', {}).get('header', {})
+    message_id = header.get('messageId', generate_correlation_id())
+    
+    return {
+        'event': {
+            'header': {
+                'namespace': 'Alexa',
+                'name': 'ErrorResponse',
+                'messageId': message_id,
+                'payloadVersion': '3'
+            },
+            'payload': {
+                'type': error_type,
+                'message': message
+            }
         }
     }
 
