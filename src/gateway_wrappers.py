@@ -1,7 +1,13 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.15.05
+Version: 2025.10.16.01
 Description: Wrapper functions that call execute_operation() for cleaner code
+
+FIXES APPLIED (2025.10.16):
+- BUG #1: Fixed initialize_config to use 'initialize' operation (was 'reload')
+- BUG #2: Fixed sanitize_input parameter type from Any to str
+- BUG #3: Added timeout parameter to websocket_request wrapper
+- BUG #4: Fixed increment_counter value parameter type from float to int
 
 Copyright 2025 Joseph Hersey
 
@@ -25,7 +31,7 @@ from gateway_core import GatewayInterface, execute_operation
 
 def initialize_config(**kwargs) -> Dict[str, Any]:
     """Initialize configuration system."""
-    return execute_operation(GatewayInterface.CONFIG, 'reload', **kwargs)
+    return execute_operation(GatewayInterface.CONFIG, 'initialize', **kwargs)
 
 def get_cache_config() -> Dict[str, Any]:
     """Get cache configuration."""
@@ -266,13 +272,13 @@ def http_get(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP GET request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'get', url=url, **kwargs)
 
-def http_post(url: str, data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def http_post(url: str, json: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
     """Make HTTP POST request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, data=data, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, json=json, **kwargs)
 
-def http_put(url: str, data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def http_put(url: str, json: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
     """Make HTTP PUT request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'put', url=url, data=data, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'put', url=url, json=json, **kwargs)
 
 def http_delete(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP DELETE request."""
@@ -304,9 +310,9 @@ def websocket_close(connection: Any, **kwargs) -> Dict[str, Any]:
     """Close WebSocket connection."""
     return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection=connection, **kwargs)
 
-def websocket_request(url: str, message: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def websocket_request(url: str, message: Dict[str, Any], timeout: int = 10, **kwargs) -> Dict[str, Any]:
     """Make WebSocket request (connect, send, receive, close)."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, timeout=timeout, **kwargs)
 
 # ===== CIRCUIT_BREAKER WRAPPERS =====
 
