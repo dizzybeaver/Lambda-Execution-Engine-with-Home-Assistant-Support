@@ -1,8 +1,12 @@
 """
 homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.15.02
+Version: 2025.10.16.01
 Description: Pure facade for Home Assistant extension - delegates all operations
              to internal modules. This is the ONLY file lambda_function.py imports.
+
+CHANGELOG:
+- 2025.10.16.01: Fixed all import names to match actual ha_core.py functions
+                 (call_service → call_ha_service, get_states → get_ha_states)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -75,6 +79,16 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
         return create_error_response(str(e), 'DIAGNOSTIC_FAILED')
 
 
+def get_assistant_name_status() -> Dict[str, Any]:
+    """Get assistant name configuration status - delegates to ha_core."""
+    try:
+        from ha_core import get_assistant_name_info
+        return get_assistant_name_info()
+    except Exception as e:
+        log_error(f"Assistant name check failed: {str(e)}")
+        return create_error_response(str(e), 'ASSISTANT_NAME_CHECK_FAILED')
+
+
 # ===== ALEXA OPERATIONS =====
 
 def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,8 +143,9 @@ def call_ha_service(domain: str, service: str,
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import call_service
-        return call_service(domain, service, entity_id, service_data)
+        # FIXED 2025.10.16.01: Correct function name
+        from ha_core import call_ha_service as _call_ha_service
+        return _call_ha_service(domain, service, entity_id, service_data)
     except Exception as e:
         log_error(f"Service call failed: {str(e)}")
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
@@ -142,20 +157,22 @@ def get_ha_states(entity_ids: Optional[List[str]] = None) -> Dict[str, Any]:
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import get_states
-        return get_states(entity_ids)
+        # FIXED 2025.10.16.01: Correct function name
+        from ha_core import get_ha_states as _get_ha_states
+        return _get_ha_states(entity_ids)
     except Exception as e:
         log_error(f"Get states failed: {str(e)}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
 def get_ha_entity_state(entity_id: str) -> Dict[str, Any]:
-    """Get single entity state - delegates to ha_core."""
+    """Get single entity state - delegates to ha_common."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import get_entity_state
+        # Uses ha_common since it has single-entity optimized function
+        from ha_common import get_entity_state
         return get_entity_state(entity_id)
     except Exception as e:
         log_error(f"Get entity state failed: {str(e)}")
@@ -316,83 +333,72 @@ def manage_area(area_name: str, action: str, parameters: Optional[Dict] = None) 
         return create_error_response(str(e), 'MANAGE_AREA_FAILED')
 
 
-# ===== CONFIGURATION =====
+# ===== UTILITY FUNCTIONS =====
 
-def get_ha_assistant_name() -> str:
-    """Get assistant name from configuration."""
-    return os.getenv('HA_ASSISTANT_NAME', 'Jarvis')
-
-
-def validate_assistant_name(name: str) -> Dict[str, Any]:
-    """Validate assistant name."""
-    if not name or not name.strip():
-        return {'is_valid': False, 'error': 'Name cannot be empty'}
-    
-    if len(name) < 2:
-        return {'is_valid': False, 'error': 'Name too short (min 2 characters)'}
-    
-    if len(name) > 25:
-        return {'is_valid': False, 'error': 'Name too long (max 25 characters)'}
-    
-    reserved = ['alexa', 'amazon', 'echo']
-    if name.lower() in reserved:
-        return {'is_valid': False, 'error': f'Reserved name: {name}'}
-    
-    return {'is_valid': True}
-
-
-def get_assistant_name_status() -> Dict[str, Any]:
-    """
-    Get assistant name and validation status for diagnostics.
-    Used by health checks and diagnostic requests.
-    """
-    try:
-        name = get_ha_assistant_name()
-        validation = validate_assistant_name(name)
-        
-        return create_success_response(
-            "Assistant name status retrieved",
-            {
-                'name': name,
-                'is_valid': validation.get('is_valid', False),
-                'validation_error': validation.get('error'),
-                'source': 'HA_ASSISTANT_NAME environment variable',
-                'enabled': is_ha_extension_enabled()
-            }
-        )
-    except Exception as e:
-        log_error(f"Get assistant name status failed: {str(e)}")
-        return create_error_response(str(e), 'NAME_STATUS_FAILED')
-
-
-# ===== INTERNAL HELPERS =====
-
-def _create_alexa_error_response(event: Dict[str, Any], error_type: str, 
-                                 message: str) -> Dict[str, Any]:
-    """Create Alexa error response."""
-    header = event.get('directive', {}).get('header', {})
-    message_id = header.get('messageId', generate_correlation_id())
+def _create_alexa_error_response(event: Dict[str, Any], error_type: str,
+                                error_message: str) -> Dict[str, Any]:
+    """Create Alexa-formatted error response."""
+    directive = event.get("directive", {})
+    header = directive.get("header", {})
     
     return {
-        'event': {
-            'header': {
-                'namespace': 'Alexa',
-                'name': 'ErrorResponse',
-                'messageId': message_id,
-                'payloadVersion': '3'
+        "event": {
+            "header": {
+                "namespace": "Alexa",
+                "name": "ErrorResponse",
+                "messageId": header.get("messageId"),
+                "correlationToken": header.get("correlationToken"),
+                "payloadVersion": "3"
             },
-            'payload': {
-                'type': error_type,
-                'message': message
+            "endpoint": {},
+            "payload": {
+                "type": error_type,
+                "message": error_message
             }
         }
     }
 
 
-def _get_ha_config_gateway() -> Dict[str, Any]:
-    """Get HA config using gateway - internal helper."""
-    from ha_config import load_ha_config
-    return load_ha_config()
-
+# Export public API
+__all__ = [
+    # Control
+    'is_ha_extension_enabled',
+    'initialize_ha_extension',
+    'cleanup_ha_extension',
+    'get_ha_status',
+    'get_ha_diagnostic_info',
+    'get_assistant_name_status',
+    
+    # Alexa
+    'process_alexa_ha_request',
+    'handle_alexa_discovery',
+    'handle_alexa_control',
+    
+    # Services
+    'call_ha_service',
+    'get_ha_states',
+    'get_ha_entity_state',
+    
+    # Automations
+    'list_automations',
+    'trigger_automation',
+    
+    # Scripts
+    'list_scripts',
+    'run_script',
+    
+    # Communication
+    'process_conversation',
+    'send_notification',
+    
+    # Input Helpers
+    'list_input_helpers',
+    'set_input_helper',
+    
+    # Entity Management
+    'list_entities_by_domain',
+    'manage_device',
+    'manage_area',
+]
 
 # EOF
