@@ -26,9 +26,10 @@ from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Initialization interface
 from initialization_core import (
-    initialize_system_implementation,
-    get_initialization_state_implementation,
-    is_initialized_implementation
+    _execute_initialize_implementation,
+    _execute_get_status_implementation,
+    _execute_set_flag_implementation,
+    _execute_get_flag_implementation
 )
 
 
@@ -48,14 +49,17 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
         ValueError: If operation is unknown
     """
     
-    if operation == 'initialize_system':
-        return initialize_system_implementation(**kwargs)
+    if operation == 'initialize' or operation == 'initialize_system':
+        return _execute_initialize_implementation(**kwargs)
     
-    elif operation == 'get_state':
-        return get_initialization_state_implementation(**kwargs)
+    elif operation == 'get_status' or operation == 'get_state':
+        return _execute_get_status_implementation(**kwargs)
     
-    elif operation == 'is_initialized':
-        return is_initialized_implementation(**kwargs)
+    elif operation == 'set_flag':
+        return _execute_set_flag_implementation(**kwargs)
+    
+    elif operation == 'get_flag':
+        return _execute_get_flag_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unknown initialization operation: {operation}")
