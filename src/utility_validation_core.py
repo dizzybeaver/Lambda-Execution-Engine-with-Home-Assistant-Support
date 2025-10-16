@@ -1,9 +1,9 @@
 """
-shared_utilities_validation_core.py - Core Validation
-Version: 2025.10.16.03
+utility_validation_core.py - Core Validation (Internal)
+Version: 2025.10.16.04
 Description: Core validation exceptions and basic validation implementations
 
-Part of shared_utilities modularization (File 4 of 7)
+SUGA-ISP: Internal module - only accessed via interface_utility.py
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
