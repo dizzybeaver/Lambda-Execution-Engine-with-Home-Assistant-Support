@@ -1,7 +1,15 @@
 """
 initialization_core.py
-Version: 2025.10.14.01
-Description: Lambda initialization with SUGA compliance, flag management, and comprehensive status tracking
+Version: 2025.10.16.01
+Description: Lambda initialization with SUGA compliance - CRITICAL BUGS FIXED
+
+CRITICAL FIXES:
+- Added thread safety with Lock to protect shared state
+- Removed circular indirection (direct _INITIALIZATION calls)
+- Improved error handling (proper exceptions instead of silent defaults)
+- Fixed parameter validation for all operations
+- Added consistent flag name validation
+- Improved parameter extraction logic
 
 Copyright 2025 Joseph Hersey
 
@@ -19,8 +27,10 @@ Copyright 2025 Joseph Hersey
 """
 
 import os
+import sys
 import time
 from typing import Dict, Any, Optional
+from threading import Lock
 from enum import Enum
 
 
@@ -43,7 +53,12 @@ class InitializationOperation(Enum):
 # ===== INITIALIZATION CORE CLASS =====
 
 class InitializationCore:
-    """Handles Lambda environment initialization with flag management and status tracking."""
+    """
+    Handles Lambda environment initialization with thread safety.
+    
+    Thread-safe singleton manager for initialization state, configuration,
+    and runtime flags.
+    """
     
     def __init__(self):
         self._initialized = False
@@ -51,104 +66,158 @@ class InitializationCore:
         self._flags: Dict[str, Any] = {}
         self._init_timestamp: Optional[float] = None
         self._init_duration_ms: Optional[float] = None
+        self._lock = Lock()
     
-    def initialize(self, **kwargs) -> Dict[str, Any]:
-        """Initialize Lambda environment."""
-        if self._initialized:
+    def initialize(self, config: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Initialize Lambda environment with thread safety.
+        
+        Args:
+            config: Optional configuration dictionary to store
+            **kwargs: Additional configuration items (merged with config dict)
+            
+        Returns:
+            Dictionary with initialization status
+            
+        Note:
+            If already initialized, returns status without re-initializing.
+            Use reset() first if re-initialization is needed.
+        """
+        with self._lock:
+            if self._initialized:
+                return {
+                    'status': 'already_initialized',
+                    'timestamp': self._init_timestamp,
+                    'uptime_seconds': time.time() - self._init_timestamp if self._init_timestamp else 0
+                }
+            
+            start_time = time.time()
+            
+            # Merge config and kwargs
+            if config is None:
+                config = {}
+            self._config = {**config, **kwargs}
+            
+            # Mark as initialized
+            self._initialized = True
+            self._init_timestamp = start_time
+            self._init_duration_ms = (time.time() - start_time) * 1000
+            
             return {
-                'status': 'already_initialized',
-                'config': self._config,
-                'timestamp': self._init_timestamp
+                'status': 'initialized',
+                'timestamp': self._init_timestamp,
+                'duration_ms': self._init_duration_ms,
+                'config_keys': list(self._config.keys())
             }
-        
-        start_time = time.time()
-        
-        self._config = {
-            'aws_region': os.environ.get('AWS_REGION', 'us-east-1'),
-            'function_name': os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'unknown'),
-            'memory_limit': os.environ.get('AWS_LAMBDA_FUNCTION_MEMORY_SIZE', '128'),
-            'log_level': os.environ.get('LOG_LEVEL', 'INFO'),
-            'environment': os.environ.get('ENVIRONMENT', 'production'),
-            'use_generic_operations': _USE_GENERIC_OPERATIONS,
-            'python_version': os.environ.get('AWS_EXECUTION_ENV', 'unknown')
-        }
-        
-        # Apply any custom config from kwargs
-        if kwargs:
-            self._config.update({k: v for k, v in kwargs.items() if k not in self._config})
-        
-        self._initialized = True
-        self._init_timestamp = time.time()
-        self._init_duration_ms = (self._init_timestamp - start_time) * 1000
-        
-        return {
-            'status': 'initialized',
-            'config': self._config,
-            'timestamp': self._init_timestamp,
-            'duration_ms': self._init_duration_ms
-        }
     
     def get_config(self) -> Dict[str, Any]:
-        """Get initialization config."""
-        return self._config.copy()
+        """
+        Get initialization configuration.
+        
+        Returns:
+            Copy of configuration dictionary (empty if not initialized)
+        """
+        with self._lock:
+            return self._config.copy()
     
     def is_initialized(self) -> bool:
-        """Check if initialized."""
-        return self._initialized
+        """
+        Check if Lambda environment is initialized.
+        
+        Returns:
+            True if initialized, False otherwise
+        """
+        with self._lock:
+            return self._initialized
     
     def reset(self) -> Dict[str, Any]:
-        """Reset initialization state."""
-        was_initialized = self._initialized
+        """
+        Reset initialization state with thread safety.
         
-        self._initialized = False
-        self._config.clear()
-        self._flags.clear()
-        self._init_timestamp = None
-        self._init_duration_ms = None
-        
-        return {
-            'status': 'reset',
-            'was_initialized': was_initialized,
-            'timestamp': time.time()
-        }
+        Returns:
+            Dictionary with reset status
+        """
+        with self._lock:
+            was_initialized = self._initialized
+            
+            self._initialized = False
+            self._config.clear()
+            self._flags.clear()
+            self._init_timestamp = None
+            self._init_duration_ms = None
+            
+            return {
+                'status': 'reset',
+                'was_initialized': was_initialized,
+                'timestamp': time.time()
+            }
     
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive initialization status."""
-        return {
-            'initialized': self._initialized,
-            'config': self._config.copy() if self._initialized else {},
-            'flags': self._flags.copy(),
-            'init_timestamp': self._init_timestamp,
-            'init_duration_ms': self._init_duration_ms,
-            'uptime_seconds': (time.time() - self._init_timestamp) if self._init_timestamp else None,
-            'flag_count': len(self._flags),
-            'config_keys': list(self._config.keys()) if self._initialized else [],
-            'use_generic_operations': _USE_GENERIC_OPERATIONS
-        }
+        """
+        Get comprehensive initialization status.
+        
+        Returns:
+            Dictionary containing complete initialization state
+        """
+        with self._lock:
+            return {
+                'initialized': self._initialized,
+                'config': self._config.copy() if self._initialized else {},
+                'flags': self._flags.copy(),
+                'init_timestamp': self._init_timestamp,
+                'init_duration_ms': self._init_duration_ms,
+                'uptime_seconds': (time.time() - self._init_timestamp) if self._init_timestamp else None,
+                'flag_count': len(self._flags),
+                'config_keys': list(self._config.keys()) if self._initialized else [],
+                'use_generic_operations': _USE_GENERIC_OPERATIONS
+            }
     
     def set_flag(self, flag_name: str, value: Any) -> Dict[str, Any]:
-        """Set an initialization flag."""
-        if not flag_name:
+        """
+        Set an initialization flag with validation.
+        
+        Args:
+            flag_name: Name of the flag (must be non-empty string)
+            value: Value to set (any type including None)
+            
+        Returns:
+            Dictionary with operation result
+        """
+        if not flag_name or not isinstance(flag_name, str):
             return {
                 'success': False,
-                'error': 'Flag name cannot be empty',
+                'error': 'Flag name must be a non-empty string',
                 'flag_name': flag_name
             }
         
-        old_value = self._flags.get(flag_name)
-        self._flags[flag_name] = value
-        
-        return {
-            'success': True,
-            'flag_name': flag_name,
-            'value': value,
-            'old_value': old_value,
-            'was_new': old_value is None
-        }
+        with self._lock:
+            old_value = self._flags.get(flag_name)
+            self._flags[flag_name] = value
+            
+            return {
+                'success': True,
+                'flag_name': flag_name,
+                'value': value,
+                'old_value': old_value,
+                'was_new': old_value is None and flag_name not in self._flags
+            }
     
     def get_flag(self, flag_name: str, default: Any = None) -> Any:
-        """Get an initialization flag value."""
-        return self._flags.get(flag_name, default)
+        """
+        Get an initialization flag value with validation.
+        
+        Args:
+            flag_name: Name of the flag (must be non-empty string)
+            default: Default value if flag doesn't exist
+            
+        Returns:
+            Flag value or default
+        """
+        if not flag_name or not isinstance(flag_name, str):
+            return default
+        
+        with self._lock:
+            return self._flags.get(flag_name, default)
 
 
 # ===== SINGLETON INSTANCE =====
@@ -156,117 +225,169 @@ class InitializationCore:
 _INITIALIZATION = InitializationCore()
 
 
+# ===== OPERATION MAP =====
+
+_OPERATION_MAP = {
+    InitializationOperation.INITIALIZE: lambda **kwargs: _INITIALIZATION.initialize(**kwargs),
+    InitializationOperation.GET_CONFIG: lambda **kwargs: _INITIALIZATION.get_config(),
+    InitializationOperation.IS_INITIALIZED: lambda **kwargs: _INITIALIZATION.is_initialized(),
+    InitializationOperation.RESET: lambda **kwargs: _INITIALIZATION.reset(),
+    InitializationOperation.GET_STATUS: lambda **kwargs: _INITIALIZATION.get_status(),
+    InitializationOperation.SET_FLAG: lambda **kwargs: _INITIALIZATION.set_flag(**kwargs),
+    InitializationOperation.GET_FLAG: lambda **kwargs: _INITIALIZATION.get_flag(**kwargs),
+}
+
+
 # ===== GENERIC OPERATION EXECUTION =====
 
-def execute_initialization_operation(operation: InitializationOperation, *args, **kwargs):
+def execute_initialization_operation(operation: InitializationOperation, **kwargs):
     """
-    Universal initialization operation executor.
+    Universal initialization operation executor with error handling.
     
     Single function that routes all initialization operations to the InitializationCore instance.
-    """
-    if not _USE_GENERIC_OPERATIONS:
-        return _execute_legacy_operation(operation, *args, **kwargs)
     
-    try:
-        method_name = operation.value
-        method = getattr(_INITIALIZATION, method_name, None)
+    Args:
+        operation: InitializationOperation enum value
+        **kwargs: Operation-specific parameters
         
-        if method is None:
-            default_returns = {
-                InitializationOperation.INITIALIZE: {},
-                InitializationOperation.GET_CONFIG: {},
-                InitializationOperation.GET_STATUS: {},
-                InitializationOperation.IS_INITIALIZED: False,
-                InitializationOperation.RESET: {},
-                InitializationOperation.GET_FLAG: kwargs.get('default'),
-                InitializationOperation.SET_FLAG: {'success': False, 'error': 'Method not found'}
-            }
-            return default_returns.get(operation, None)
+    Returns:
+        Operation result from InitializationCore
         
-        return method(*args, **kwargs)
-    except Exception as e:
-        default_returns = {
-            InitializationOperation.INITIALIZE: {},
-            InitializationOperation.GET_CONFIG: {},
-            InitializationOperation.GET_STATUS: {'error': str(e)},
-            InitializationOperation.IS_INITIALIZED: False,
-            InitializationOperation.RESET: {},
-            InitializationOperation.GET_FLAG: kwargs.get('default'),
-            InitializationOperation.SET_FLAG: {'success': False, 'error': str(e)}
-        }
-        return default_returns.get(operation, None)
-
-
-def _execute_legacy_operation(operation: InitializationOperation, *args, **kwargs):
-    """Legacy operation execution for rollback compatibility."""
+    Raises:
+        ValueError: If operation is unknown
+        Exception: If operation execution fails
+    """
     try:
-        method = getattr(_INITIALIZATION, operation.value)
-        return method(*args, **kwargs)
+        if _USE_GENERIC_OPERATIONS:
+            operation_func = _OPERATION_MAP.get(operation)
+            if operation_func is None:
+                raise ValueError(f"Unknown initialization operation: {operation}")
+            return operation_func(**kwargs)
+        else:
+            # Legacy direct dispatch
+            if operation == InitializationOperation.INITIALIZE:
+                return _INITIALIZATION.initialize(**kwargs)
+            elif operation == InitializationOperation.GET_CONFIG:
+                return _INITIALIZATION.get_config()
+            elif operation == InitializationOperation.IS_INITIALIZED:
+                return _INITIALIZATION.is_initialized()
+            elif operation == InitializationOperation.RESET:
+                return _INITIALIZATION.reset()
+            elif operation == InitializationOperation.GET_STATUS:
+                return _INITIALIZATION.get_status()
+            elif operation == InitializationOperation.SET_FLAG:
+                return _INITIALIZATION.set_flag(**kwargs)
+            elif operation == InitializationOperation.GET_FLAG:
+                return _INITIALIZATION.get_flag(**kwargs)
+            else:
+                raise ValueError(f"Unknown initialization operation: {operation}")
     except Exception as e:
-        default_returns = {
-            InitializationOperation.INITIALIZE: {},
-            InitializationOperation.GET_CONFIG: {},
-            InitializationOperation.GET_STATUS: {'error': str(e)},
-            InitializationOperation.IS_INITIALIZED: False,
-            InitializationOperation.RESET: {},
-            InitializationOperation.GET_FLAG: kwargs.get('default'),
-            InitializationOperation.SET_FLAG: {'success': False, 'error': str(e)}
-        }
-        return default_returns.get(operation, None)
+        # Re-raise with context
+        raise Exception(f"Initialization operation '{operation.value}' failed: {e}") from e
 
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
+# These functions are called by interface_initialization.py router
 
 def _execute_initialize_implementation(**kwargs) -> Dict[str, Any]:
-    """Execute initialization."""
-    return execute_initialization_operation(InitializationOperation.INITIALIZE, **kwargs)
+    """
+    Execute initialization operation.
+    
+    Args:
+        config: Optional configuration dictionary
+        **kwargs: Additional configuration items
+        
+    Returns:
+        Initialization result dictionary
+    """
+    return _INITIALIZATION.initialize(**kwargs)
 
 
 def _execute_get_config_implementation(**kwargs) -> Dict[str, Any]:
-    """Execute get config."""
-    return execute_initialization_operation(InitializationOperation.GET_CONFIG, **kwargs)
+    """
+    Execute get config operation.
+    
+    Returns:
+        Configuration dictionary
+    """
+    return _INITIALIZATION.get_config()
 
 
 def _execute_is_initialized_implementation(**kwargs) -> bool:
-    """Execute is initialized check."""
-    return execute_initialization_operation(InitializationOperation.IS_INITIALIZED, **kwargs)
+    """
+    Execute is initialized check.
+    
+    Returns:
+        True if initialized, False otherwise
+    """
+    return _INITIALIZATION.is_initialized()
 
 
 def _execute_reset_implementation(**kwargs) -> Dict[str, Any]:
-    """Execute reset."""
-    return execute_initialization_operation(InitializationOperation.RESET, **kwargs)
+    """
+    Execute reset operation.
+    
+    Returns:
+        Reset result dictionary
+    """
+    return _INITIALIZATION.reset()
 
 
 def _execute_get_status_implementation(**kwargs) -> Dict[str, Any]:
-    """Execute get status - comprehensive initialization state."""
-    return execute_initialization_operation(InitializationOperation.GET_STATUS, **kwargs)
-
-
-def _execute_set_flag_implementation(flag_name: str = None, value: Any = None, **kwargs) -> Dict[str, Any]:
-    """Execute set flag - set initialization flag."""
-    if flag_name is None:
-        flag_name = kwargs.get('flag_name', '')
-    if value is None:
-        value = kwargs.get('value')
+    """
+    Execute get status operation.
     
-    return execute_initialization_operation(
-        InitializationOperation.SET_FLAG,
-        flag_name=flag_name,
-        value=value
+    Returns:
+        Comprehensive status dictionary
+    """
+    return _INITIALIZATION.get_status()
+
+
+def _execute_set_flag_implementation(**kwargs) -> Dict[str, Any]:
+    """
+    Execute set flag operation.
+    
+    Args:
+        flag_name: Name of the flag (required)
+        value: Value to set (required)
+        
+    Returns:
+        Operation result dictionary
+        
+    Raises:
+        ValueError: If required parameters missing
+    """
+    if 'flag_name' not in kwargs:
+        raise ValueError("Parameter 'flag_name' is required for set_flag operation")
+    if 'value' not in kwargs:
+        raise ValueError("Parameter 'value' is required for set_flag operation")
+    
+    return _INITIALIZATION.set_flag(
+        flag_name=kwargs['flag_name'],
+        value=kwargs['value']
     )
 
 
-def _execute_get_flag_implementation(flag_name: str = None, default: Any = None, **kwargs) -> Any:
-    """Execute get flag - retrieve initialization flag value."""
-    if flag_name is None:
-        flag_name = kwargs.get('flag_name', '')
-    if default is None:
-        default = kwargs.get('default')
+def _execute_get_flag_implementation(**kwargs) -> Any:
+    """
+    Execute get flag operation.
     
-    return execute_initialization_operation(
-        InitializationOperation.GET_FLAG,
-        flag_name=flag_name,
-        default=default
+    Args:
+        flag_name: Name of the flag (required)
+        default: Default value if flag doesn't exist (optional)
+        
+    Returns:
+        Flag value or default
+        
+    Raises:
+        ValueError: If flag_name not provided
+    """
+    if 'flag_name' not in kwargs:
+        raise ValueError("Parameter 'flag_name' is required for get_flag operation")
+    
+    return _INITIALIZATION.get_flag(
+        flag_name=kwargs['flag_name'],
+        default=kwargs.get('default', None)
     )
 
 
