@@ -1,19 +1,21 @@
 """
-gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.06
-Description: Centralized operation dispatcher for all SUGA-ISP interfaces
-
-CHANGELOG:
-- 2025.10.16.06: Added dispatcher function check - generic_debug_operation needs operation param
-- 2025.10.16.05: Removed DEBUG enum import (debug_types doesn't exist in deployment)
-- 2025.10.16.04: Fixed DEBUG import path: debug.debug_types → debug_types
-- 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
-                 parameter to interface routers (interface_* modules)
-- 2025.10.16.02: Updated routers, fixed function names, removed unsupported operations
-- 2025.10.16.01: Fixed JSON serialization for tuple keys
+gateway_core.py - Gateway Core Implementation
+Version: 2025.10.16.01
+Description: Core gateway functionality with operation registry
 
 Copyright 2025 Joseph Hersey
-Licensed under Apache 2.0 (see LICENSE).
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 from enum import Enum
@@ -95,6 +97,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.METRICS, 'get_operation_metrics'): ('interface_metrics', 'execute_metrics_operation'),
     
     # CONFIG Operations
+    (GatewayInterface.CONFIG, 'initialize'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'get'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'set'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'get_category'): ('interface_config', 'execute_config_operation'),
@@ -169,7 +172,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
 }
 
 # ===== FAST PATH CACHE =====
-_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str, str]] = {}  # Now stores (func, module_name, func_name)
+_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str, str]] = {}
 _fast_path_enabled = True
 _operation_call_counts = defaultdict(int)
 
@@ -187,51 +190,59 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     
     Other functions are direct implementations and don't need operation parameter.
     """
-    registry_key = (interface, operation)
+    key = (interface, operation)
     
-    # Track call counts
-    _operation_call_counts[registry_key] += 1
+    # Track operation calls
+    _operation_call_counts[key] += 1
     
-    # Fast path: Check cache first
-    if _fast_path_enabled and registry_key in _fast_path_cache:
-        func, module_name, func_name = _fast_path_cache[registry_key]
-        # Check if this is a dispatcher function that needs operation parameter
-        # Dispatchers include: interface routers and generic dispatchers
-        if module_name.startswith('interface_') or 'generic' in func_name:
-            return func(operation, **kwargs)
-        else:
-            return func(**kwargs)
+    # Check fast path cache
+    if _fast_path_enabled and key in _fast_path_cache:
+        func, module_name, func_name = _fast_path_cache[key]
+        return _call_function(func, func_name, module_name, operation, **kwargs)
     
-    # Get operation from registry
-    if registry_key not in _OPERATION_REGISTRY:
-        raise ValueError(
-            f"Operation {operation} not found in {interface.value} interface. "
-            f"Available operations: {[k[1] for k in _OPERATION_REGISTRY if k[0] == interface]}"
-        )
+    # Lookup in registry
+    if key not in _OPERATION_REGISTRY:
+        raise ValueError(f"Unknown operation: {interface.value}.{operation}")
     
-    module_name, func_name = _OPERATION_REGISTRY[registry_key]
+    module_name, func_name = _OPERATION_REGISTRY[key]
     
-    # Lazy load the module
+    # Dynamic import
+    import importlib
     try:
-        # Standard lazy load for all interfaces
-        module = __import__(module_name, fromlist=[func_name])
+        module = importlib.import_module(module_name)
         func = getattr(module, func_name)
         
-        # Cache for fast path (if frequently called) - store func, module_name, and func_name
-        if _fast_path_enabled and _operation_call_counts[registry_key] >= 5:
-            _fast_path_cache[registry_key] = (func, module_name, func_name)
+        # Cache for fast path
+        if _fast_path_enabled:
+            _fast_path_cache[key] = (func, module_name, func_name)
         
-        # Execute the operation - check if this is a dispatcher function
-        # Dispatchers include: interface routers and generic dispatchers
-        if module_name.startswith('interface_') or 'generic' in func_name:
-            return func(operation, **kwargs)  # Pass operation for dispatchers
-        else:
-            return func(**kwargs)  # Don't pass for direct implementations
-    
+        return _call_function(func, func_name, module_name, operation, **kwargs)
+        
     except ImportError as e:
-        raise ImportError(f"Failed to load {module_name}.{func_name}: {e}")
+        raise ImportError(f"Failed to import {module_name}: {e}")
     except AttributeError as e:
         raise AttributeError(f"Function {func_name} not found in {module_name}: {e}")
+
+
+def _call_function(func: Callable, func_name: str, module_name: str, operation: str, **kwargs) -> Any:
+    """
+    Call function with appropriate parameters based on function type.
+    
+    Dispatcher functions (interface routers, generic handlers) need operation parameter.
+    Direct implementation functions don't need operation parameter.
+    """
+    # Dispatcher pattern detection
+    is_dispatcher = (
+        func_name.startswith('execute_') or
+        func_name.startswith('generic_') or
+        'dispatch' in func_name.lower() or
+        module_name.startswith('interface_')
+    )
+    
+    if is_dispatcher:
+        return func(operation, **kwargs)
+    else:
+        return func(**kwargs)
 
 
 # ===== FAST PATH MANAGEMENT =====
