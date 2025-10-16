@@ -1,9 +1,13 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.16.05
+Version: 2025.10.16.07
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.16.07: Fixed all HA extension import names to match actual functions
+                 is_ha_available → is_ha_extension_enabled + get_ha_status
+                 get_assistant_name → get_assistant_name_status
+- 2025.10.16.06: Fixed import names - process_alexa_* → handle_alexa_*
 - 2025.10.16.05: Fixed context attribute - request_id → aws_request_id
 - 2025.10.16.04: Removed debug print statements, re-enabled validation
 - 2025.10.16.03: Added LAMBDA_MODE support (normal/failsafe/diagnostic/emergency)
@@ -128,9 +132,10 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         validate_request, validate_token
     )
     from homeassistant_extension import (
-        process_alexa_discovery,
-        process_alexa_control,
-        is_ha_available
+        handle_alexa_discovery,
+        handle_alexa_control,
+        is_ha_extension_enabled,
+        get_ha_status
     )
     
     try:
@@ -149,21 +154,31 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         #     return create_error_response("Invalid request", "INVALID_REQUEST")
         
         # Check HA availability
-        if not is_ha_available():
-            log_error("Home Assistant not available")
+        if not is_ha_extension_enabled():
+            log_error("Home Assistant extension not enabled")
             return create_alexa_error_response(
                 event, 
-                "ENDPOINT_UNREACHABLE",
-                "Home Assistant is not available"
+                "BRIDGE_UNREACHABLE",
+                "Home Assistant extension is not enabled"
+            )
+        
+        # Check HA connection status
+        ha_status = get_ha_status()
+        if not ha_status.get('success', False):
+            log_error("Home Assistant not reachable")
+            return create_alexa_error_response(
+                event,
+                "ENDPOINT_UNREACHABLE", 
+                "Home Assistant is not reachable"
             )
         
         # Route based on namespace
         if namespace == "Alexa.Discovery":
-            return process_alexa_discovery(event)
+            return handle_alexa_discovery(event)
         
         elif namespace in ["Alexa.PowerController", "Alexa.BrightnessController", 
                           "Alexa.ColorController", "Alexa.ThermostatController"]:
-            return process_alexa_control(event)
+            return handle_alexa_control(event)
         
         else:
             log_error(f"Unknown Alexa namespace: {namespace}")
@@ -233,8 +248,8 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         # Add assistant name if available
         if test_type == "full":
             try:
-                from homeassistant_extension import get_assistant_name
-                response_data["assistant_name"] = get_assistant_name()
+                from homeassistant_extension import get_assistant_name_status
+                response_data["assistant_name"] = get_assistant_name_status()
             except Exception:
                 response_data["assistant_name"] = {}
         
@@ -275,7 +290,7 @@ def create_alexa_error_response(event: Dict[str, Any], error_type: str,
 
 # ===== VERSION INFO =====
 
-__version__ = "2025.10.16.05"
+__version__ = "2025.10.16.07"
 __all__ = ['lambda_handler']
 
 # EOF
