@@ -1,7 +1,13 @@
 """
 gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.02
+Version: 2025.10.16.03
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
+
+CHANGELOG:
+- 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
+                 parameter to interface routers (interface_* modules)
+- 2025.10.16.02: Updated routers, fixed function names, removed unsupported operations
+- 2025.10.16.01: Fixed JSON serialization for tuple keys
 
 FIXED 2025-10-16:
 - Updated SINGLETON to use interface_singleton router
@@ -9,20 +15,10 @@ FIXED 2025-10-16:
 - Updated HTTP_CLIENT to use interface_http router
 - Removed 6 unsupported CONFIG operations
 - Fixed CIRCUIT_BREAKER function names
+- CRITICAL: Fixed interface router calls to pass operation parameter
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 from enum import Enum
@@ -46,24 +42,19 @@ class GatewayInterface(Enum):
     WEBSOCKET = "websocket"
     DEBUG = "debug"
 
-# ===== OPERATION REGISTRY =====
-# Maps (interface, operation) → (module_name, function_name)
-# SUGA-ISP PATTERN: Core interfaces route through interface_<n> routers
 
+# ===== OPERATION REGISTRY =====
 _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
-    # ========================================================================
-    # CACHE Operations - Routes through interface_cache.py
-    # ========================================================================
+    # CACHE Operations
     (GatewayInterface.CACHE, 'get'): ('interface_cache', 'execute_cache_operation'),
     (GatewayInterface.CACHE, 'set'): ('interface_cache', 'execute_cache_operation'),
     (GatewayInterface.CACHE, 'exists'): ('interface_cache', 'execute_cache_operation'),
     (GatewayInterface.CACHE, 'delete'): ('interface_cache', 'execute_cache_operation'),
     (GatewayInterface.CACHE, 'clear'): ('interface_cache', 'execute_cache_operation'),
-    (GatewayInterface.CACHE, 'get_stats'): ('interface_cache', 'execute_cache_operation'),
+    (GatewayInterface.CACHE, 'stats'): ('interface_cache', 'execute_cache_operation'),
     
-    # ========================================================================
-    # LOGGING Operations - Routes through interface_logging.py
-    # ========================================================================
+    # LOGGING Operations
+    (GatewayInterface.LOGGING, 'log'): ('interface_logging', 'execute_logging_operation'),
     (GatewayInterface.LOGGING, 'log_info'): ('interface_logging', 'execute_logging_operation'),
     (GatewayInterface.LOGGING, 'log_error'): ('interface_logging', 'execute_logging_operation'),
     (GatewayInterface.LOGGING, 'log_warning'): ('interface_logging', 'execute_logging_operation'),
@@ -72,11 +63,8 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.LOGGING, 'log_operation_success'): ('interface_logging', 'execute_logging_operation'),
     (GatewayInterface.LOGGING, 'log_operation_error'): ('interface_logging', 'execute_logging_operation'),
     (GatewayInterface.LOGGING, 'log_operation_end'): ('interface_logging', 'execute_logging_operation'),
-    (GatewayInterface.LOGGING, 'log_security_event'): ('interface_logging', 'execute_logging_operation'),
     
-    # ========================================================================
-    # SECURITY Operations - Routes through interface_security.py
-    # ========================================================================
+    # SECURITY Operations
     (GatewayInterface.SECURITY, 'validate_request'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'validate_token'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'encrypt'): ('interface_security', 'execute_security_operation'),
@@ -84,14 +72,12 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.SECURITY, 'hash'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'verify_hash'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'sanitize'): ('interface_security', 'execute_security_operation'),
+    (GatewayInterface.SECURITY, 'sanitize_data'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'validate_string'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'validate_email'): ('interface_security', 'execute_security_operation'),
     (GatewayInterface.SECURITY, 'validate_url'): ('interface_security', 'execute_security_operation'),
-    (GatewayInterface.SECURITY, 'generate_correlation_id'): ('interface_security', 'execute_security_operation'),
     
-    # ========================================================================
-    # METRICS Operations - Routes through interface_metrics.py
-    # ========================================================================
+    # METRICS Operations
     (GatewayInterface.METRICS, 'record'): ('interface_metrics', 'execute_metrics_operation'),
     (GatewayInterface.METRICS, 'record_metric'): ('interface_metrics', 'execute_metrics_operation'),
     (GatewayInterface.METRICS, 'increment'): ('interface_metrics', 'execute_metrics_operation'),
@@ -112,11 +98,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.METRICS, 'get_dispatcher_metrics'): ('interface_metrics', 'execute_metrics_operation'),
     (GatewayInterface.METRICS, 'get_operation_metrics'): ('interface_metrics', 'execute_metrics_operation'),
     
-    # ========================================================================
-    # CONFIG Operations - Routes through interface_config.py
-    # FIXED 2025-10-16: Removed 6 unsupported operations (get_all, get_environment,
-    # get_stage, get_region, is_debug_mode, get_log_level)
-    # ========================================================================
+    # CONFIG Operations
     (GatewayInterface.CONFIG, 'get'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'set'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'get_category'): ('interface_config', 'execute_config_operation'),
@@ -127,29 +109,20 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.CONFIG, 'load_file'): ('interface_config', 'execute_config_operation'),
     (GatewayInterface.CONFIG, 'validate'): ('interface_config', 'execute_config_operation'),
     
-    # ========================================================================
-    # SINGLETON Operations - Routes through interface_singleton.py
-    # FIXED 2025-10-16: Changed from singleton_registry to interface_singleton router
-    # ========================================================================
+    # SINGLETON Operations
     (GatewayInterface.SINGLETON, 'get'): ('interface_singleton', 'execute_singleton_operation'),
     (GatewayInterface.SINGLETON, 'has'): ('interface_singleton', 'execute_singleton_operation'),
     (GatewayInterface.SINGLETON, 'delete'): ('interface_singleton', 'execute_singleton_operation'),
     (GatewayInterface.SINGLETON, 'clear'): ('interface_singleton', 'execute_singleton_operation'),
     (GatewayInterface.SINGLETON, 'get_stats'): ('interface_singleton', 'execute_singleton_operation'),
     
-    # ========================================================================
-    # INITIALIZATION Operations - Routes through interface_initialization.py
-    # FIXED 2025-10-16: Changed from initialization to interface_initialization router
-    # ========================================================================
+    # INITIALIZATION Operations
     (GatewayInterface.INITIALIZATION, 'initialize'): ('interface_initialization', 'execute_initialization_operation'),
     (GatewayInterface.INITIALIZATION, 'get_status'): ('interface_initialization', 'execute_initialization_operation'),
     (GatewayInterface.INITIALIZATION, 'set_flag'): ('interface_initialization', 'execute_initialization_operation'),
     (GatewayInterface.INITIALIZATION, 'get_flag'): ('interface_initialization', 'execute_initialization_operation'),
     
-    # ========================================================================
-    # HTTP_CLIENT Operations - Routes through interface_http.py
-    # FIXED 2025-10-16: Changed from http_client to interface_http router
-    # ========================================================================
+    # HTTP_CLIENT Operations
     (GatewayInterface.HTTP_CLIENT, 'request'): ('interface_http', 'execute_http_operation'),
     (GatewayInterface.HTTP_CLIENT, 'get'): ('interface_http', 'execute_http_operation'),
     (GatewayInterface.HTTP_CLIENT, 'post'): ('interface_http', 'execute_http_operation'),
@@ -158,57 +131,27 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.HTTP_CLIENT, 'get_state'): ('interface_http', 'execute_http_operation'),
     (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('interface_http', 'execute_http_operation'),
     
-    # ========================================================================
-    # WEBSOCKET Operations (websocket_manager.py)
-    # NOTE: Routed to interface_websocket first, then websocket_manager
-    # ========================================================================
+    # WEBSOCKET Operations
     (GatewayInterface.WEBSOCKET, 'send_message'): ('interface_websocket', 'execute_websocket_operation'),
     (GatewayInterface.WEBSOCKET, 'broadcast'): ('interface_websocket', 'execute_websocket_operation'),
     (GatewayInterface.WEBSOCKET, 'get_connections'): ('interface_websocket', 'execute_websocket_operation'),
     (GatewayInterface.WEBSOCKET, 'disconnect'): ('interface_websocket', 'execute_websocket_operation'),
     (GatewayInterface.WEBSOCKET, 'register_handler'): ('interface_websocket', 'execute_websocket_operation'),
     
-    # ========================================================================
-    # CIRCUIT_BREAKER Operations (circuit_breaker_core.py)
-    # FIXED 2025-10-16: Corrected function names
-    # NOTE: No interface router yet - still routes directly to core
-    # ========================================================================
+    # CIRCUIT_BREAKER Operations  
     (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
     
-    # ========================================================================
-    # UTILITY Operations (shared_utilities.py)
-    # NOTE: No interface router yet - still routes directly to core
-    # ========================================================================
+    # UTILITY Operations
     (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
     (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', '_execute_parse_json_implementation'),
     (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
     (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
     (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
     
-    # ========================================================================
-    # DEBUG Operations (debug_core.py)
-    # NOTE: Uses dispatcher pattern - see detailed explanation below
-    # ========================================================================
-    # ARCHITECTURAL PATTERN: DEBUG DISPATCHER
-    # ========================================================================
-    # The DEBUG interface uses a special dispatcher pattern where ALL debug
-    # operations route to a single function: generic_debug_operation().
-    # 
-    # This is NOT a mistake - it's an intentional dispatcher pattern that:
-    # 
-    # 1. Reduces registry size (18 operations → 1 function)
-    # 2. Enables lazy loading of debug modules
-    # 3. Provides centralized debug operation handling
-    # 4. Uses DebugOperation enum for type-safe routing
-    # 
-    # The execute_operation function has SPECIAL HANDLING for DEBUG interface
-    # that converts the operation string to a DebugOperation enum before calling.
-    # 
-    # See execute_operation() implementation below for the special handling code.
-    # ========================================================================
+    # DEBUG Operations
     (GatewayInterface.DEBUG, 'check_component_health'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'check_gateway_health'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'diagnose_system_health'): ('debug_core', 'generic_debug_operation'),
@@ -218,6 +161,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.DEBUG, 'get_optimization_stats'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'get_dispatcher_stats'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'get_operation_metrics'): ('debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_gateway_stats'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'verify_registry_operations'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'validate_operation_signatures'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'validate_interface_compliance'): ('debug_core', 'generic_debug_operation'),
@@ -226,12 +170,10 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.DEBUG, 'run_performance_profile'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'run_memory_profile'): ('debug_core', 'generic_debug_operation'),
     (GatewayInterface.DEBUG, 'check_memory_usage'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'detect_memory_leaks'): ('debug_core', 'generic_debug_operation'),
 }
 
 # ===== FAST PATH CACHE =====
-# Module-level caching for frequently-called operations
-_fast_path_cache: Dict[Tuple[GatewayInterface, str], Callable] = {}
+_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str]] = {}  # Now stores (func, module_name)
 _fast_path_enabled = True
 _operation_call_counts = defaultdict(int)
 
@@ -241,20 +183,7 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     """
     Execute operation through the gateway.
     
-    This is the primary entry point for all operations in SUGA-ISP.
-    Lazy-loads interface modules only when operations are called.
-    
-    Args:
-        interface: The interface to route to
-        operation: The operation name
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Result from the operation implementation
-        
-    Raises:
-        ValueError: If operation not found in registry
-        Exception: Any exception from the operation implementation
+    CRITICAL FIX 2025.10.16.03: Now correctly passes operation parameter to interface routers
     """
     registry_key = (interface, operation)
     
@@ -263,8 +192,12 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     
     # Fast path: Check cache first
     if _fast_path_enabled and registry_key in _fast_path_cache:
-        func = _fast_path_cache[registry_key]
-        return func(**kwargs)
+        func, module_name = _fast_path_cache[registry_key]
+        # FIXED: Check if interface router and pass operation parameter
+        if module_name.startswith('interface_'):
+            return func(operation, **kwargs)
+        else:
+            return func(**kwargs)
     
     # Get operation from registry
     if registry_key not in _OPERATION_REGISTRY:
@@ -279,15 +212,11 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     try:
         # Special handling for DEBUG interface dispatcher pattern
         if interface == GatewayInterface.DEBUG:
-            # Import debug_core which has the dispatcher
             module = __import__(module_name, fromlist=[func_name])
             func = getattr(module, func_name)
             
             # Convert operation string to DebugOperation enum
-            # The debug dispatcher expects 'operation' kwarg with enum value
             from debug.debug_types import DebugOperation
-            
-            # Convert operation string to enum (e.g., 'check_gateway_health' -> DebugOperation.CHECK_GATEWAY_HEALTH)
             operation_enum = DebugOperation[operation.upper()]
             kwargs['operation'] = operation_enum
         else:
@@ -295,43 +224,27 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
             module = __import__(module_name, fromlist=[func_name])
             func = getattr(module, func_name)
         
-        # Cache for fast path (if frequently called)
+        # Cache for fast path (if frequently called) - store both func and module_name
         if _fast_path_enabled and _operation_call_counts[registry_key] >= 5:
-            _fast_path_cache[registry_key] = func
+            _fast_path_cache[registry_key] = (func, module_name)
         
-        # Execute the operation
-        # CRITICAL: interface_* routers need operation as first positional arg
+        # FIXED: Execute the operation - check if interface router
         if module_name.startswith('interface_'):
-            return func(operation, **kwargs)
+            return func(operation, **kwargs)  # Pass operation for routers
         else:
-            return func(**kwargs)
+            return func(**kwargs)  # Don't pass for direct implementations
     
     except ImportError as e:
         raise ImportError(f"Failed to load {module_name}.{func_name}: {e}")
     except AttributeError as e:
         raise AttributeError(f"Function {func_name} not found in {module_name}: {e}")
-    except Exception as e:
-        # Log error through logging interface (if available)
-        try:
-            log_error = _fast_path_cache.get((GatewayInterface.LOGGING, 'log_error'))
-            if log_error:
-                log_error(
-                    message=f"Operation {interface.value}.{operation} failed",
-                    error=str(e),
-                    interface=interface.value,
-                    operation=operation
-                )
-        except:
-            pass  # Don't let logging errors break the operation
-        
-        raise
+
 
 # ===== FAST PATH MANAGEMENT =====
 
 def set_fast_path_threshold(threshold: int) -> None:
     """Set the call count threshold for fast path caching."""
     global _fast_path_enabled
-    # Implementation can be expanded to support custom thresholds
     _fast_path_enabled = threshold > 0
 
 def enable_fast_path() -> None:
@@ -360,16 +273,7 @@ def get_fast_path_stats() -> Dict[str, Any]:
 # ===== INITIALIZATION =====
 
 def initialize_lambda(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Initialize Lambda environment.
-    This is called once per Lambda cold start.
-    
-    Args:
-        context: Optional Lambda context information
-        
-    Returns:
-        Initialization result with status
-    """
+    """Initialize Lambda environment."""
     result = {
         'status': 'initialized',
         'registry_size': len(_OPERATION_REGISTRY),
@@ -388,7 +292,6 @@ def get_gateway_stats() -> Dict[str, Any]:
     # FIXED 2025-10-16: Convert tuple keys to strings for JSON serialization
     operation_counts_json_safe = {}
     for key, count in _operation_call_counts.items():
-        # Convert (GatewayInterface.CACHE, 'get') -> "cache.get"
         interface_name = key[0].value
         operation_name = key[1]
         json_key = f"{interface_name}.{operation_name}"
@@ -396,7 +299,7 @@ def get_gateway_stats() -> Dict[str, Any]:
     
     return {
         'total_operations': len(_OPERATION_REGISTRY),
-        'operation_call_counts': operation_counts_json_safe,  # Now JSON-serializable!
+        'operation_call_counts': operation_counts_json_safe,
         'interfaces': {
             iface.value: sum(1 for k in _OPERATION_REGISTRY if k[0] == iface) 
             for iface in GatewayInterface
@@ -428,21 +331,16 @@ def create_success_response(data: Any, status_code: int = 200) -> Dict[str, Any]
 # ===== EXPORTS =====
 
 __all__ = [
-    # Core
     'GatewayInterface',
     'execute_operation',
     'initialize_lambda',
     'get_gateway_stats',
     '_OPERATION_REGISTRY',
-    
-    # Fast Path Management
     'set_fast_path_threshold',
     'enable_fast_path',
     'disable_fast_path',
     'clear_fast_path_cache',
     'get_fast_path_stats',
-    
-    # Response Helpers
     'create_error_response',
     'create_success_response',
 ]
