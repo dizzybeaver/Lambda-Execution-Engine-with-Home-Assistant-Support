@@ -1,9 +1,10 @@
 """
 gateway_core.py - Core Gateway Execution Engine
-Version: 2025.10.16.05
+Version: 2025.10.16.06
 Description: Centralized operation dispatcher for all SUGA-ISP interfaces
 
 CHANGELOG:
+- 2025.10.16.06: Added dispatcher function check - generic_debug_operation needs operation param
 - 2025.10.16.05: Removed DEBUG enum import (debug_types doesn't exist in deployment)
 - 2025.10.16.04: Fixed DEBUG import path: debug.debug_types → debug_types
 - 2025.10.16.03: CRITICAL FIX - Both fast path and normal path now pass operation 
@@ -168,7 +169,7 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
 }
 
 # ===== FAST PATH CACHE =====
-_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str]] = {}
+_fast_path_cache: Dict[Tuple[GatewayInterface, str], Tuple[Callable, str, str]] = {}  # Now stores (func, module_name, func_name)
 _fast_path_enabled = True
 _operation_call_counts = defaultdict(int)
 
@@ -177,7 +178,14 @@ _operation_call_counts = defaultdict(int)
 def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> Any:
     """
     Execute operation through the gateway.
-    CRITICAL FIX 2025.10.16.03: Now correctly passes operation parameter to interface routers
+    
+    CRITICAL DISPATCHER PATTERN (2025.10.16.06):
+    Some functions act as dispatchers and need the operation parameter:
+    - interface_* modules: execute_*_operation(operation, **kwargs)
+    - debug_core module: generic_debug_operation(operation, **kwargs)
+    - Any function with 'generic' in the name
+    
+    Other functions are direct implementations and don't need operation parameter.
     """
     registry_key = (interface, operation)
     
@@ -186,9 +194,10 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
     
     # Fast path: Check cache first
     if _fast_path_enabled and registry_key in _fast_path_cache:
-        func, module_name = _fast_path_cache[registry_key]
-        # FIXED: Check if interface router and pass operation parameter
-        if module_name.startswith('interface_'):
+        func, module_name, func_name = _fast_path_cache[registry_key]
+        # Check if this is a dispatcher function that needs operation parameter
+        # Dispatchers include: interface routers and generic dispatchers
+        if module_name.startswith('interface_') or 'generic' in func_name:
             return func(operation, **kwargs)
         else:
             return func(**kwargs)
@@ -208,13 +217,14 @@ def execute_operation(interface: GatewayInterface, operation: str, **kwargs) -> 
         module = __import__(module_name, fromlist=[func_name])
         func = getattr(module, func_name)
         
-        # Cache for fast path (if frequently called) - store both func and module_name
+        # Cache for fast path (if frequently called) - store func, module_name, and func_name
         if _fast_path_enabled and _operation_call_counts[registry_key] >= 5:
-            _fast_path_cache[registry_key] = (func, module_name)
+            _fast_path_cache[registry_key] = (func, module_name, func_name)
         
-        # FIXED: Execute the operation - check if interface router
-        if module_name.startswith('interface_'):
-            return func(operation, **kwargs)  # Pass operation for routers
+        # Execute the operation - check if this is a dispatcher function
+        # Dispatchers include: interface routers and generic dispatchers
+        if module_name.startswith('interface_') or 'generic' in func_name:
+            return func(operation, **kwargs)  # Pass operation for dispatchers
         else:
             return func(**kwargs)  # Don't pass for direct implementations
     
