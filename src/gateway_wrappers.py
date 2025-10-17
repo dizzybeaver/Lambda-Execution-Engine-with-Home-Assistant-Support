@@ -1,7 +1,24 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.16.01
+Version: 2025.10.17.04
 Description: Wrapper functions that call execute_operation() for cleaner code
+
+CHANGELOG:
+- 2025.10.17.04: Added missing SINGLETON memory monitoring wrappers (Issue #11 fix)
+  - get_memory_stats() - Get current memory usage
+  - get_comprehensive_memory_stats() - Detailed memory + GC info
+  - check_lambda_memory_compliance() - Check 128MB limit
+  - force_memory_cleanup() - Aggressive cleanup
+  - optimize_memory() - Multi-strategy optimization
+  - force_comprehensive_memory_cleanup() - Full cleanup
+  - emergency_memory_preserve() - Critical memory preservation
+- 2025.10.16.01: Fixed initialize_config, sanitize_input, websocket_request, increment_counter
+
+DESIGN DECISION: Memory Monitoring Functions
+Reason: singleton_memory.py has comprehensive memory functions but they weren't
+        exposed through gateway wrappers, making them hard to discover/use
+Impact: Other modules can now easily monitor Lambda 128MB compliance
+Pattern: All memory functions route through SINGLETON interface to singleton_memory.py
 
 FIXES APPLIED (2025.10.16):
 - BUG #1: Fixed initialize_config to use 'initialize' operation (was 'reload')
@@ -130,9 +147,9 @@ def generate_correlation_id(prefix: Optional[str] = None) -> str:
     """Generate correlation ID."""
     return execute_operation(GatewayInterface.SECURITY, 'generate_correlation_id', prefix=prefix)
 
-def validate_string(value: str, max_length: int = 10000) -> bool:
+def validate_string(value: str, **kwargs) -> bool:
     """Validate string."""
-    return execute_operation(GatewayInterface.SECURITY, 'validate_string', value=value, max_length=max_length)
+    return execute_operation(GatewayInterface.SECURITY, 'validate_string', value=value, **kwargs)
 
 def validate_email(email: str) -> bool:
     """Validate email address."""
@@ -142,13 +159,13 @@ def validate_url(url: str) -> bool:
     """Validate URL."""
     return execute_operation(GatewayInterface.SECURITY, 'validate_url', url=url)
 
-def hash_data(data: str) -> str:
+def hash_data(data: str, algorithm: str = 'sha256') -> str:
     """Hash data."""
-    return execute_operation(GatewayInterface.SECURITY, 'hash', data=data)
+    return execute_operation(GatewayInterface.SECURITY, 'hash', data=data, algorithm=algorithm)
 
-def verify_hash(data: str, hash_value: str) -> bool:
+def verify_hash(data: str, hash_value: str, algorithm: str = 'sha256') -> bool:
     """Verify hash."""
-    return execute_operation(GatewayInterface.SECURITY, 'verify_hash', data=data, hash_value=hash_value)
+    return execute_operation(GatewayInterface.SECURITY, 'verify_hash', data=data, hash_value=hash_value, algorithm=algorithm)
 
 def sanitize_input(data: str) -> str:
     """Sanitize input data."""
@@ -168,9 +185,9 @@ def get_metrics_stats() -> Dict[str, Any]:
     """Get metrics statistics."""
     return execute_operation(GatewayInterface.METRICS, 'get_stats')
 
-def record_operation_metric(operation: str, duration_ms: float, **kwargs) -> None:
+def record_operation_metric(operation: str, duration_ms: float, success: bool = True, **kwargs) -> None:
     """Record operation metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_operation', operation=operation, duration_ms=duration_ms, **kwargs)
+    execute_operation(GatewayInterface.METRICS, 'record_operation', operation=operation, duration_ms=duration_ms, success=success, **kwargs)
 
 def record_error_metric(error_type: str, **kwargs) -> None:
     """Record error metric."""
@@ -244,6 +261,139 @@ def singleton_stats() -> Dict[str, Any]:
     """Get singleton statistics."""
     return execute_operation(GatewayInterface.SINGLETON, 'get_stats')
 
+# ===== SINGLETON MEMORY MONITORING WRAPPERS (NEW - Issue #11 Fix) =====
+
+def get_memory_stats() -> Dict[str, Any]:
+    """
+    Get current memory statistics for Lambda environment.
+    
+    Returns standardized response with memory usage in MB, compliance status,
+    and percentage of 128MB Lambda limit used.
+    
+    Returns:
+        Dict containing:
+        - rss_mb: Resident set size in megabytes
+        - available_mb: Available memory (128 - current)
+        - percent_used: Percentage of 128MB limit
+        - compliant: Boolean if under 128MB
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'get_memory_stats')
+
+def get_comprehensive_memory_stats() -> Dict[str, Any]:
+    """
+    Get comprehensive memory statistics including garbage collection info.
+    
+    Returns detailed memory stats plus GC statistics (collections, tracked objects).
+    More comprehensive than get_memory_stats() but slightly higher overhead.
+    
+    Returns:
+        Dict containing:
+        - memory: {rss_mb, available_mb, percent_used, compliant}
+        - gc: {collections, stats, tracked_objects}
+        - system: {lambda_limit_mb, pressure_level}
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'get_comprehensive_memory_stats')
+
+def check_lambda_memory_compliance() -> Dict[str, Any]:
+    """
+    Check if current memory usage is within Lambda 128MB limit.
+    
+    Fast, lightweight check for compliance. Use this in hot paths where
+    you need to quickly verify memory is within limits.
+    
+    Returns:
+        Dict containing:
+        - compliant: Boolean if under 128MB
+        - current_mb: Current memory usage
+        - limit_mb: Lambda limit (128)
+        - margin_mb: Remaining headroom
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'check_lambda_memory_compliance')
+
+def force_memory_cleanup() -> Dict[str, Any]:
+    """
+    Force aggressive memory cleanup with garbage collection.
+    
+    Runs gc.collect() and reports memory freed. Use when memory pressure
+    is detected or before memory-intensive operations.
+    
+    Returns:
+        Dict containing:
+        - gc_collected: Number of objects collected
+        - memory_before_mb: Memory before cleanup
+        - memory_after_mb: Memory after cleanup
+        - memory_freed_mb: Amount freed
+        - compliant: Post-cleanup compliance status
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'force_memory_cleanup')
+
+def optimize_memory() -> Dict[str, Any]:
+    """
+    Optimize memory usage with multiple cleanup strategies.
+    
+    More comprehensive than force_memory_cleanup(). Runs:
+    - Multi-generation garbage collection
+    - Singleton cache clearing if memory > 100MB
+    - Repeated cleanup passes
+    
+    Use this when memory pressure is high (>100MB) or before critical operations.
+    
+    Returns:
+        Dict containing:
+        - strategies_applied: List of optimization steps taken
+        - final_memory_mb: Memory after optimization
+        - compliant: Compliance status
+        - optimization_count: Number of strategies applied
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'optimize_memory')
+
+def force_comprehensive_memory_cleanup() -> Dict[str, Any]:
+    """
+    Force comprehensive memory cleanup with all strategies.
+    
+    Most aggressive cleanup option. Combines:
+    - Multi-pass garbage collection
+    - Singleton clearing
+    - Module cache optimization
+    
+    WARNING: May impact performance. Only use when critical.
+    
+    Returns:
+        Dict containing:
+        - cleanup_phases: List of cleanup phases executed
+        - memory_before_mb: Initial memory
+        - memory_after_mb: Final memory
+        - memory_freed_mb: Total freed
+        - compliant: Final compliance status
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'force_comprehensive_memory_cleanup')
+
+def emergency_memory_preserve() -> Dict[str, Any]:
+    """
+    Emergency memory preservation for critical situations.
+    
+    CRITICAL USE ONLY: Clears ALL singletons and forces aggressive GC.
+    Only call this when approaching Lambda 128MB limit and normal
+    cleanup has failed. Will disrupt application state.
+    
+    Returns:
+        Dict containing:
+        - emergency_mode: Boolean (True if emergency steps taken)
+        - emergency_steps: List of emergency actions
+        - memory_before_mb: Memory before emergency cleanup
+        - memory_after_mb: Memory after emergency cleanup
+        - memory_freed_mb: Amount freed
+        - now_compliant: Compliance after emergency measures
+        - correlation_id: Request correlation ID
+    """
+    return execute_operation(GatewayInterface.SINGLETON, 'emergency_memory_preserve')
+
 # ===== INITIALIZATION WRAPPERS =====
 
 def initialize_system(**kwargs) -> Dict[str, Any]:
@@ -264,63 +414,63 @@ def get_initialization_flag(flag: str) -> Any:
 
 # ===== HTTP_CLIENT WRAPPERS =====
 
-def http_request(url: str, method: str = 'GET', **kwargs) -> Dict[str, Any]:
+def http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'request', url=url, method=method, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'request', method=method, url=url, **kwargs)
 
 def http_get(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP GET request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'get', url=url, **kwargs)
 
-def http_post(url: str, json: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def http_post(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP POST request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, json=json, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'post', url=url, **kwargs)
 
-def http_put(url: str, json: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def http_put(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP PUT request."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'put', url=url, json=json, **kwargs)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'put', url=url, **kwargs)
 
 def http_delete(url: str, **kwargs) -> Dict[str, Any]:
     """Make HTTP DELETE request."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'delete', url=url, **kwargs)
 
-def get_http_client_state(client_type: str = 'urllib3') -> Dict[str, Any]:
+def get_http_client_state() -> Dict[str, Any]:
     """Get HTTP client state."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'get_state', client_type=client_type)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'get_state')
 
-def reset_http_client_state(client_type: Optional[str] = None) -> Dict[str, Any]:
+def reset_http_client_state() -> Dict[str, Any]:
     """Reset HTTP client state."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'reset_state', client_type=client_type)
+    return execute_operation(GatewayInterface.HTTP_CLIENT, 'reset_state')
 
 # ===== WEBSOCKET WRAPPERS =====
 
-def websocket_connect(url: str, timeout: int = 10, **kwargs) -> Dict[str, Any]:
+def websocket_connect(url: str, **kwargs) -> Dict[str, Any]:
     """Connect to WebSocket."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'connect', url=url, timeout=timeout, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'connect', url=url, **kwargs)
 
-def websocket_send(connection: Any, message: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def websocket_send(connection_id: str, message: Any, **kwargs) -> Dict[str, Any]:
     """Send WebSocket message."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'send', connection=connection, message=message, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'send', connection_id=connection_id, message=message, **kwargs)
 
-def websocket_receive(connection: Any, timeout: int = 10, **kwargs) -> Dict[str, Any]:
+def websocket_receive(connection_id: str, **kwargs) -> Dict[str, Any]:
     """Receive WebSocket message."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'receive', connection=connection, timeout=timeout, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'receive', connection_id=connection_id, **kwargs)
 
-def websocket_close(connection: Any, **kwargs) -> Dict[str, Any]:
+def websocket_close(connection_id: str, **kwargs) -> Dict[str, Any]:
     """Close WebSocket connection."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection=connection, **kwargs)
+    return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection_id=connection_id, **kwargs)
 
-def websocket_request(url: str, message: Dict[str, Any], timeout: int = 10, **kwargs) -> Dict[str, Any]:
-    """Make WebSocket request (connect, send, receive, close)."""
+def websocket_request(url: str, message: Any, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
+    """Make WebSocket request."""
     return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, timeout=timeout, **kwargs)
 
 # ===== CIRCUIT_BREAKER WRAPPERS =====
 
 def get_circuit_breaker(name: str, failure_threshold: int = 5, timeout: int = 60) -> Dict[str, Any]:
-    """Get circuit breaker."""
+    """Get circuit breaker state."""
     return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name, failure_threshold=failure_threshold, timeout=timeout)
 
-def execute_with_circuit_breaker(name: str, func: Any, *args, **kwargs) -> Any:
+def execute_with_circuit_breaker(name: str, func: Any, args: tuple = (), **kwargs) -> Any:
     """Execute function with circuit breaker protection."""
     return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'call', name=name, func=func, args=args, **kwargs)
 
@@ -444,6 +594,15 @@ __all__ = [
     'singleton_delete',
     'singleton_clear',
     'singleton_stats',
+    
+    # SINGLETON MEMORY MONITORING (NEW)
+    'get_memory_stats',
+    'get_comprehensive_memory_stats',
+    'check_lambda_memory_compliance',
+    'force_memory_cleanup',
+    'optimize_memory',
+    'force_comprehensive_memory_cleanup',
+    'emergency_memory_preserve',
     
     # INITIALIZATION
     'initialize_system',
