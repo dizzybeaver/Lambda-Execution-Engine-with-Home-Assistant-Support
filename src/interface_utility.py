@@ -1,6 +1,6 @@
 """
 interface_utility.py - Utility Interface Router (SUGA-ISP)
-Version: 2025.10.16.04
+Version: 2025.10.16.06
 Description: Router/Firewall for utility interface - ONLY file gateway.py accesses
 
 SUGA-ISP ARCHITECTURE:
@@ -22,7 +22,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 import os
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 import logging as stdlib_logging
 
 # Import from internal utility modules
@@ -115,27 +115,29 @@ except ImportError:
     def validate_dict_schema(data: Dict[str, Any], schema: Dict[str, Dict[str, Any]]) -> None:
         pass
     
-    def safe_validate(validator_func, *args, **kwargs) -> Dict[str, Any]:
+    def safe_validate(validator_func: Callable, *args, **kwargs) -> Dict[str, Any]:
         return {'valid': True, 'error': None}
     
-    def validate_all(validators: List) -> Dict[str, Any]:
+    def validate_all(validators: List[Callable]) -> Dict[str, Any]:
         return {'all_valid': True, 'results': [], 'error_count': 0}
     
-    def create_cache_key_validator(min_length: int = 1, max_length: int = 255):
+    def create_cache_key_validator(min_length: int = 1, max_length: int = 255) -> Callable:
         return lambda key: None
     
-    def create_ttl_validator(min_ttl: int = 0, max_ttl: int = 86400):
+    def create_ttl_validator(min_ttl: int = 0, max_ttl: int = 86400) -> Callable:
         return lambda ttl: None
     
-    def create_metric_validator():
+    def create_metric_validator() -> Callable:
         return lambda name, value: None
     
     def validate_params(**validators):
-        def decorator(func): return func
+        def decorator(func: Callable) -> Callable: 
+            return func
         return decorator
     
     def validate_return_type(expected_type: type):
-        def decorator(func): return func
+        def decorator(func: Callable) -> Callable: 
+            return func
         return decorator
 
 logger = stdlib_logging.getLogger(__name__)
@@ -245,7 +247,7 @@ def _execute_safe_get_implementation(dictionary: Dict, key_path: str, default: A
 
 
 # ===== PUBLIC INTERFACE FUNCTIONS =====
-# These are convenience wrappers for common operations
+# These are convenience wrappers exported for other modules
 
 def generate_correlation_id(prefix: Optional[str] = None) -> str:
     """Generate correlation ID."""
