@@ -133,15 +133,15 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     # CIRCUIT_BREAKER Operations
     (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
     (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_breakers_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_breakers_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
     
     # UTILITY Operations
-    (GatewayInterface.UTILITY, 'format_response'): ('interface_utility', 'execute_utility_operation'),
-    (GatewayInterface.UTILITY, 'parse_json'): ('interface_utility', 'execute_utility_operation'),
-    (GatewayInterface.UTILITY, 'safe_get'): ('interface_utility', 'execute_utility_operation'),
-    (GatewayInterface.UTILITY, 'generate_uuid'): ('interface_utility', 'execute_utility_operation'),
-    (GatewayInterface.UTILITY, 'get_timestamp'): ('interface_utility', 'execute_utility_operation'),
+    (GatewayInterface.UTILITY, 'format_response'): ('shared_utilities', '_execute_format_response_implementation'),
+    (GatewayInterface.UTILITY, 'parse_json'): ('shared_utilities', '_execute_parse_json_implementation'),
+    (GatewayInterface.UTILITY, 'safe_get'): ('shared_utilities', '_execute_safe_get_implementation'),
+    (GatewayInterface.UTILITY, 'generate_uuid'): ('shared_utilities', '_generate_uuid_implementation'),
+    (GatewayInterface.UTILITY, 'get_timestamp'): ('shared_utilities', '_get_timestamp_implementation'),
     
     # WEBSOCKET Operations
     (GatewayInterface.WEBSOCKET, 'connect'): ('interface_websocket', 'execute_websocket_operation'),
