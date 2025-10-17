@@ -173,27 +173,24 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.WEBSOCKET, 'request'): ('interface_websocket', 'execute_websocket_operation'),
     
     # DEBUG Operations
-    # DESIGN DECISION: Direct access to debug_core (no interface router)
-    # Reason: Debug operations are development/diagnostic tools, not production-critical
-    # NOT A BUG: Dispatcher pattern (generic_debug_operation) handles routing internally
-    (GatewayInterface.DEBUG, 'check_component_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'check_gateway_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'diagnose_system_health'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_debug_tests'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_system_architecture'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_system_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_optimization_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_dispatcher_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_operation_metrics'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'get_gateway_stats'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'verify_registry_operations'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_operation_signatures'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'validate_interface_compliance'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'check_circular_dependencies'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'measure_execution_times'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_performance_profile'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'run_memory_profile'): ('debug_core', 'generic_debug_operation'),
-    (GatewayInterface.DEBUG, 'check_memory_usage'): ('debug_core', 'generic_debug_operation'),
+    (GatewayInterface.DEBUG, 'check_component_health'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'check_gateway_health'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'diagnose_system_health'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'run_debug_tests'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'validate_system_architecture'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_system_stats'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_optimization_stats'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_dispatcher_stats'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_operation_metrics'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'get_gateway_stats'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'verify_registry_operations'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'validate_operation_signatures'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'validate_interface_compliance'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'check_circular_dependencies'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'measure_execution_times'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'run_performance_profile'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'run_memory_profile'): ('interface_debug', 'execute_debug_operation'),
+    (GatewayInterface.DEBUG, 'check_memory_usage'): ('interface_debug', 'execute_debug_operation'),
 }
 
 # ===== FAST PATH CACHE =====
