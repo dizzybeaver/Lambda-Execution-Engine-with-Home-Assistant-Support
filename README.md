@@ -1,8 +1,11 @@
-# This project is in now settled developement Flux. No major code changes are expected to implemented in this branch. I am in deployment - feature testing mode.
-## When all the deployment kinks are worked out, I will split off into a developement branch for developement and this branch untouch except for any breaking bugs found, which will be corrected.
+# This project is in now developement Flux. Circular Imports have creeped back in. So I am overhauling the code to fix an implement protection vs this by upgrading the SUGA architecture into the SUGA-ISP architecture. 90% of the work is done and I am in bug hunting and security hardening mode with it.
+When all the deployment kinks are worked out, I will split off into a developement branch for developement and this branch untouch except for any breaking bugs found, which will be corrected.
 
-### 1. Consider this project in Beta Stage, I will update with changes as I go. 
-### 2. The instruction are a work in progress. But package the SRC directory as is in a zip file. Upload to Lambda. Then there is 2 enviromental variable files. 1 is a reference and the other is a scenario file. 
+ 1. Consider this project in Alpha Stage, I will update with changes as I go. 
+2. The instruction are not implemented yet, I have made environmental variables guides and should setup like most Home Assistant -AWS implementations out there.
+3. all files have been moved into the root directory which is the src directory in the Repo. these are the required files. The unused directory is just a staging directory and not needed. if you decide to download this. go into the src directory and zip all the python files and then
+4. upload the zip file to AWS. make sure they are in the root of the archive and not in a sub-directory. it is easy to check, after zipping it. just open the archive, if it shows all the py files you are good. if it shows src directory, you need to delete this archive and zip it actually inside the src directory not the directory before. if somehow unused folder is included , it will not affect anything and will be ok.
+   
         Use the scenario file and choose which scenario you are in. If you want to use SSM, its configuration is there. No SSM, its configuration is there. Crap the whole thing broke on me and I cannot figure it out. 
         Use the fail-safe scenario. It is the exact same script I used for my home assistant for years with AWS lambda and my own backup, now built in.
 ### 3. I will do my best to address any breaking issues after it becomes fully functional.
