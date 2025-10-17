@@ -1,9 +1,11 @@
 """
 cache_core.py - LUGS-Integrated Cache Core Implementation
-Version: 2025.10.16.03
+Version: 2025.10.16.04
 Description: Thread-safe cache with LUGS metadata tracking and dispatcher timing
 
 CHANGELOG:
+- 2025.10.16.04: Bug fixes - added cache_exists() convenience function, parameter validation,
+                 TTL validation, key validation, improved None handling documentation
 - 2025.10.16.03: Bug fixes - added EXISTS enum, DEFAULT_CACHE_TTL constant, improved
                  LUGS failure logging, added documentation for intentional behaviors
 - 2025.10.16.02: Fixed exists() implementation, TTL defaults, error handling, type hints
@@ -38,8 +40,10 @@ _USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower
 
 # ===== CACHE CONSTANTS =====
 
-# BUG FIX: Centralized TTL default to prevent inconsistency
 DEFAULT_CACHE_TTL = 300  # seconds (5 minutes)
+
+# Sentinel value for cache misses to distinguish from cached None
+_CACHE_MISS = object()
 
 
 # ===== CACHE OPERATION ENUM =====
@@ -48,12 +52,44 @@ class CacheOperation(Enum):
     """Enumeration of all cache operations."""
     GET = "get"
     SET = "set"
-    EXISTS = "exists"  # BUG FIX: Added missing EXISTS enum value
+    EXISTS = "exists"
     DELETE = "delete"
     CLEAR = "clear"
     CLEANUP_EXPIRED = "cleanup_expired"
     GET_STATS = "get_stats"
     GET_MODULE_DEPENDENCIES = "get_module_dependencies"
+
+
+# ===== VALIDATION HELPERS =====
+
+def _validate_cache_key(key: str) -> None:
+    """
+    Validate cache key is non-empty string.
+    
+    Args:
+        key: Cache key to validate
+        
+    Raises:
+        ValueError: If key is empty or not a string
+    """
+    if not isinstance(key, str):
+        raise ValueError(f"Cache key must be a string, got {type(key).__name__}")
+    if not key:
+        raise ValueError("Cache key cannot be empty string")
+
+
+def _validate_ttl(ttl: float) -> None:
+    """
+    Validate TTL is positive number.
+    
+    Args:
+        ttl: Time-to-live in seconds
+        
+    Raises:
+        ValueError: If TTL is not positive
+    """
+    if ttl <= 0:
+        raise ValueError(f"TTL must be positive, got {ttl}")
 
 
 # ===== CACHE ENTRY =====
@@ -83,6 +119,7 @@ class LUGSIntegratedCache:
       stale data without requiring separate cleanup thread
     - LUGS integration: Optional - cache operations continue even if LUGS
       registration fails (logged but not fatal)
+    - None handling: Can cache None values safely (use exists() to check presence)
     """
     
     def __init__(self):
@@ -102,15 +139,21 @@ class LUGSIntegratedCache:
         Set cache value with LUGS tracking.
         
         Args:
-            key: Cache key
-            value: Value to cache
-            ttl: Time-to-live in seconds (default: 300)
+            key: Cache key (non-empty string)
+            value: Value to cache (can be None)
+            ttl: Time-to-live in seconds (must be positive, default: 300)
             source_module: Module name for LUGS dependency tracking
+            
+        Raises:
+            ValueError: If key is empty or ttl is not positive
             
         Notes:
             - LUGS registration failure is logged but not fatal
             - Cache operation succeeds even if LUGS is unavailable
         """
+        _validate_cache_key(key)
+        _validate_ttl(ttl)
+        
         current_time = time.time()
         
         with self._lock:
@@ -133,15 +176,12 @@ class LUGSIntegratedCache:
                 from gateway import add_cache_module_dependency
                 add_cache_module_dependency(key, source_module)
             except ImportError as e:
-                # BUG FIX: Added logging for LUGS registration failure
-                # This is intentionally non-fatal to prevent cache breakage
                 print(
                     f"[CACHE] Warning: Could not register LUGS dependency for key '{key}' "
                     f"from module '{source_module}': {e}", 
                     file=sys.stderr
                 )
             except Exception as e:
-                # Catch any other LUGS-related errors
                 print(
                     f"[CACHE] Warning: LUGS dependency registration failed for key '{key}': {e}", 
                     file=sys.stderr
@@ -155,13 +195,16 @@ class LUGSIntegratedCache:
             key: Cache key
             
         Returns:
-            Cached value or None if not found/expired
+            Cached value (can be None if None was cached) or None if not found/expired
             
         Notes:
             - Updates access metadata (count, timestamp) on hit
             - Expired entries are automatically removed during lookup
             - Thread-safe: entry modification happens while holding lock
+            - Returns None for both cache miss AND cached None value
+              (use exists() to distinguish if needed)
         """
+        _validate_cache_key(key)
         current_time = time.time()
         
         with self._lock:
@@ -202,7 +245,9 @@ class LUGSIntegratedCache:
             - Does NOT update access count or last_access time
             - Expired entries are removed during check
             - Use this for existence checks that shouldn't affect LRU metrics
+            - Use this to distinguish between cached None and cache miss
         """
+        _validate_cache_key(key)
         current_time = time.time()
         
         with self._lock:
@@ -229,6 +274,8 @@ class LUGSIntegratedCache:
         Returns:
             True if entry was deleted, False if key didn't exist
         """
+        _validate_cache_key(key)
+        
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
@@ -446,9 +493,39 @@ def cache_set(key: str, value: Any, ttl: float = DEFAULT_CACHE_TTL, source_modul
 
 
 def cache_get(key: str, default: Any = None) -> Optional[Any]:
-    """Get cache value."""
+    """
+    Get cache value.
+    
+    Args:
+        key: Cache key
+        default: Default value to return if not found
+        
+    Returns:
+        Cached value, or default if not found/expired
+        
+    Notes:
+        - Returns default for both cache miss AND if None was explicitly cached
+        - Use cache_exists() to distinguish if needed
+    """
     result = execute_cache_operation(CacheOperation.GET, key)
     return result if result is not None else default
+
+
+def cache_exists(key: str) -> bool:
+    """
+    Check if cache key exists without updating access metadata.
+    
+    Args:
+        key: Cache key
+        
+    Returns:
+        True if key exists and not expired, False otherwise
+        
+    Notes:
+        - Does NOT count as cache hit or update access time
+        - Use this to distinguish between cached None and cache miss
+    """
+    return execute_cache_operation(CacheOperation.EXISTS, key)
 
 
 def cache_delete(key: str) -> bool:
@@ -557,6 +634,7 @@ __all__ = [
     'execute_cache_operation',
     'cache_set',
     'cache_get',
+    'cache_exists',
     'cache_delete',
     'cache_clear',
     'cache_cleanup',
