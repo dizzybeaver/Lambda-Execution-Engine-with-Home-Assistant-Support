@@ -3,6 +3,22 @@ logging_manager.py - Core logging manager implementation
 Version: 2025.10.14.01
 Description: LoggingCore class with template optimization and error tracking
 
+DESIGN DECISIONS:
+=================
+1. Threading Locks in Lambda:
+   - Uses threading.Lock() (self._lock, self.error_lock) despite Lambda being single-threaded
+   - Reason: Defensive programming for potential future multi-threaded use cases
+   - Lambda Impact: Minimal overhead (~microseconds per lock acquisition)
+   - Trade-off: Safety over micro-optimization
+
+2. Dual Error Storage:
+   - error_entries: deque(maxlen=100) - Simple error tracking
+   - error_log_entries: deque(maxlen=1000) - Structured error responses with analytics
+   - Reason: Different use cases - simple errors vs HTTP error responses
+   - error_entries: For general exceptions and errors
+   - error_log_entries: For API error responses with status codes, correlation IDs
+   - Memory: ~100KB total (acceptable for 128MB Lambda)
+
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -136,7 +152,10 @@ class LoggingCore:
     
     def log_operation_failure(self, operation: str, error: Exception, duration_ms: float = 0, correlation_id: str = "", context: Optional[Dict[str, Any]] = None) -> None:
         """Log operation failure."""
-        message = f"Operation failed: {operation} ({duration_ms:.2f}ms)"
+        if _USE_LOG_TEMPLATES:
+            message = f"[OP_FAILURE]: {operation} ({duration_ms:.2f}ms)"
+        else:
+            message = f"Operation failed: {operation} ({duration_ms:.2f}ms)"
         extra = {'operation': operation, 'duration_ms': duration_ms, 'status': 'failure'}
         if correlation_id:
             extra['correlation_id'] = correlation_id
@@ -168,107 +187,85 @@ class LoggingCore:
                           source_module: Optional[str] = None,
                           lambda_context = None,
                           additional_context: Optional[Dict[str, Any]] = None) -> str:
-        """Log an error response and return entry ID."""
+        """
+        Log an error response and return entry ID.
+        
+        DESIGN DECISION: Stores in error_log_entries (not error_entries)
+        Reason: This is for structured HTTP error responses with analytics
+        error_log_entries tracks status codes, modules, severity levels
+        """
         entry_id = str(uuid.uuid4())
-        current_time = time.time()
         
-        # Extract lambda context info if provided
-        lambda_context_info = None
-        if lambda_context:
-            lambda_context_info = {
-                'request_id': getattr(lambda_context, 'aws_request_id', None),
-                'function_name': getattr(lambda_context, 'function_name', None),
-                'memory_limit': getattr(lambda_context, 'memory_limit_in_mb', None),
-                'remaining_time': getattr(lambda_context, 'get_remaining_time_in_millis', lambda: None)()
-            }
-        
-        # Determine error type and severity
-        error_body = error_response.get('body', {})
-        if isinstance(error_body, str):
-            error_type = 'GenericError'
-        else:
-            error_type = error_body.get('error', {}).get('type', 'UnknownError')
-        
-        severity = ErrorLogEntry.determine_severity(error_response)
-        
-        # Create structured log entry
-        entry = ErrorLogEntry(
-            id=entry_id,
-            timestamp=current_time,
-            datetime=datetime.fromtimestamp(current_time),
-            correlation_id=correlation_id or '',
-            source_module=source_module,
-            error_type=error_type,
-            severity=severity,
+        error_entry = ErrorLogEntry(
+            entry_id=entry_id,
+            timestamp=time.time(),
             status_code=error_response.get('statusCode', 500),
-            error_response=error_response,
-            lambda_context_info=lambda_context_info,
+            error_message=error_response.get('body', {}).get('error', 'Unknown error'),
+            correlation_id=correlation_id or str(uuid.uuid4()),
+            source_module=source_module or 'unknown',
+            lambda_request_id=getattr(lambda_context, 'aws_request_id', None) if lambda_context else None,
+            error_level=ErrorLogLevel.from_status_code(error_response.get('statusCode', 500)),
             additional_context=additional_context
         )
         
         with self.error_lock:
-            self.error_log_entries.append(entry)
+            self.error_log_entries.append(error_entry)
             self.total_errors_logged += 1
-        
-        # Also log to standard logger
-        self.logger.error(f"Error response logged: {error_type} [{severity.value}] - {entry_id}")
         
         return entry_id
     
-    def get_error_entries(self) -> List[Dict[str, Any]]:
-        """Get simple error entries."""
-        with self._lock:
-            return [
-                {
-                    'timestamp': e.timestamp,
-                    'error_type': e.error_type,
-                    'message': e.message,
-                    'stack_trace': e.stack_trace,
-                    'context': e.context
-                }
-                for e in self.error_entries
-            ]
-    
-    def get_error_analytics(self, time_range_minutes: int = 60, include_details: bool = False) -> Dict[str, Any]:
-        """Get error response analytics."""
+    def get_error_response_analytics(self) -> Dict[str, Any]:
+        """Get analytics on error responses."""
         with self.error_lock:
-            current_time = time.time()
-            cutoff_time = current_time - (time_range_minutes * 60)
+            if not self.error_log_entries:
+                return {
+                    'total_errors': 0,
+                    'by_status_code': {},
+                    'by_module': {},
+                    'by_severity': {},
+                    'time_range': None
+                }
             
-            # Filter entries within time range
-            recent_entries = [e for e in self.error_log_entries if e.timestamp >= cutoff_time]
+            by_status = {}
+            by_module = {}
+            by_severity = {}
             
-            # Aggregate by error type
-            error_types = {}
-            severity_counts = {level.value: 0 for level in ErrorLogLevel}
-            status_codes = {}
+            for entry in self.error_log_entries:
+                # By status code
+                by_status[entry.status_code] = by_status.get(entry.status_code, 0) + 1
+                # By module
+                by_module[entry.source_module] = by_module.get(entry.source_module, 0) + 1
+                # By severity
+                severity = entry.error_level.name
+                by_severity[severity] = by_severity.get(severity, 0) + 1
             
-            for entry in recent_entries:
-                # Count by error type
-                error_types[entry.error_type] = error_types.get(entry.error_type, 0) + 1
-                
-                # Count by severity
-                severity_counts[entry.severity.value] += 1
-                
-                # Count by status code
-                status_codes[entry.status_code] = status_codes.get(entry.status_code, 0) + 1
+            timestamps = [e.timestamp for e in self.error_log_entries]
             
-            analytics = {
-                'time_range_minutes': time_range_minutes,
-                'total_errors': len(recent_entries),
-                'error_types': error_types,
-                'severity_counts': severity_counts,
-                'status_codes': status_codes,
-                'error_rate_per_minute': len(recent_entries) / time_range_minutes if time_range_minutes > 0 else 0
+            return {
+                'total_errors': len(self.error_log_entries),
+                'by_status_code': by_status,
+                'by_module': by_module,
+                'by_severity': by_severity,
+                'time_range': {
+                    'start': min(timestamps),
+                    'end': max(timestamps),
+                    'duration_seconds': max(timestamps) - min(timestamps)
+                }
             }
-            
-            if include_details:
-                analytics['entries'] = [entry.to_dict() for entry in recent_entries]
-            
-            return analytics
     
-    def clear_error_entries(self) -> int:
-        """Clear simple error entries and return count."""
+    def clear_error_response_logs(self) -> int:
+        """Clear error response logs and return count of cleared entries."""
+        with self.error_lock:
+            count = len(self.error_log_entries)
+            self.error_log_entries.clear()
+            return count
+    
+    def get_error_entries(self) -> List[ErrorEntry]:
+        """Get recent error entries."""
+        return list(self.error_entries)
+    
+    def clear_errors(self) -> int:
+        """Clear error entries and return count cleared."""
         with self._lock:
             count = len(self.error_entries)
             self.error_entries.clear()
