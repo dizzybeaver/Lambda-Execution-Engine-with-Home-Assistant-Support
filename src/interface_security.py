@@ -1,7 +1,11 @@
 """
-security_crypto.py - Cryptographic operations
+interface_security.py - Security Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.16.01
-Description: Encryption, decryption, hashing, and correlation ID generation
+Description: Firewall router for Security interface
+
+This file acts as the interface router (firewall) between the SUGA-ISP
+and internal implementation files. Only this file may be accessed by
+gateway.py. Internal files are isolated.
 
 Copyright 2025 Joseph Hersey
 
@@ -18,102 +22,94 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-import base64
-import hashlib
-import hmac
-import uuid
-from typing import Dict, Any
+from typing import Any
+
+# ✅ ALLOWED: Import internal files within same Security interface
+from security_core import (
+    _execute_validate_request_implementation,
+    _execute_validate_token_implementation,
+    _execute_encrypt_data_implementation,
+    _execute_decrypt_data_implementation,
+    _execute_generate_correlation_id_implementation,
+    _execute_validate_string_implementation,
+    _execute_validate_email_implementation,
+    _execute_validate_url_implementation,
+    _execute_hash_data_implementation,
+    _execute_verify_hash_implementation,
+    _execute_sanitize_input_implementation
+)
 
 
-class SecurityCrypto:
-    """Handles all cryptographic operations."""
+def execute_security_operation(operation: str, **kwargs) -> Any:
+    """
+    Route security operation requests to internal implementations.
+    This is called by the SUGA-ISP (gateway.py).
     
-    def __init__(self):
-        self._crypto_stats = {
-            'encryptions': 0,
-            'decryptions': 0,
-            'hashes': 0,
-            'correlation_ids_generated': 0
-        }
-        self._default_key = "lambda-execution-engine-default-key-2025"
-    
-    def get_default_key(self) -> str:
-        """Get the default encryption key (public accessor for encapsulation)."""
-        return self._default_key
-    
-    def encrypt_data(self, data: str, key: str) -> str:
-        """
-        Encrypt data using XOR cipher (demo only - not cryptographically secure!).
+    Args:
+        operation: The security operation to execute ('validate_request', 'encrypt_data', etc.)
+        **kwargs: Operation-specific parameters
         
-        Note: This is a demonstration implementation. For production use,
-        implement proper encryption using AWS KMS or similar.
-        """
-        self._crypto_stats['encryptions'] += 1
+    Returns:
+        Operation result from internal implementation
         
+    Raises:
+        ValueError: If operation is unknown or parameters invalid
+        TypeError: If parameters are wrong type
+    """
+    
+    try:
+        if operation == 'validate_request':
+            return _execute_validate_request_implementation(**kwargs)
+        
+        elif operation == 'validate_token':
+            return _execute_validate_token_implementation(**kwargs)
+        
+        elif operation == 'encrypt' or operation == 'encrypt_data':
+            return _execute_encrypt_data_implementation(**kwargs)
+        
+        elif operation == 'decrypt' or operation == 'decrypt_data':
+            return _execute_decrypt_data_implementation(**kwargs)
+        
+        elif operation == 'generate_correlation_id':
+            return _execute_generate_correlation_id_implementation(**kwargs)
+        
+        elif operation == 'validate_string':
+            return _execute_validate_string_implementation(**kwargs)
+        
+        elif operation == 'validate_email':
+            return _execute_validate_email_implementation(**kwargs)
+        
+        elif operation == 'validate_url':
+            return _execute_validate_url_implementation(**kwargs)
+        
+        elif operation == 'hash' or operation == 'hash_data':
+            return _execute_hash_data_implementation(**kwargs)
+        
+        elif operation == 'verify_hash':
+            return _execute_verify_hash_implementation(**kwargs)
+        
+        elif operation == 'sanitize' or operation == 'sanitize_input':
+            return _execute_sanitize_input_implementation(**kwargs)
+        
+        else:
+            raise ValueError(f"Unknown security operation: {operation}")
+    
+    except (ValueError, TypeError) as e:
+        # Re-raise validation and type errors with context
+        raise type(e)(f"Security operation '{operation}' failed: {str(e)}")
+    
+    except Exception as e:
+        # Log unexpected errors and re-raise
         try:
-            # XOR implementation
-            encrypted = bytearray()
-            for i, char in enumerate(data.encode()):
-                encrypted.append(char ^ ord(key[i % len(key)]))
-            return base64.b64encode(bytes(encrypted)).decode()
-        except (ValueError, TypeError, UnicodeError) as e:
-            # Fallback to simple base64 encoding on expected encoding errors
-            encryption_key = key or self._default_key
-            combined = f"{encryption_key}:{data}"
-            return base64.b64encode(combined.encode('utf-8')).decode('utf-8')
-    
-    def decrypt_data(self, encrypted_data: str, key: str) -> str:
-        """
-        Decrypt data using XOR cipher (demo only).
-        
-        Note: This is a demonstration implementation. For production use,
-        implement proper decryption using AWS KMS or similar.
-        """
-        self._crypto_stats['decryptions'] += 1
-        
-        try:
-            # Try XOR decryption
-            encrypted = base64.b64decode(encrypted_data.encode())
-            decrypted = bytearray()
-            for i, byte in enumerate(encrypted):
-                decrypted.append(byte ^ ord(key[i % len(key)]))
-            return decrypted.decode()
-        except (ValueError, TypeError, UnicodeError):
-            # Fallback to simple base64 decoding on expected decoding errors
-            try:
-                decryption_key = key or self._default_key
-                decoded = base64.b64decode(encrypted_data.encode('utf-8')).decode('utf-8')
-                if decoded.startswith(f"{decryption_key}:"):
-                    return decoded[len(decryption_key)+1:]
-                return decoded
-            except (ValueError, TypeError, UnicodeError):
-                # If all decoding fails, return empty string
-                return ""
-    
-    def hash_data(self, data: str) -> str:
-        """Hash data using SHA-256."""
-        self._crypto_stats['hashes'] += 1
-        return hashlib.sha256(data.encode()).hexdigest()
-    
-    def verify_hash(self, data: str, hash_value: str) -> bool:
-        """Verify data against hash using constant-time comparison."""
-        computed_hash = self.hash_data(data)
-        return hmac.compare_digest(computed_hash, hash_value)
-    
-    def generate_correlation_id(self) -> str:
-        """Generate unique correlation ID using UUID4."""
-        self._crypto_stats['correlation_ids_generated'] += 1
-        return str(uuid.uuid4())
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get crypto statistics."""
-        return self._crypto_stats.copy()
+            from gateway import log_error
+            log_error(f"Security interface error in operation '{operation}': {str(e)}")
+        except ImportError:
+            pass  # Gateway not available, continue without logging
+        raise
 
-
-# ===== EXPORTS =====
 
 __all__ = [
-    'SecurityCrypto'
+    'execute_security_operation'
 ]
 
 # EOF
