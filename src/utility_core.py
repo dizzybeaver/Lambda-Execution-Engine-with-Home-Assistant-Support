@@ -1,9 +1,9 @@
 """
-shared_utilities_core.py - Core Utility Implementation
-Version: 2025.10.16.03
+utility_core.py - Core Utility Implementation (Internal)
+Version: 2025.10.16.04
 Description: SharedUtilityCore class with data operations, validation, and performance
 
-Part of shared_utilities modularization (File 2 of 7)
+SUGA-ISP: Internal module - only accessed via interface_utility.py
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -17,7 +17,7 @@ import traceback
 from typing import Dict, Any, Optional, List
 import logging as stdlib_logging
 
-from shared_utilities_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
+from utility_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
 
 logger = stdlib_logging.getLogger(__name__)
 
