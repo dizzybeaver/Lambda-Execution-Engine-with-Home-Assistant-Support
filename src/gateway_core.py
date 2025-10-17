@@ -150,13 +150,11 @@ _OPERATION_REGISTRY: Dict[Tuple[GatewayInterface, str], Tuple[str, str]] = {
     (GatewayInterface.HTTP_CLIENT, 'reset_state'): ('interface_http', 'execute_http_operation'),
     
     # CIRCUIT_BREAKER Operations
-    # DESIGN DECISION: Direct access to circuit_breaker_core (no interface router)
-    # Reason: Performance-critical hot path component
-    # NOT A BUG: Intentional architecture optimization for high-frequency operations
-    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('circuit_breaker_core', 'get_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('circuit_breaker_core', 'execute_with_breaker_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('circuit_breaker_core', 'get_all_states_implementation'),
-    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('circuit_breaker_core', 'reset_all_implementation'),
+    
+    (GatewayInterface.CIRCUIT_BREAKER, 'get'): ('interface_circuit_breaker', 'execute_circuit_breaker_operation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'call'): ('interface_circuit_breaker', 'execute_circuit_breaker_operation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'get_all_states'): ('interface_circuit_breaker', 'execute_circuit_breaker_operation'),
+    (GatewayInterface.CIRCUIT_BREAKER, 'reset_all'): ('interface_circuit_breaker', 'execute_circuit_breaker_operation'),
     
     # UTILITY Operations
     # FIXED (2025.10.17.01): Changed from 'shared_utilities' to 'interface_utility'
