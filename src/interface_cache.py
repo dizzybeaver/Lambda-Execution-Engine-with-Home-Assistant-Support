@@ -1,11 +1,16 @@
 """
 interface_cache.py - Cache Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.15.01
+Version: 2025.10.16.03
 Description: Firewall router for Cache interface
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
+
+CHANGELOG:
+- 2025.10.16.03: Bug fixes - added cleanup_expired routing, standardized operation names,
+                 improved error messages, added valid operations constant
+- 2025.10.15.01: Initial SUGA-ISP router implementation
 
 Copyright 2025 Joseph Hersey
 
@@ -31,8 +36,16 @@ from cache_core import (
     _execute_exists_implementation,
     _execute_delete_implementation,
     _execute_clear_implementation,
+    _execute_cleanup_expired_implementation,
     _execute_get_stats_implementation
 )
+
+
+# Valid cache operations for error reporting
+_VALID_CACHE_OPERATIONS = [
+    'get', 'set', 'exists', 'delete', 'clear', 
+    'cleanup_expired', 'get_stats'
+]
 
 
 def execute_cache_operation(operation: str, **kwargs) -> Any:
@@ -41,7 +54,9 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The cache operation to execute ('get', 'set', 'exists', etc.)
+        operation: The cache operation to execute
+                  Valid: 'get', 'set', 'exists', 'delete', 'clear', 
+                         'cleanup_expired', 'get_stats'
         **kwargs: Operation-specific parameters
         
     Returns:
@@ -49,6 +64,11 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
         
     Raises:
         ValueError: If operation is unknown
+        
+    Notes:
+        - All operations pass through this single entry point
+        - Parameter validation happens in internal implementations
+        - This router only routes, does not validate
     """
     
     if operation == 'get':
@@ -66,11 +86,21 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     elif operation == 'clear':
         return _execute_clear_implementation(**kwargs)
     
-    elif operation == 'stats' or operation == 'get_stats':
+    elif operation == 'cleanup_expired':
+        # BUG FIX: Added missing cleanup_expired operation routing
+        return _execute_cleanup_expired_implementation(**kwargs)
+    
+    elif operation == 'get_stats':
+        # BUG FIX: Standardized to single operation name 'get_stats'
+        # (removed 'stats' alias to match CacheOperation enum)
         return _execute_get_stats_implementation(**kwargs)
     
     else:
-        raise ValueError(f"Unknown cache operation: {operation}")
+        # BUG FIX: Improved error message with valid operations list
+        raise ValueError(
+            f"Unknown cache operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_CACHE_OPERATIONS)}"
+        )
 
 
 __all__ = [
