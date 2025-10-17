@@ -9,20 +9,6 @@ FIXES APPLIED (2025.10.17.01):
 - Added design decision documentation for CIRCUIT_BREAKER direct access
 - Added design decision documentation for DEBUG direct access
 
-DESIGN DECISIONS DOCUMENTED:
-
-1. CIRCUIT_BREAKER Direct Access (lines 72-75):
-   DESIGN DECISION: Bypasses interface router for performance
-   Reason: Circuit breaker is performance-critical hot path, called frequently
-   SUGA-ISP Compliance: Acceptable for performance-critical internal infrastructure
-   NOT A BUG: Intentional architecture optimization
-
-2. DEBUG Direct Access (lines 89-105):
-   DESIGN DECISION: Bypasses interface router for development tools
-   Reason: Debug operations are diagnostic/development only, not production-critical
-   SUGA-ISP Compliance: Acceptable for non-critical diagnostic interfaces
-   NOT A BUG: Dispatcher pattern handles all operations efficiently
-
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
