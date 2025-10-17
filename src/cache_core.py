@@ -1,9 +1,11 @@
 """
 cache_core.py - LUGS-Integrated Cache Core Implementation
-Version: 2025.10.16.04
-Description: Thread-safe cache with LUGS metadata tracking and dispatcher timing
+Version: 2025.10.16.05
+Description: Thread-safe cache with LUGS metadata tracking
 
 CHANGELOG:
+- 2025.10.16.05: Removed duplicate gateway functions, removed generic operation wrapper,
+                 simplified implementation wrappers to directly call cache instance
 - 2025.10.16.04: Bug fixes - added cache_exists() convenience function, parameter validation,
                  TTL validation, key validation, improved None handling documentation
 - 2025.10.16.03: Bug fixes - added EXISTS enum, DEFAULT_CACHE_TTL constant, improved
@@ -31,11 +33,9 @@ import os
 import sys
 import time
 import threading
-from typing import Dict, Any, Optional, Set, Callable
+from typing import Dict, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
-
-_USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
 
 
 # ===== CACHE CONSTANTS =====
@@ -367,258 +367,38 @@ class LUGSIntegratedCache:
 _cache_instance = LUGSIntegratedCache()
 
 
-# ===== GENERIC OPERATION EXECUTION =====
-
-def execute_cache_operation(operation: CacheOperation, *args, **kwargs):
-    """
-    Universal cache operation executor with dispatcher performance monitoring.
-    
-    Args:
-        operation: CacheOperation enum value
-        *args: Positional arguments for operation
-        **kwargs: Keyword arguments for operation
-        
-    Returns:
-        Operation result
-        
-    Notes:
-        - Records dispatcher timing metrics via gateway
-        - Metrics recording failure is non-fatal
-    """
-    start_time = time.time()
-    
-    try:
-        if not _USE_GENERIC_OPERATIONS:
-            result = _execute_legacy_operation(operation, *args, **kwargs)
-        else:
-            result = _execute_generic_operation(operation, *args, **kwargs)
-        
-        return result
-    
-    finally:
-        # Record dispatcher timing
-        # INTENTIONAL: Failure here is non-fatal to avoid breaking cache operations
-        duration_ms = (time.time() - start_time) * 1000
-        _record_dispatcher_metric(operation, duration_ms)
-
-
-def _execute_generic_operation(operation: CacheOperation, *args, **kwargs):
-    """Execute cache operation using generic dispatcher."""
-    try:
-        from gateway import execute_operation, GatewayInterface
-        return execute_operation(
-            GatewayInterface.CACHE,
-            operation.value,
-            *args,
-            **kwargs
-        )
-    except ImportError:
-        return _execute_legacy_operation(operation, *args, **kwargs)
-
-
-def _execute_legacy_operation(operation: CacheOperation, *args, **kwargs):
-    """
-    Execute cache operation directly (legacy mode).
-    
-    Notes:
-        - Fallback when generic operations disabled or unavailable
-        - Direct execution without dispatcher overhead
-    """
-    if operation == CacheOperation.GET:
-        key = args[0] if args else kwargs.get('key')
-        return _cache_instance.get(key)
-    
-    elif operation == CacheOperation.SET:
-        key = args[0] if len(args) > 0 else kwargs.get('key')
-        value = args[1] if len(args) > 1 else kwargs.get('value')
-        ttl = args[2] if len(args) > 2 else kwargs.get('ttl', DEFAULT_CACHE_TTL)
-        source_module = kwargs.get('source_module')
-        return _cache_instance.set(key, value, ttl, source_module)
-    
-    elif operation == CacheOperation.EXISTS:
-        key = args[0] if args else kwargs.get('key')
-        return _cache_instance.exists(key)
-    
-    elif operation == CacheOperation.DELETE:
-        key = args[0] if args else kwargs.get('key')
-        return _cache_instance.delete(key)
-    
-    elif operation == CacheOperation.CLEAR:
-        return _cache_instance.clear()
-    
-    elif operation == CacheOperation.CLEANUP_EXPIRED:
-        return _cache_instance.cleanup_expired()
-    
-    elif operation == CacheOperation.GET_STATS:
-        return _cache_instance.get_stats()
-    
-    elif operation == CacheOperation.GET_MODULE_DEPENDENCIES:
-        return _cache_instance.get_module_dependencies()
-    
-    else:
-        raise ValueError(f"Unknown cache operation: {operation}")
-
-
-def _record_dispatcher_metric(operation: CacheOperation, duration_ms: float):
-    """
-    Record dispatcher timing metric.
-    
-    Args:
-        operation: Cache operation that was executed
-        duration_ms: Duration in milliseconds
-        
-    Notes:
-        - INTENTIONAL: Failure is logged but non-fatal
-        - Don't break cache operations if metrics unavailable
-    """
-    try:
-        from gateway import execute_operation, GatewayInterface
-        execute_operation(
-            GatewayInterface.METRICS,
-            'record_dispatcher_timing',
-            interface_name='CacheCore',
-            operation_name=operation.value,
-            duration_ms=duration_ms
-        )
-    except Exception as e:
-        # INTENTIONAL: Don't break cache operation if metrics fail
-        print(f"[CACHE] Warning: Failed to record metrics: {e}", file=sys.stderr)
-
-
-# ===== CONVENIENCE FUNCTIONS =====
-
-def cache_set(key: str, value: Any, ttl: float = DEFAULT_CACHE_TTL, source_module: Optional[str] = None) -> None:
-    """Set cache value with LUGS tracking."""
-    execute_cache_operation(CacheOperation.SET, key, value, ttl, source_module=source_module)
-
-
-def cache_get(key: str, default: Any = None) -> Optional[Any]:
-    """
-    Get cache value.
-    
-    Args:
-        key: Cache key
-        default: Default value to return if not found
-        
-    Returns:
-        Cached value, or default if not found/expired
-        
-    Notes:
-        - Returns default for both cache miss AND if None was explicitly cached
-        - Use cache_exists() to distinguish if needed
-    """
-    result = execute_cache_operation(CacheOperation.GET, key)
-    return result if result is not None else default
-
-
-def cache_exists(key: str) -> bool:
-    """
-    Check if cache key exists without updating access metadata.
-    
-    Args:
-        key: Cache key
-        
-    Returns:
-        True if key exists and not expired, False otherwise
-        
-    Notes:
-        - Does NOT count as cache hit or update access time
-        - Use this to distinguish between cached None and cache miss
-    """
-    return execute_cache_operation(CacheOperation.EXISTS, key)
-
-
-def cache_delete(key: str) -> bool:
-    """Delete cache entry."""
-    return execute_cache_operation(CacheOperation.DELETE, key)
-
-
-def cache_clear() -> int:
-    """Clear all cache entries."""
-    return execute_cache_operation(CacheOperation.CLEAR)
-
-
-def cache_cleanup() -> int:
-    """Clean up expired entries."""
-    return execute_cache_operation(CacheOperation.CLEANUP_EXPIRED)
-
-
-def cache_get_stats() -> Dict[str, Any]:
-    """Get cache statistics."""
-    return execute_cache_operation(CacheOperation.GET_STATS)
-
-
-def cache_operation_result(
-    operation_name: str,
-    func: Callable,
-    ttl: float = DEFAULT_CACHE_TTL,
-    cache_key_prefix: str = "",
-    source_module: Optional[str] = None
-) -> Any:
-    """
-    Cache operation result with LUGS tracking.
-    
-    Args:
-        operation_name: Name for cache key
-        func: Function to call if cache miss
-        ttl: Time-to-live in seconds
-        cache_key_prefix: Prefix for cache key
-        source_module: Module name for LUGS tracking
-        
-    Returns:
-        Cached or computed result
-    """
-    cache_key = f"{cache_key_prefix}_{operation_name}" if cache_key_prefix else operation_name
-    
-    cached = cache_get(cache_key)
-    if cached is not None:
-        try:
-            from gateway import get_lugs_manager
-            manager = get_lugs_manager()
-            manager._stats['cache_hit_no_load'] += 1
-        except ImportError:
-            pass
-        
-        return cached
-    
-    result = func()
-    
-    cache_set(cache_key, result, ttl, source_module)
-    
-    return result
-
-
-# ===== IMPLEMENTATION WRAPPERS =====
+# ===== IMPLEMENTATION WRAPPERS FOR INTERFACE =====
+# These are called by interface_cache.py and directly invoke cache instance methods
 
 def _execute_get_implementation(key: str, default: Any = None, **kwargs) -> Optional[Any]:
     """Execute get operation."""
-    result = execute_cache_operation(CacheOperation.GET, key, **kwargs)
+    result = _cache_instance.get(key)
     return result if result is not None else default
 
 
 def _execute_set_implementation(key: str, value: Any, ttl: float = DEFAULT_CACHE_TTL, source_module: Optional[str] = None, **kwargs) -> None:
     """Execute set operation with default TTL."""
-    execute_cache_operation(CacheOperation.SET, key, value, ttl, source_module=source_module, **kwargs)
+    _cache_instance.set(key, value, ttl, source_module)
 
 
 def _execute_delete_implementation(key: str, **kwargs) -> bool:
     """Execute delete operation."""
-    return execute_cache_operation(CacheOperation.DELETE, key, **kwargs)
+    return _cache_instance.delete(key)
 
 
 def _execute_clear_implementation(**kwargs) -> int:
     """Execute clear operation."""
-    return execute_cache_operation(CacheOperation.CLEAR, **kwargs)
+    return _cache_instance.clear()
 
 
 def _execute_cleanup_expired_implementation(**kwargs) -> int:
     """Execute cleanup expired operation."""
-    return execute_cache_operation(CacheOperation.CLEANUP_EXPIRED, **kwargs)
+    return _cache_instance.cleanup_expired()
 
 
 def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
     """Execute get stats operation."""
-    return execute_cache_operation(CacheOperation.GET_STATS, **kwargs)
+    return _cache_instance.get_stats()
 
 
 def _execute_exists_implementation(key: str, **kwargs) -> bool:
@@ -631,15 +411,6 @@ def _execute_exists_implementation(key: str, **kwargs) -> bool:
 __all__ = [
     'CacheOperation',
     'LUGSIntegratedCache',
-    'execute_cache_operation',
-    'cache_set',
-    'cache_get',
-    'cache_exists',
-    'cache_delete',
-    'cache_clear',
-    'cache_cleanup',
-    'cache_get_stats',
-    'cache_operation_result',
     '_execute_get_implementation',
     '_execute_set_implementation',
     '_execute_delete_implementation',
