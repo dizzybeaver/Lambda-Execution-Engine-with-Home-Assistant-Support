@@ -1,16 +1,23 @@
 """
 logging_core.py - Unified logging interface (gateway-facing)
-Version: 2025.10.16.04
+Version: 2025.10.16.05
 Description: Gateway compatibility layer for logging subsystem
-            BUG FIXES: Parameter type consistency, correlation_id standardization, import ordering
-            FIXED: All sibling imports use relative imports
+            SUGA-ISP COMPLIANT: Uses gateway services, no duplicate implementations
+            BUG FIXES: Parameter type consistency, correlation_id standardization
 
 Bug Fixes Applied:
 - Standardized error parameter to Union[str, Exception] for flexibility
 - Standardized all correlation_id to Optional[str] = None
-- Moved gateway import to module level to avoid dynamic import issues
+- Uses gateway.generate_correlation_id (no UUID duplication)
+- Removed unnecessary fallback logic (Lambda always has gateway)
 - Added type hints for better error detection
 - Improved parameter consistency across all functions
+
+SUGA-ISP Compliance:
+- Uses gateway for correlation ID generation (no reimplementation)
+- Direct import from gateway (Lambda environment guarantee)
+- Minimal memory footprint for AWS Lambda Free Tier
+- No duplicate functionality
 
 Copyright 2025 Joseph Hersey
 
@@ -43,16 +50,8 @@ from logging_manager import _MANAGER
 
 from logging_operations import execute_logging_operation
 
-# FIX Bug #9: Import gateway at module level to avoid dynamic import issues
-# This is a cross-interface import, so it MUST be from gateway
-try:
-    from gateway import execute_operation, GatewayInterface
-    _GATEWAY_AVAILABLE = True
-except ImportError:
-    _GATEWAY_AVAILABLE = False
-    # Fallback for testing or standalone use
-    execute_operation = None
-    GatewayInterface = None
+# ✅ CROSS-INTERFACE: Must use gateway for security operations
+from gateway import execute_operation, GatewayInterface
 
 
 # ===== COMPATIBILITY LAYER FOR GATEWAY =====
@@ -110,24 +109,20 @@ def _execute_log_operation_start_implementation(operation: str, correlation_id: 
     """
     Execute log operation start.
     
-    FIX Bug #3 & #6: Standardized correlation_id to Optional[str] = None
-    FIX Bug #9: Gateway import now at module level
+    SUGA-ISP COMPLIANT: Uses gateway.generate_correlation_id (no UUID duplication)
     
     Args:
         operation: Operation name
-        correlation_id: Optional correlation ID (generated if not provided)
+        correlation_id: Optional correlation ID (generated via gateway if not provided)
         context: Optional context data (not used currently)
         **kwargs: Additional parameters (ignored for compatibility)
         
     Returns:
-        Correlation ID (generated or provided)
+        Correlation ID (generated via gateway or provided)
     """
-    if not correlation_id and _GATEWAY_AVAILABLE:
+    if not correlation_id:
+        # ✅ Use gateway service instead of reimplementing
         correlation_id = execute_operation(GatewayInterface.SECURITY, 'generate_correlation_id')
-    elif not correlation_id:
-        # Fallback if gateway not available
-        import uuid
-        correlation_id = str(uuid.uuid4())
     
     execute_logging_operation(LogOperation.LOG_OPERATION_START, operation, correlation_id)
     return correlation_id
@@ -136,8 +131,6 @@ def _execute_log_operation_start_implementation(operation: str, correlation_id: 
 def _execute_log_operation_success_implementation(operation: str, duration_ms: float = 0, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
     """
     Execute log operation success.
-    
-    FIX Bug #3 & #6: Standardized correlation_id to Optional[str] = None
     
     Args:
         operation: Operation name
@@ -153,8 +146,7 @@ def _execute_log_operation_failure_implementation(operation: str, error: Union[s
     """
     Execute log operation failure.
     
-    FIX Bug #1: Changed error parameter to Union[str, Exception] for flexibility
-    FIX Bug #3 & #6: Standardized correlation_id to Optional[str] = None
+    BUG FIX: Changed error parameter to Union[str, Exception] for flexibility
     
     Args:
         operation: Operation name
@@ -172,8 +164,6 @@ def _execute_log_operation_failure_implementation(operation: str, error: Union[s
 def _log_error_response_internal(status_code: int, error_message: str, correlation_id: Optional[str] = None, **kwargs) -> None:
     """
     Internal function to log error responses for analytics.
-    
-    FIX Bug #3 & #6: Standardized correlation_id to Optional[str] = None
     
     Args:
         status_code: HTTP status code
