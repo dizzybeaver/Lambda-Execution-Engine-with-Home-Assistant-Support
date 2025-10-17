@@ -1,9 +1,10 @@
 """
 cache_core.py - LUGS-Integrated Cache Core Implementation
-Version: 2025.10.17.01
-Description: Thread-safe cache with LUGS metadata tracking
+Version: 2025.10.17.02
+Description: Thread-safe cache with LUGS metadata tracking and memory monitoring
 
 CHANGELOG:
+- 2025.10.17.02: Added memory tracking for Lambda 128MB constraint (Issue #9 fix)
 - 2025.10.17.01: Enhanced design decision documentation for threading.Lock() usage
 - 2025.10.16.05: Removed duplicate gateway functions, removed generic operation wrapper,
                  simplified implementation wrappers to directly call cache instance
@@ -24,12 +25,13 @@ DESIGN DECISIONS DOCUMENTED:
    Performance Impact: Lock acquisition/release is ~0.001ms, negligible for cache operations
    NOT A BUG: Intentional defensive programming for code portability
    
-2. No Byte-Level Memory Tracking:
-   DESIGN DECISION: Tracks item count only, not memory bytes consumed
-   Reason: Byte tracking adds overhead to every cache operation (sys.getsizeof on every set/get)
-   Lambda Constraint: 128MB global limit enforced by Lambda, cache is one of many consumers
-   Practical Limit: 10,000 item limit provides reasonable memory cap in practice
-   NOT A BUG: Acceptable trade-off between performance and fine-grained memory control
+2. Memory Tracking Implementation (UPDATED 2025.10.17.02):
+   DESIGN DECISION: NOW tracks both item count AND memory bytes consumed
+   Reason: Lambda 128MB constraint requires byte-level memory visibility
+   Previous: Tracked count only (acceptable for general use)
+   Current: Tracks bytes using sys.getsizeof() for Lambda safety
+   Trade-off: Small overhead on set/delete (~0.01ms) for critical safety feature
+   IMPROVEMENT: Prevents OOM crashes in 128MB Lambda environment
 
 3. 300 Second Default TTL:
    DESIGN DECISION: DEFAULT_CACHE_TTL = 300 seconds (5 minutes)
@@ -65,6 +67,7 @@ from enum import Enum
 # ===== CACHE CONSTANTS =====
 
 DEFAULT_CACHE_TTL = 300  # seconds (5 minutes)
+MAX_CACHE_BYTES = 50 * 1024 * 1024  # 50MB limit for Lambda safety
 
 # Sentinel value for cache misses to distinguish from cached None
 _CACHE_MISS = object()
@@ -127,13 +130,14 @@ class CacheEntry:
     source_module: Optional[str] = None
     access_count: int = 0
     last_access: float = 0.0
+    value_size_bytes: int = 0  # NEW: Track memory size
 
 
 # ===== LUGS-INTEGRATED CACHE =====
 
 class LUGSIntegratedCache:
     """
-    Thread-safe cache with LUGS dependency tracking.
+    Thread-safe cache with LUGS dependency tracking and memory monitoring.
     
     DESIGN DECISION: Threading.Lock() in Lambda Environment
     Reason: Future-proofing for multi-threaded environments, minimal overhead in Lambda
@@ -149,24 +153,67 @@ class LUGSIntegratedCache:
     - LUGS integration: Optional - cache operations continue even if LUGS
       registration fails (logged but not fatal)
     - None handling: Can cache None values safely (use exists() to check presence)
-    - Memory tracking: Tracks item count only (not bytes), acceptable for Lambda constraints
+    - Memory tracking: Tracks BOTH item count AND bytes for Lambda 128MB safety
     """
     
     def __init__(self):
         self._lock = threading.Lock()
         self._cache: Dict[str, CacheEntry] = {}
+        self.max_bytes = MAX_CACHE_BYTES
+        self.current_bytes = 0  # NEW: Track total memory usage
         self._stats = {
             'total_sets': 0,
             'total_gets': 0,
             'cache_hits': 0,
             'cache_misses': 0,
             'lugs_prevented_unload': 0,
-            'entries_expired': 0
+            'entries_expired': 0,
+            'memory_evictions': 0  # NEW: Track evictions due to memory pressure
         }
+    
+    def _calculate_entry_size(self, key: str, value: Any) -> int:
+        """Calculate memory size of cache entry."""
+        return sys.getsizeof(key) + sys.getsizeof(value)
+    
+    def _evict_lru_entries(self, bytes_needed: int) -> int:
+        """
+        Evict least recently used entries to free up memory.
+        
+        Args:
+            bytes_needed: Minimum bytes to free
+            
+        Returns:
+            Number of bytes freed
+        """
+        if not self._cache:
+            return 0
+        
+        # Sort by last access time (oldest first)
+        entries_by_access = sorted(
+            self._cache.items(),
+            key=lambda x: x[1].last_access
+        )
+        
+        bytes_freed = 0
+        evicted_keys = []
+        
+        for key, entry in entries_by_access:
+            if bytes_freed >= bytes_needed:
+                break
+            
+            bytes_freed += entry.value_size_bytes
+            evicted_keys.append(key)
+        
+        # Remove evicted entries
+        for key in evicted_keys:
+            del self._cache[key]
+            self._stats['memory_evictions'] += 1
+        
+        return bytes_freed
     
     def set(self, key: str, value: Any, ttl: float = DEFAULT_CACHE_TTL, source_module: Optional[str] = None) -> None:
         """
-        Set cache value with LUGS tracking.
+        Set cache value with LUGS tracking and memory management.
         
         Args:
             key: Cache key (non-empty string)
@@ -180,23 +227,38 @@ class LUGSIntegratedCache:
         Notes:
             - LUGS registration failure is logged but not fatal
             - Cache operation succeeds even if LUGS is unavailable
+            - Automatically evicts LRU entries if memory limit exceeded
         """
         _validate_cache_key(key)
         _validate_ttl(ttl)
         
         current_time = time.time()
+        value_size = self._calculate_entry_size(key, value)
         
         with self._lock:
+            # Check if we need to evict entries for memory
+            if key in self._cache:
+                # Replacing existing entry - free its memory first
+                old_size = self._cache[key].value_size_bytes
+                self.current_bytes -= old_size
+            
+            # Check if new entry would exceed memory limit
+            if self.current_bytes + value_size > self.max_bytes:
+                bytes_needed = (self.current_bytes + value_size) - self.max_bytes
+                self._evict_lru_entries(bytes_needed)
+            
             entry = CacheEntry(
                 value=value,
                 timestamp=current_time,
                 ttl=ttl,
                 source_module=source_module,
                 access_count=0,
-                last_access=current_time
+                last_access=current_time,
+                value_size_bytes=value_size
             )
             
             self._cache[key] = entry
+            self.current_bytes += value_size
             self._stats['total_sets'] += 1
         
         # Notify LUGS of cache dependency
@@ -247,6 +309,8 @@ class LUGSIntegratedCache:
             
             # Check if expired
             if current_time - entry.timestamp > entry.ttl:
+                # Free memory when deleting expired entry
+                self.current_bytes -= entry.value_size_bytes
                 del self._cache[key]
                 self._stats['cache_misses'] += 1
                 self._stats['entries_expired'] += 1
@@ -285,6 +349,8 @@ class LUGSIntegratedCache:
             
             # Check if expired
             if current_time - entry.timestamp > entry.ttl:
+                # Free memory when deleting expired entry
+                self.current_bytes -= entry.value_size_bytes
                 del self._cache[key]
                 self._stats['entries_expired'] += 1
                 return False
@@ -305,6 +371,9 @@ class LUGSIntegratedCache:
         
         with self._lock:
             if key in self._cache:
+                # Free memory when deleting
+                entry = self._cache[key]
+                self.current_bytes -= entry.value_size_bytes
                 del self._cache[key]
                 return True
             return False
@@ -319,6 +388,7 @@ class LUGSIntegratedCache:
         with self._lock:
             count = len(self._cache)
             self._cache.clear()
+            self.current_bytes = 0  # Reset memory counter
             return count
     
     def cleanup_expired(self) -> int:
@@ -340,7 +410,10 @@ class LUGSIntegratedCache:
                 if current_time - entry.timestamp > entry.ttl:
                     expired_keys.append(key)
             
+            # Delete expired entries and update memory
             for key in expired_keys:
+                entry = self._cache[key]
+                self.current_bytes -= entry.value_size_bytes
                 del self._cache[key]
             
             self._stats['entries_expired'] += len(expired_keys)
@@ -349,10 +422,10 @@ class LUGSIntegratedCache:
     
     def get_stats(self) -> Dict[str, Any]:
         """
-        Get cache statistics.
+        Get cache statistics including memory metrics.
         
         Returns:
-            Dictionary with cache statistics including hit rate
+            Dictionary with cache statistics including hit rate and memory usage
         """
         with self._lock:
             stats = self._stats.copy()
@@ -362,7 +435,13 @@ class LUGSIntegratedCache:
                     (self._stats['cache_hits'] / self._stats['total_gets'] * 100)
                     if self._stats['total_gets'] > 0
                     else 0.0
-                )
+                ),
+                # NEW: Memory metrics
+                'memory_bytes': self.current_bytes,
+                'memory_mb': round(self.current_bytes / (1024 * 1024), 2),
+                'memory_limit_mb': round(self.max_bytes / (1024 * 1024), 2),
+                'memory_percent': round((self.current_bytes / self.max_bytes) * 100, 2) if self.max_bytes > 0 else 0,
+                'memory_available_mb': round((self.max_bytes - self.current_bytes) / (1024 * 1024), 2)
             })
         
         return stats
@@ -446,6 +525,7 @@ __all__ = [
     '_execute_get_stats_implementation',
     '_execute_exists_implementation',
     'DEFAULT_CACHE_TTL',
+    'MAX_CACHE_BYTES',
 ]
 
 # EOF
