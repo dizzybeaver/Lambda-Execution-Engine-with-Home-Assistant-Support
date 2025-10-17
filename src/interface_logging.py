@@ -1,26 +1,31 @@
 """
 interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.16.03
+Version: 2025.10.16.04
 Description: Firewall router for Logging interface
+             SUGA-ISP COMPLIANT: Natural error bubbling, no circular dependencies
              BUG FIXES: Added error handling, parameter validation, improved robustness
-             VERIFIED: Architecture-compliant, all imports from same interface
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
 
 Error Handling Philosophy:
-- Router validates parameters and wraps calls with error handling
-- Implementation errors are caught, logged, and re-raised with context
-- Centralized error handling exists in shared_utilities.handle_operation_error()
-- This follows SUGA-ISP principle: routers route safely, implementations implement
+- Router validates parameters before routing
+- Implementation errors bubble up naturally to gateway/caller
+- No direct logging in router (avoids circular dependency risk)
+- This follows SUGA-ISP principle: routers route, implementations handle errors
 
 Bug Fixes Applied:
-- Added try/except wrapper for all implementation calls
 - Added parameter validation for required fields
-- Improved error context and logging
+- Improved error context with descriptive messages
 - Standardized operation name handling
-- Added defensive programming practices
+- Natural error propagation (no wrapper logging)
+
+SUGA-ISP Compliance:
+- No direct use of Python logging module (avoids circular dependencies)
+- Errors bubble up naturally for centralized handling
+- Minimal memory footprint for AWS Lambda Free Tier
+- Clean separation: validation → routing → implementation
 
 Copyright 2025 Joseph Hersey
 
@@ -37,8 +42,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from typing import Any, Optional
-import logging
+from typing import Any
 
 # ✅ ALLOWED: Import internal files within same Logging interface
 from logging_core import (
@@ -50,9 +54,6 @@ from logging_core import (
     _execute_log_operation_success_implementation,
     _execute_log_operation_failure_implementation
 )
-
-# Initialize logger for router errors (defensive programming)
-_router_logger = logging.getLogger(__name__)
 
 
 def execute_logging_operation(operation: str, **kwargs) -> Any:
@@ -69,7 +70,10 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
         
     Raises:
         ValueError: If operation is unknown or parameters invalid
-        Exception: If implementation raises an error (with added context)
+        
+    Note:
+        Implementation errors bubble up naturally to caller for centralized handling.
+        Router does not log errors itself to avoid circular dependency risks.
     """
     
     # Validate operation parameter
@@ -79,89 +83,86 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
     # Normalize operation name (remove 'log_' prefix if present for consistency)
     normalized_op = operation.replace('log_', '') if operation.startswith('log_') else operation
     
-    try:
-        # Route to appropriate implementation with error handling
-        if normalized_op == 'info' or operation == 'log_info':
-            _validate_message_param(kwargs)
-            return _execute_log_info_implementation(**kwargs)
-        
-        elif normalized_op == 'error' or operation == 'log_error':
-            _validate_message_param(kwargs)
-            return _execute_log_error_implementation(**kwargs)
-        
-        elif normalized_op == 'warning' or operation == 'log_warning':
-            _validate_message_param(kwargs)
-            return _execute_log_warning_implementation(**kwargs)
-        
-        elif normalized_op == 'debug' or operation == 'log_debug':
-            _validate_message_param(kwargs)
-            return _execute_log_debug_implementation(**kwargs)
-        
-        elif normalized_op == 'operation_start' or operation == 'log_operation_start':
-            _validate_operation_param(kwargs)
-            return _execute_log_operation_start_implementation(**kwargs)
-        
-        elif normalized_op == 'operation_success' or operation == 'log_operation_success':
-            _validate_operation_param(kwargs)
-            return _execute_log_operation_success_implementation(**kwargs)
-        
-        elif normalized_op in ['operation_failure', 'operation_error'] or operation in ['log_operation_failure', 'log_operation_error']:
-            _validate_operation_param(kwargs)
-            return _execute_log_operation_failure_implementation(**kwargs)
-        
-        elif normalized_op == 'operation_end' or operation == 'log_operation_end':
-            # operation_end is an alias for operation_success with no result requirement
-            _validate_operation_param(kwargs)
-            return _execute_log_operation_success_implementation(**kwargs)
-        
-        else:
-            raise ValueError(f"Unknown logging operation: {operation}")
+    # Route to appropriate implementation with parameter validation
+    if normalized_op == 'info' or operation == 'log_info':
+        _validate_message_param(kwargs, operation)
+        return _execute_log_info_implementation(**kwargs)
     
-    except ValueError:
-        # Re-raise ValueError as-is (parameter validation errors)
-        raise
+    elif normalized_op == 'error' or operation == 'log_error':
+        _validate_message_param(kwargs, operation)
+        return _execute_log_error_implementation(**kwargs)
     
-    except Exception as e:
-        # Wrap other exceptions with router context for better debugging
-        error_msg = f"Logging router failed for operation '{operation}': {str(e)}"
-        _router_logger.error(error_msg, exc_info=True)
-        raise RuntimeError(error_msg) from e
+    elif normalized_op == 'warning' or operation == 'log_warning':
+        _validate_message_param(kwargs, operation)
+        return _execute_log_warning_implementation(**kwargs)
+    
+    elif normalized_op == 'debug' or operation == 'log_debug':
+        _validate_message_param(kwargs, operation)
+        return _execute_log_debug_implementation(**kwargs)
+    
+    elif normalized_op == 'operation_start' or operation == 'log_operation_start':
+        _validate_operation_param(kwargs, operation)
+        return _execute_log_operation_start_implementation(**kwargs)
+    
+    elif normalized_op == 'operation_success' or operation == 'log_operation_success':
+        _validate_operation_param(kwargs, operation)
+        return _execute_log_operation_success_implementation(**kwargs)
+    
+    elif normalized_op in ['operation_failure', 'operation_error'] or operation in ['log_operation_failure', 'log_operation_error']:
+        _validate_operation_param(kwargs, operation)
+        return _execute_log_operation_failure_implementation(**kwargs)
+    
+    elif normalized_op == 'operation_end' or operation == 'log_operation_end':
+        # operation_end is an alias for operation_success with no result requirement
+        _validate_operation_param(kwargs, operation)
+        return _execute_log_operation_success_implementation(**kwargs)
+    
+    else:
+        raise ValueError(f"Unknown logging operation: {operation}")
 
 
-def _validate_message_param(kwargs: dict) -> None:
+def _validate_message_param(kwargs: dict, operation: str) -> None:
     """
     Validate that message parameter exists and is valid.
     
     Args:
         kwargs: Parameter dictionary
+        operation: Operation name (for error context)
         
     Raises:
         ValueError: If message is missing or invalid
     """
     if 'message' not in kwargs:
-        raise ValueError("Missing required parameter: 'message'")
+        raise ValueError(f"Operation '{operation}' requires parameter 'message'")
     
     message = kwargs.get('message')
     if not isinstance(message, str):
-        raise ValueError(f"Parameter 'message' must be a string, got {type(message).__name__}")
+        raise ValueError(
+            f"Operation '{operation}' parameter 'message' must be string, "
+            f"got {type(message).__name__}"
+        )
 
 
-def _validate_operation_param(kwargs: dict) -> None:
+def _validate_operation_param(kwargs: dict, operation: str) -> None:
     """
     Validate that operation parameter exists and is valid.
     
     Args:
         kwargs: Parameter dictionary
+        operation: Operation name (for error context)
         
     Raises:
         ValueError: If operation is missing or invalid
     """
     if 'operation' not in kwargs:
-        raise ValueError("Missing required parameter: 'operation'")
+        raise ValueError(f"Operation '{operation}' requires parameter 'operation'")
     
-    operation = kwargs.get('operation')
-    if not isinstance(operation, str) or not operation.strip():
-        raise ValueError(f"Parameter 'operation' must be a non-empty string, got {type(operation).__name__}")
+    op_value = kwargs.get('operation')
+    if not isinstance(op_value, str) or not op_value.strip():
+        raise ValueError(
+            f"Operation '{operation}' parameter 'operation' must be non-empty string, "
+            f"got {type(op_value).__name__}"
+        )
 
 
 __all__ = [
