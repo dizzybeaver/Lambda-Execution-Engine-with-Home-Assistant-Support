@@ -1,8 +1,35 @@
 """
-websocket_core.py - WebSocket Core Implementation
-Version: 2025.10.16.01
-Description: WebSocket operations implementation (relocated from http_client_core.py).
-             Internal module - accessed via interface_websocket.py router.
+websocket_core.py - WebSocket CLIENT Core Implementation
+Version: 2025.10.18.01
+Description: WebSocket CLIENT operations implementation (relocated from http_client_core.py).
+             Internal module - accessed via websocket.py router.
+
+FREE TIER COMPLIANCE NOTICE:
+============================
+This implementation provides WebSocket CLIENT functionality ONLY.
+Lambda acts as a WebSocket client connecting TO external WebSocket servers.
+
+ARCHITECTURE:
+- Lambda initiates OUTBOUND connections to external WebSocket servers
+- Lambda sends messages TO external servers
+- Lambda receives responses FROM external servers
+- Lambda closes connections when done
+- NO persistent connections maintained between Lambda invocations
+- NO inbound connections accepted (Lambda cannot act as WebSocket server)
+
+✅ FREE TIER COMPLIANT:
+   All operations incur only standard Lambda costs (execution time, invocations, data transfer).
+   No AWS API Gateway required.
+   No additional AWS service costs.
+   Free tier compliance maintained indefinitely.
+
+❌ NOT IMPLEMENTED - WebSocket SERVER:
+   To act as a WebSocket server (accept inbound connections), Lambda would require:
+   - AWS API Gateway WebSocket APIs
+   - Free tier: 1M messages + 750K connection-minutes for FIRST 12 MONTHS ONLY
+   - After 12 months: PAID SERVICE ($1.00/million messages + connection charges)
+   
+   This is deliberately NOT implemented to maintain permanent free tier compliance.
 
 FIXES APPLIED (2025.10.16):
 - BUG #2: Added automatic correlation_id generation when missing
@@ -31,7 +58,22 @@ from typing import Dict, Any, Optional
 
 
 def websocket_connect_implementation(url: str, timeout: int = 10, **kwargs) -> Dict[str, Any]:
-    """Establish WebSocket connection."""
+    """
+    Establish WebSocket CLIENT connection (outbound to external server).
+    
+    This creates an OUTBOUND connection FROM Lambda TO an external WebSocket server.
+    Does NOT accept inbound connections (would require API Gateway).
+    
+    Args:
+        url: WebSocket URL to connect to (ws:// or wss://)
+        timeout: Connection timeout in seconds
+        **kwargs: Additional parameters including optional correlation_id
+        
+    Returns:
+        Success response with connection object, or error response
+        
+    Free tier: YES - standard Lambda execution costs only
+    """
     from gateway import log_info, log_error, create_success_response, create_error_response, generate_correlation_id, record_metric
     
     correlation_id = kwargs.get('correlation_id')
@@ -45,13 +87,13 @@ def websocket_connect_implementation(url: str, timeout: int = 10, **kwargs) -> D
     try:
         import websocket
         
-        log_info(f"[{correlation_id}] Establishing WebSocket connection to {url}")
+        log_info(f"[{correlation_id}] Establishing WebSocket CLIENT connection to {url}")
         
         ws = websocket.WebSocket()
         ws.connect(url, timeout=timeout)
         
         record_metric('websocket.connections', 1.0)
-        log_info(f"[{correlation_id}] WebSocket connected successfully")
+        log_info(f"[{correlation_id}] WebSocket CLIENT connected successfully")
         
         return create_success_response("WebSocket connected", {
             'connection': ws,
@@ -70,7 +112,21 @@ def websocket_connect_implementation(url: str, timeout: int = 10, **kwargs) -> D
 
 
 def websocket_send_implementation(connection: Any, message: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """Send message via WebSocket."""
+    """
+    Send message via WebSocket CLIENT connection.
+    
+    Sends a message FROM Lambda TO the connected external WebSocket server.
+    
+    Args:
+        connection: Active WebSocket connection object
+        message: Dictionary to send (will be JSON serialized)
+        **kwargs: Additional parameters including optional correlation_id
+        
+    Returns:
+        Success response or error response
+        
+    Free tier: YES - standard Lambda execution costs only
+    """
     from gateway import log_info, log_error, create_success_response, create_error_response, record_metric, generate_correlation_id
     
     correlation_id = kwargs.get('correlation_id')
@@ -90,7 +146,7 @@ def websocket_send_implementation(connection: Any, message: Dict[str, Any], **kw
         return create_error_response('Message must be a dictionary', 'WEBSOCKET_INVALID_MESSAGE')
     
     try:
-        log_info(f"[{correlation_id}] Sending WebSocket message")
+        log_info(f"[{correlation_id}] Sending WebSocket message to external server")
         
         message_str = json.dumps(message)
         connection.send(message_str)
@@ -113,7 +169,21 @@ def websocket_send_implementation(connection: Any, message: Dict[str, Any], **kw
 
 
 def websocket_receive_implementation(connection: Any, timeout: int = 10, **kwargs) -> Dict[str, Any]:
-    """Receive message from WebSocket."""
+    """
+    Receive message from WebSocket CLIENT connection.
+    
+    Receives a response FROM the connected external WebSocket server TO Lambda.
+    
+    Args:
+        connection: Active WebSocket connection object
+        timeout: Receive timeout in seconds
+        **kwargs: Additional parameters including optional correlation_id
+        
+    Returns:
+        Success response with received message, or error response
+        
+    Free tier: YES - standard Lambda execution costs only
+    """
     from gateway import log_info, log_error, create_success_response, create_error_response, record_metric, generate_correlation_id
     
     correlation_id = kwargs.get('correlation_id')
@@ -125,7 +195,7 @@ def websocket_receive_implementation(connection: Any, timeout: int = 10, **kwarg
         return create_error_response('Connection parameter is required', 'WEBSOCKET_NO_CONNECTION')
     
     try:
-        log_info(f"[{correlation_id}] Receiving WebSocket message")
+        log_info(f"[{correlation_id}] Receiving WebSocket message from external server")
         
         message_str = connection.recv()
         message = json.loads(message_str)
@@ -149,7 +219,20 @@ def websocket_receive_implementation(connection: Any, timeout: int = 10, **kwarg
 
 
 def websocket_close_implementation(connection: Any, **kwargs) -> Dict[str, Any]:
-    """Close WebSocket connection."""
+    """
+    Close WebSocket CLIENT connection.
+    
+    Closes the connection FROM Lambda TO the external WebSocket server.
+    
+    Args:
+        connection: Active WebSocket connection object to close
+        **kwargs: Additional parameters including optional correlation_id
+        
+    Returns:
+        Success response or error response
+        
+    Free tier: YES - standard Lambda execution costs only
+    """
     from gateway import log_info, log_error, create_success_response, create_error_response, record_metric, generate_correlation_id
     
     correlation_id = kwargs.get('correlation_id')
@@ -161,7 +244,7 @@ def websocket_close_implementation(connection: Any, **kwargs) -> Dict[str, Any]:
         return create_error_response('Connection parameter is required', 'WEBSOCKET_NO_CONNECTION')
     
     try:
-        log_info(f"[{correlation_id}] Closing WebSocket connection")
+        log_info(f"[{correlation_id}] Closing WebSocket CLIENT connection")
         connection.close()
         record_metric('websocket.disconnections', 1.0)
         log_info(f"[{correlation_id}] Connection closed successfully")
@@ -174,7 +257,28 @@ def websocket_close_implementation(connection: Any, **kwargs) -> Dict[str, Any]:
 
 
 def websocket_request_implementation(url: str, message: Dict[str, Any], timeout: int = 10, **kwargs) -> Dict[str, Any]:
-    """Execute WebSocket request (connect + send + receive + close)."""
+    """
+    Execute complete WebSocket CLIENT request (connect + send + receive + close).
+    
+    Convenience function that performs a complete request cycle:
+    1. Connect FROM Lambda TO external WebSocket server
+    2. Send message TO server
+    3. Receive response FROM server
+    4. Close connection
+    
+    This is the recommended pattern for one-shot WebSocket requests.
+    
+    Args:
+        url: WebSocket URL to connect to (ws:// or wss://)
+        message: Dictionary to send (will be JSON serialized)
+        timeout: Connection and receive timeout in seconds
+        **kwargs: Additional parameters including optional correlation_id
+        
+    Returns:
+        Success response with server's response, or error response
+        
+    Free tier: YES - standard Lambda execution costs only
+    """
     from gateway import log_info, log_error, generate_correlation_id
     
     correlation_id = kwargs.get('correlation_id')
@@ -191,7 +295,7 @@ def websocket_request_implementation(url: str, message: Dict[str, Any], timeout:
         from gateway import create_error_response
         return create_error_response('Message parameter is required', 'WEBSOCKET_NO_MESSAGE')
     
-    log_info(f"[{correlation_id}] Executing WebSocket request to {url}")
+    log_info(f"[{correlation_id}] Executing WebSocket CLIENT request to {url}")
     
     # Step 1: Connect
     connect_result = websocket_connect_implementation(url=url, timeout=timeout, correlation_id=correlation_id)
@@ -224,7 +328,7 @@ def websocket_request_implementation(url: str, message: Dict[str, Any], timeout:
         log_error(f"[{correlation_id}] WebSocket request completed but close failed")
     
     from gateway import create_success_response
-    log_info(f"[{correlation_id}] WebSocket request completed successfully")
+    log_info(f"[{correlation_id}] WebSocket CLIENT request completed successfully")
     return create_success_response("WebSocket request completed", {
         'response': receive_result.get('data', {}).get('message'),
         'correlation_id': correlation_id
