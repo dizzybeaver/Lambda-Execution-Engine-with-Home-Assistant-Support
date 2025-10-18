@@ -63,7 +63,7 @@ def execute_operation(operation: str, **kwargs):
 
 ---
 
-## âœ… What You Get
+## ✅ What You Get
 
 ### 1. Constant-Time Lookups
 
@@ -148,7 +148,7 @@ Need to add documentation? The dictionary structure makes it obvious what each o
 
 ---
 
-## When This Makes Sense
+## ✓ When This Makes Sense
 
 ### Use Dispatch Dictionaries When:
 
@@ -188,7 +188,7 @@ Need to add documentation? The dictionary structure makes it obvious what each o
 
 ---
 
-## When Other Approaches Make More Sense
+## ✗ When Other Approaches Make More Sense
 
 ### Use if/elif Chains When:
 
@@ -244,7 +244,7 @@ strategy.execute(**kwargs)
 
 ---
 
-## Implementation Patterns
+## 🔧 Implementation Patterns
 
 ### Pattern 1: Simple Direct Mapping
 
@@ -316,7 +316,7 @@ Three names, one implementation. Easy to support legacy code while introducing b
 
 ---
 
-## How to Build One
+## 🛠️ How to Build One
 
 ### Step 1: Identify Your Operations
 
@@ -395,7 +395,7 @@ Centralize validation logic. Reuse across multiple operations.
 
 ---
 
-## Real-World Example: Cache Interface
+## 📚 Real-World Example: Cache Interface
 
 **Before modernization (170 lines total):**
 
@@ -498,7 +498,7 @@ def execute_cache_operation(operation: str, **kwargs):
 
 ---
 
-## Common Issues and Solutions
+## ⚠️ Common Issues and Solutions
 
 ### Issue: "Unknown operation" error for valid operation
 
@@ -561,7 +561,7 @@ Lazy import defers the import until the operation is actually used.
 
 ---
 
-## Best Practices
+## 💡 Best Practices
 
 ### 1. Use Builder Functions
 
@@ -632,7 +632,7 @@ Helps IDEs and type checkers understand your code.
 
 ---
 
-## Performance Characteristics
+## 📊 Performance Characteristics
 
 ### Time Complexity
 
@@ -672,7 +672,7 @@ For context, a single log message might be larger than the entire dispatch dicti
 
 ---
 
-## Where We Use This
+## 🏗️ Where We Use This
 
 ### Layer 1: Gateway Core
 
@@ -726,7 +726,7 @@ _OPERATION_DISPATCH = {
 
 ---
 
-## The Bottom Line
+## 🎯 The Bottom Line
 
 **Use dispatch dictionaries when:**
 - You have 3+ operations to route
