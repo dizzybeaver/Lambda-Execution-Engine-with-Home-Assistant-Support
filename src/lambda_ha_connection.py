@@ -1,11 +1,17 @@
 """
 lambda_ha_connection.py - Home Assistant Connection Diagnostic Handler
-Version: 2025.10.18.01
+Version: 2025.10.18.02
 Description: Drop-in Lambda handler for diagnosing HA connection issues.
              Uses ONLY SUGA-ISP Gateway services to trace every step.
              
 Usage: Deploy as Lambda handler to test HA connectivity.
        Every step shows [DEBUG] output even if successful.
+
+CHANGELOG:
+- 2025.10.18.02: FIXED Issue #30 - SSM parameter path fix
+  - Changed from full paths '/lambda-execution-engine/homeassistant/*' to relative paths 'homeassistant/*'
+  - Config system adds prefix automatically, full path caused double prefix
+  - Fixes: 'object' object is not subscriptable error in step 2
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -161,12 +167,13 @@ def test_config_loading() -> Dict[str, Any]:
         if use_ssm:
             print("[DEBUG] Testing SSM Parameter Store access...")
             
+            # FIXED: Use relative paths - config system adds prefix automatically
             # Test loading HA URL from SSM
-            print("[DEBUG] Loading /lambda-execution-engine/homeassistant/url...")
+            print("[DEBUG] Loading homeassistant/url...")
             ha_url = execute_operation(
                 GatewayInterface.CONFIG,
                 'get_parameter',
-                key='/lambda-execution-engine/homeassistant/url'
+                key='homeassistant/url'  # FIXED: Removed prefix
             )
             
             if ha_url:
@@ -176,12 +183,13 @@ def test_config_loading() -> Dict[str, Any]:
                 ha_url = os.getenv('HOME_ASSISTANT_URL')
                 print(f"[DEBUG] Environment HA URL: {ha_url}")
             
+            # FIXED: Use relative path for token too
             # Test loading HA token from SSM  
-            print("[DEBUG] Loading /lambda-execution-engine/homeassistant/token...")
+            print("[DEBUG] Loading homeassistant/token...")
             ha_token = execute_operation(
                 GatewayInterface.CONFIG,
                 'get_parameter',
-                key='/lambda-execution-engine/homeassistant/token'
+                key='homeassistant/token'  # FIXED: Removed prefix
             )
             
             if ha_token:
@@ -497,7 +505,7 @@ def test_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
             print(f"[DEBUG] Error: {error}")
             
             if status_code == 401:
-                print("[DEBUG] FAILURE: Authentication failed - invalid token")
+                print("[DEBUG] FAILURE: Authentication failed - invalid token (401)")
                 return {
                     "success": False,
                     "error": "Authentication failed - invalid token (401)",
