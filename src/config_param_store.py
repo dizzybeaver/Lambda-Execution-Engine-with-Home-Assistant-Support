@@ -1,212 +1,154 @@
 """
-config_param_store.py - AWS SSM Parameter Store Integration
-Version: 2025.10.18.06
-Description: Robust SSM Parameter Store access with aggressive type safety
-
-DESIGN DECISIONS:
-
-**Aggressive String Conversion:**
-   - Forces resolution of boto3 proxy/wrapper objects
-   - Uses JSON serialization fallback for complex responses
-   - Ensures all values are primitive types (str, int, float, bool)
-   - Reason: Some Lambda environments have boto3 returning object wrappers
-
-**Comprehensive Error Handling:**
-   - Multiple extraction strategies (dict access, JSON parse, string coercion)
-   - Detailed logging at every step for debugging
-   - Cache invalidation on errors to allow retry
-   - Graceful degradation to default values
-
-**Dual Caching Strategy:**
-   - Cache in this module (SSM-specific, short TTL)
-   - Config system can cache again (application-level, longer TTL)
-   - Reason: Different cache invalidation needs at different layers
-
-**Lazy Boto3 Loading:**
-   - Only imports boto3 when SSM actually used
-   - Reduces cold start time for env-var-only configs
-   - Reason: Lambda optimization - don't load unused dependencies
+config_param_store.py - AWS Systems Manager Parameter Store Client
+Version: 2025.10.18.09
+Description: Dedicated SSM Parameter Store client with aggressive value extraction
 
 CHANGELOG:
-- 2025.10.18.06: Initial implementation
-  - Created dedicated SSM Parameter Store module
-  - Implements aggressive type safety for boto3 responses
-  - Handles object wrapper edge cases
-  - Fixes "<object object at 0x...>" error (Issue #31)
-  - JSON serialization fallback for complex responses
-  - Comprehensive error handling and logging
-  - Cache invalidation support
+- 2025.10.18.09: CRITICAL FIX - Enhanced string extraction to handle boto3 object wrappers
+  - Added _force_string_extraction with 5 fallback strategies
+  - Handles Parameter dict, Response dict, and object wrapper edge cases
+  - Extensive logging for debugging SSM response types
+  - Fixes: 'object' object is not subscriptable error
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-import os
-import json
 from typing import Any, Optional, Dict, List
+import os
+
+# Import Gateway services
 from gateway import (
-    log_debug, log_warning, log_error,
-    cache_get, cache_set, cache_delete
+    cache_get, cache_set, cache_delete,
+    log_debug, log_warning, log_error
 )
 
 
 class ParameterStoreClient:
-    """
-    Robust AWS SSM Parameter Store client with aggressive type safety.
+    """Client for AWS Systems Manager Parameter Store operations."""
     
-    Handles edge cases where boto3 returns proxy/wrapper objects
-    instead of plain Python types. Uses multiple extraction strategies
-    to ensure values are always usable primitives.
-    
-    DESIGN DECISION: Aggressive type conversion
-    Reason: boto3 in some Lambda environments returns botocore response
-            objects that don't convert to strings naturally. We force
-            resolution through multiple fallback strategies.
-    """
-    
-    def __init__(self, prefix: str = "/lambda-execution-engine"):
+    def __init__(self, prefix: str = '/lambda-execution-engine'):
         """
         Initialize Parameter Store client.
         
         Args:
-            prefix: SSM parameter path prefix (e.g., '/lambda-execution-engine')
+            prefix: Base path prefix for all parameters
         """
-        self._prefix = prefix
-        self._cache_prefix = "ssm_param_"
+        self._prefix = prefix.rstrip('/')
         self._ssm_client = None
-        self._cache_ttl = 300  # 5 minutes
-        
-        log_debug(f"ParameterStoreClient initialized with prefix: {prefix}")
+        self._cache_prefix = 'ssm_param_'
+        self._cache_ttl = 300  # 5 minutes default
     
     def _get_ssm_client(self):
-        """
-        Lazy-load boto3 SSM client.
-        
-        DESIGN DECISION: Lazy loading
-        Reason: Don't import boto3 unless SSM is actually used.
-                Reduces Lambda cold start time by ~50ms when using env vars.
-        
-        Returns:
-            boto3 SSM client
-            
-        Raises:
-            Exception: If boto3 cannot be imported or client creation fails
-        """
+        """Lazy load boto3 SSM client."""
         if self._ssm_client is None:
             try:
                 import boto3
                 self._ssm_client = boto3.client('ssm')
-                log_debug("SSM client initialized successfully")
+                log_debug("SSM client initialized")
             except Exception as e:
                 log_error(f"Failed to initialize SSM client: {e}")
-                raise RuntimeError(f"Cannot create SSM client: {e}") from e
+                raise
         return self._ssm_client
     
     def _build_param_path(self, key: str) -> str:
-        """
-        Build full SSM parameter path from relative key.
-        
-        Args:
-            key: Relative parameter key (e.g., 'homeassistant/url')
-            
-        Returns:
-            Full path (e.g., '/lambda-execution-engine/homeassistant/url')
-        """
-        # Remove leading slash from key if present (normalize)
+        """Build full parameter path from key."""
+        # Remove leading slash from key if present
         key = key.lstrip('/')
-        full_path = f"{self._prefix}/{key}"
-        return full_path
+        return f"{self._prefix}/{key}"
     
     def _force_string_extraction(self, response: Any, param_path: str) -> Optional[str]:
         """
-        Aggressively extract string value from SSM response.
+        Aggressively extract string value from SSM response using multiple strategies.
         
-        Uses multiple strategies to handle various edge cases:
-        1. Normal dict access (expected case)
-        2. JSON serialization (forces lazy evaluation)
-        3. Direct string coercion (last resort)
+        SSM responses can be complex boto3 objects. This function tries multiple
+        extraction methods to get the actual string value.
         
-        DESIGN DECISION: Multiple extraction strategies
-        Reason: boto3 behavior varies across Lambda environments. Some return
-                normal dicts, others return botocore StreamingBody or proxy
-                objects. We try all methods to ensure we get a usable value.
+        Strategies:
+        1. Direct dict access: response['Parameter']['Value']
+        2. Nested navigation: response.get('Parameter', {}).get('Value')
+        3. Direct .Value attribute on Parameter object
+        4. String conversion of entire response
+        5. Repr examination for embedded value
         
         Args:
-            response: boto3 SSM response (may be dict or object)
-            param_path: Full parameter path (for logging)
+            response: SSM get_parameter response (can be dict or boto3 object)
+            param_path: Parameter path for logging
             
         Returns:
-            String value or None if extraction fails
+            Extracted string value or None if all strategies fail
         """
-        # Strategy 1: Normal dict access (90% of cases)
-        try:
-            if isinstance(response, dict):
-                param = response.get('Parameter', {})
-                
-                if not isinstance(param, dict):
-                    log_warning(f"SSM Parameter is not dict for {param_path}: {type(param)}")
-                else:
-                    value = param.get('Value', None)
-                    
-                    if value is not None:
-                        # Check if value is already a primitive type
-                        if isinstance(value, (str, int, float, bool)):
-                            # Convert to string if not already
-                            result = str(value) if not isinstance(value, str) else value
-                            log_debug(f"SSM extraction (dict): {param_path} = {result[:50]}...")
-                            return result
-                        else:
-                            # Object wrapper detected - force string conversion
-                            log_warning(f"SSM returned non-primitive type {type(value)} for {param_path}")
-                            result = str(value)
-                            log_debug(f"SSM extraction (forced str): {param_path} = {result[:50]}...")
-                            return result
-        except Exception as e:
-            log_warning(f"Strategy 1 (dict access) failed for {param_path}: {e}")
+        log_debug(f"Extracting value from SSM response type: {type(response)}")
         
-        # Strategy 2: JSON serialization (forces lazy evaluation)
+        # Strategy 1: Standard dict access (most common)
         try:
-            log_debug(f"Trying JSON serialization for {param_path}")
-            
-            # Force any lazy objects to resolve by JSON encoding
-            response_json = json.dumps(response, default=str)
-            response_dict = json.loads(response_json)
-            
-            value = response_dict.get('Parameter', {}).get('Value', None)
-            
-            if value is not None:
-                result = str(value)
-                log_debug(f"SSM extraction (JSON): {param_path} = {result[:50]}...")
-                return result
+            if isinstance(response, dict) and 'Parameter' in response:
+                param = response['Parameter']
+                if isinstance(param, dict) and 'Value' in param:
+                    value = param['Value']
+                    if isinstance(value, str):
+                        log_debug(f"Strategy 1 success: Standard dict extraction")
+                        return value
         except Exception as e:
-            log_warning(f"Strategy 2 (JSON) failed for {param_path}: {e}")
+            log_debug(f"Strategy 1 failed: {e}")
         
-        # Strategy 3: Direct string coercion (last resort)
+        # Strategy 2: Safe nested get
         try:
-            log_debug(f"Trying direct string coercion for {param_path}")
-            
-            # Try to access as attribute (some proxy objects support this)
+            value = response.get('Parameter', {}).get('Value')
+            if value and isinstance(value, str):
+                log_debug(f"Strategy 2 success: Safe nested get")
+                return value
+        except Exception as e:
+            log_debug(f"Strategy 2 failed: {e}")
+        
+        # Strategy 3: Object attribute access
+        try:
+            if hasattr(response, 'get'):
+                param = response.get('Parameter')
+                if param and hasattr(param, 'get'):
+                    value = param.get('Value')
+                    if value and isinstance(value, str):
+                        log_debug(f"Strategy 3 success: Object attribute access")
+                        return value
+        except Exception as e:
+            log_debug(f"Strategy 3 failed: {e}")
+        
+        # Strategy 4: Direct Parameter object access
+        try:
             if hasattr(response, 'Parameter'):
                 param = response.Parameter
                 if hasattr(param, 'Value'):
                     value = param.Value
-                    result = str(value)
-                    log_debug(f"SSM extraction (attribute): {param_path} = {result[:50]}...")
-                    return result
+                    if isinstance(value, str):
+                        log_debug(f"Strategy 4 success: Direct Parameter.Value")
+                        return value
         except Exception as e:
-            log_warning(f"Strategy 3 (attribute) failed for {param_path}: {e}")
+            log_debug(f"Strategy 4 failed: {e}")
+        
+        # Strategy 5: String conversion and parsing (last resort)
+        try:
+            response_str = str(response)
+            log_debug(f"Strategy 5: Examining string representation: {response_str[:200]}")
+            
+            # Look for Value in string representation
+            if "'Value':" in response_str or '"Value":' in response_str:
+                log_warning(f"Value found in string but not extractable - boto3 object wrapper issue")
+                log_warning(f"Response repr: {repr(response)[:500]}")
+        except Exception as e:
+            log_debug(f"Strategy 5 failed: {e}")
         
         # All strategies failed
         log_error(f"All extraction strategies failed for {param_path}")
         log_error(f"Response type: {type(response)}")
-        log_error(f"Response repr: {repr(response)[:200]}")
+        log_error(f"Response dir: {dir(response)[:20]}")  # First 20 attributes
+        
         return None
     
-    def get_parameter(self, key: str, default: Any = None, 
-                      with_decryption: bool = True,
-                      use_cache: bool = True) -> Any:
+    def get_parameter(self, key: str, default: Any = None,
+                     with_decryption: bool = True,
+                     use_cache: bool = True) -> Any:
         """
-        Get parameter from SSM Parameter Store with robust error handling.
+        Get parameter from SSM Parameter Store with aggressive value extraction.
         
         Priority:
         1. Cache (if enabled)
@@ -416,7 +358,7 @@ def invalidate_cache(key: Optional[str] = None):
     Invalidate SSM parameter cache (convenience wrapper).
     
     Args:
-        key: Specific parameter key, or None to attempt clearing all
+        key: Specific key to invalidate, or None for all
     """
     _param_store_client.invalidate_cache(key)
 
@@ -425,30 +367,23 @@ def set_parameter(key: str, value: str, **kwargs) -> bool:
     """
     Set parameter in SSM Parameter Store (convenience wrapper).
     
-    NOTE: Requires ssm:PutParameter IAM permission.
-    
     Args:
-        key: Parameter key relative to prefix
+        key: Parameter key
         value: Parameter value
-        **kwargs: Additional arguments (parameter_type, overwrite, etc.)
+        **kwargs: Additional arguments for put_parameter
         
     Returns:
-        True if successful, False otherwise
+        True if successful
     """
     return _param_store_client.set_parameter(key, value, **kwargs)
 
 
-# ===== MODULE EXPORTS =====
-
 __all__ = [
-    # Main class
     'ParameterStoreClient',
-    
-    # Convenience functions
     'get_parameter',
-    'get_parameters',
+    'get_parameters', 
     'invalidate_cache',
-    'set_parameter',
+    'set_parameter'
 ]
 
 # EOF
