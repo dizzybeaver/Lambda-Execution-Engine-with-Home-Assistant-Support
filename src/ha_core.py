@@ -1,9 +1,15 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.02
+Version: 2025.10.18.03
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
 CHANGELOG:
+- 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get' in get_ha_states
+  - Added type checking for cached data before calling .get()
+  - Added cache invalidation for invalid cached types
+  - Added defensive data access with isinstance checks
+  - Added result validation to ensure dict responses
+  - Prevents 'object' object errors in Alexa Discovery
 - 2025.10.18.02: Fixed 'object has no attribute get' errors
   - Added safe result wrapper for circuit breaker responses
   - Added get_assistant_name_info function
@@ -146,19 +152,36 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
         
         if use_cache:
             cached = cache_get(cache_key)
-            if cached:
+            # FIXED: Validate cached is a dict before using .get()
+            if cached and isinstance(cached, dict):
                 log_debug(f"[{correlation_id}] Using cached states")
                 increment_counter('ha_state_cache_hit')
                 
                 if entity_ids:
                     entity_set = set(entity_ids)
-                    filtered = [e for e in cached.get('data', []) 
-                               if e.get('entity_id') in entity_set]
-                    return create_success_response('States retrieved from cache', filtered)
+                    # Safely get data from cached dict
+                    cached_data = cached.get('data', [])
+                    if isinstance(cached_data, list):
+                        filtered = [e for e in cached_data 
+                                   if isinstance(e, dict) and e.get('entity_id') in entity_set]
+                        return create_success_response('States retrieved from cache', filtered)
                 
                 return cached
+            elif cached:
+                # Invalid cache type - delete it
+                log_warning(f"[{correlation_id}] Cached data is {type(cached)}, not dict - invalidating")
+                cache_delete(cache_key)
         
+        # Fetch fresh data
         result = call_ha_api('/api/states')
+        
+        # FIXED: Validate result is a dict
+        if not isinstance(result, dict):
+            log_error(f"[{correlation_id}] call_ha_api returned {type(result)}, not dict")
+            return create_error_response(
+                f'API returned invalid type: {type(result).__name__}',
+                'INVALID_API_RESPONSE'
+            )
         
         if result.get('success'):
             if use_cache:
@@ -168,9 +191,12 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
             
             if entity_ids:
                 entity_set = set(entity_ids)
-                filtered = [e for e in result.get('data', []) 
-                           if e.get('entity_id') in entity_set]
-                return create_success_response('States retrieved', filtered)
+                # Safely get data from result
+                result_data = result.get('data', [])
+                if isinstance(result_data, list):
+                    filtered = [e for e in result_data 
+                               if isinstance(e, dict) and e.get('entity_id') in entity_set]
+                    return create_success_response('States retrieved', filtered)
         
         return result
         
