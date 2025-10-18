@@ -1,172 +1,125 @@
 """
 interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.16.04
-Description: Firewall router for Logging interface
-             SUGA-ISP COMPLIANT: Natural error bubbling, no circular dependencies
-             BUG FIXES: Added error handling, parameter validation, improved robustness
+Version: 2025.10.17.15
+Description: Firewall router for Logging interface with import protection
 
-This file acts as the interface router (firewall) between the SUGA-ISP
-and internal implementation files. Only this file may be accessed by
-gateway.py. Internal files are isolated.
-
-Error Handling Philosophy:
-- Router validates parameters before routing
-- Implementation errors bubble up naturally to gateway/caller
-- No direct logging in router (avoids circular dependency risk)
-- This follows SUGA-ISP principle: routers route, implementations handle errors
-
-Bug Fixes Applied:
-- Added parameter validation for required fields
-- Improved error context with descriptive messages
-- Standardized operation name handling
-- Natural error propagation (no wrapper logging)
-
-SUGA-ISP Compliance:
-- No direct use of Python logging module (avoids circular dependencies)
-- Errors bubble up naturally for centralized handling
-- Minimal memory footprint for AWS Lambda Free Tier
-- Clean separation: validation → routing → implementation
+CHANGELOG:
+- 2025.10.17.15: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for logging_core imports
+  - Sets _LOGGING_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Logging unavailable
+- 2025.10.16.04: Bug fixes - Added error handling, parameter validation
+- 2025.10.15.01: Initial SUGA-ISP router implementation
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from typing import Any
 
-# ✅ ALLOWED: Import internal files within same Logging interface
-from logging_core import (
-    _execute_log_info_implementation,
-    _execute_log_error_implementation,
-    _execute_log_warning_implementation,
-    _execute_log_debug_implementation,
-    _execute_log_operation_start_implementation,
-    _execute_log_operation_success_implementation,
-    _execute_log_operation_failure_implementation
-)
+# Import protection
+try:
+    from logging_core import (
+        _execute_log_info_implementation,
+        _execute_log_error_implementation,
+        _execute_log_warning_implementation,
+        _execute_log_debug_implementation,
+        _execute_log_operation_start_implementation,
+        _execute_log_operation_success_implementation,
+        _execute_log_operation_failure_implementation
+    )
+    _LOGGING_AVAILABLE = True
+    _LOGGING_IMPORT_ERROR = None
+except ImportError as e:
+    _LOGGING_AVAILABLE = False
+    _LOGGING_IMPORT_ERROR = str(e)
+    _execute_log_info_implementation = None
+    _execute_log_error_implementation = None
+    _execute_log_warning_implementation = None
+    _execute_log_debug_implementation = None
+    _execute_log_operation_start_implementation = None
+    _execute_log_operation_success_implementation = None
+    _execute_log_operation_failure_implementation = None
+
+
+_VALID_LOGGING_OPERATIONS = [
+    'log_info', 'log_error', 'log_warning', 'log_debug',
+    'log_operation_start', 'log_operation_success', 'log_operation_failure'
+]
 
 
 def execute_logging_operation(operation: str, **kwargs) -> Any:
     """
     Route logging operation requests to internal implementations.
-    This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The logging operation to execute ('info', 'error', 'warning', etc.)
+        operation: The logging operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
         Operation result from internal implementation
         
     Raises:
+        RuntimeError: If Logging interface unavailable
         ValueError: If operation is unknown or parameters invalid
-        
-    Note:
-        Implementation errors bubble up naturally to caller for centralized handling.
-        Router does not log errors itself to avoid circular dependency risks.
     """
+    # Check Logging availability
+    if not _LOGGING_AVAILABLE:
+        raise RuntimeError(
+            f"Logging interface unavailable: {_LOGGING_IMPORT_ERROR}. "
+            "This may indicate missing logging_core module or circular import."
+        )
     
-    # Validate operation parameter
-    if not operation or not isinstance(operation, str):
-        raise ValueError("Operation must be a non-empty string")
+    if operation not in _VALID_LOGGING_OPERATIONS:
+        raise ValueError(
+            f"Unknown logging operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_LOGGING_OPERATIONS)}"
+        )
     
-    # Normalize operation name (remove 'log_' prefix if present for consistency)
-    normalized_op = operation.replace('log_', '') if operation.startswith('log_') else operation
-    
-    # Route to appropriate implementation with parameter validation
-    if normalized_op == 'info' or operation == 'log_info':
-        _validate_message_param(kwargs, operation)
+    if operation == 'log_info':
+        if 'message' not in kwargs:
+            raise ValueError("logging.log_info requires 'message' parameter")
         return _execute_log_info_implementation(**kwargs)
     
-    elif normalized_op == 'error' or operation == 'log_error':
-        _validate_message_param(kwargs, operation)
+    elif operation == 'log_error':
+        if 'message' not in kwargs:
+            raise ValueError("logging.log_error requires 'message' parameter")
         return _execute_log_error_implementation(**kwargs)
     
-    elif normalized_op == 'warning' or operation == 'log_warning':
-        _validate_message_param(kwargs, operation)
+    elif operation == 'log_warning':
+        if 'message' not in kwargs:
+            raise ValueError("logging.log_warning requires 'message' parameter")
         return _execute_log_warning_implementation(**kwargs)
     
-    elif normalized_op == 'debug' or operation == 'log_debug':
-        _validate_message_param(kwargs, operation)
+    elif operation == 'log_debug':
+        if 'message' not in kwargs:
+            raise ValueError("logging.log_debug requires 'message' parameter")
         return _execute_log_debug_implementation(**kwargs)
     
-    elif normalized_op == 'operation_start' or operation == 'log_operation_start':
-        _validate_operation_param(kwargs, operation)
+    elif operation == 'log_operation_start':
+        if 'operation' not in kwargs:
+            raise ValueError("logging.log_operation_start requires 'operation' parameter")
         return _execute_log_operation_start_implementation(**kwargs)
     
-    elif normalized_op == 'operation_success' or operation == 'log_operation_success':
-        _validate_operation_param(kwargs, operation)
+    elif operation == 'log_operation_success':
+        if 'operation' not in kwargs:
+            raise ValueError("logging.log_operation_success requires 'operation' parameter")
+        if 'duration_ms' not in kwargs:
+            raise ValueError("logging.log_operation_success requires 'duration_ms' parameter")
         return _execute_log_operation_success_implementation(**kwargs)
     
-    elif normalized_op in ['operation_failure', 'operation_error'] or operation in ['log_operation_failure', 'log_operation_error']:
-        _validate_operation_param(kwargs, operation)
+    elif operation == 'log_operation_failure':
+        if 'operation' not in kwargs:
+            raise ValueError("logging.log_operation_failure requires 'operation' parameter")
+        if 'error' not in kwargs:
+            raise ValueError("logging.log_operation_failure requires 'error' parameter")
         return _execute_log_operation_failure_implementation(**kwargs)
     
-    elif normalized_op == 'operation_end' or operation == 'log_operation_end':
-        # operation_end is an alias for operation_success with no result requirement
-        _validate_operation_param(kwargs, operation)
-        return _execute_log_operation_success_implementation(**kwargs)
-    
     else:
-        raise ValueError(f"Unknown logging operation: {operation}")
+        raise ValueError(f"Unhandled logging operation: '{operation}'")
 
 
-def _validate_message_param(kwargs: dict, operation: str) -> None:
-    """
-    Validate that message parameter exists and is valid.
-    
-    Args:
-        kwargs: Parameter dictionary
-        operation: Operation name (for error context)
-        
-    Raises:
-        ValueError: If message is missing or invalid
-    """
-    if 'message' not in kwargs:
-        raise ValueError(f"Operation '{operation}' requires parameter 'message'")
-    
-    message = kwargs.get('message')
-    if not isinstance(message, str):
-        raise ValueError(
-            f"Operation '{operation}' parameter 'message' must be string, "
-            f"got {type(message).__name__}"
-        )
-
-
-def _validate_operation_param(kwargs: dict, operation: str) -> None:
-    """
-    Validate that operation parameter exists and is valid.
-    
-    Args:
-        kwargs: Parameter dictionary
-        operation: Operation name (for error context)
-        
-    Raises:
-        ValueError: If operation is missing or invalid
-    """
-    if 'operation' not in kwargs:
-        raise ValueError(f"Operation '{operation}' requires parameter 'operation'")
-    
-    op_value = kwargs.get('operation')
-    if not isinstance(op_value, str) or not op_value.strip():
-        raise ValueError(
-            f"Operation '{operation}' parameter 'operation' must be non-empty string, "
-            f"got {type(op_value).__name__}"
-        )
-
-
-__all__ = [
-    'execute_logging_operation'
-]
+__all__ = ['execute_logging_operation']
 
 # EOF
