@@ -250,12 +250,19 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
     correlation_id = generate_correlation_id()
     
     try:
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 1] Starting get_ha_states")
+        log_info(f"[{correlation_id}] [DEBUG] entity_ids: {entity_ids}")
+        log_info(f"[{correlation_id}] [DEBUG] use_cache: {use_cache}")
+        
         cache_key = 'ha_all_states'
         
         if use_cache:
+            log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 2] Checking cache")
             cached = cache_get(cache_key)
+            log_info(f"[{correlation_id}] [DEBUG] Cached value type: {type(cached)}")
+            
             if cached and isinstance(cached, dict):
-                log_debug(f"[{correlation_id}] Using cached states")
+                log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 3] Using cached states")
                 increment_counter('ha_state_cache_hit')
                 
                 if entity_ids and isinstance(entity_ids, list):
@@ -267,49 +274,57 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                 
                 return cached
             elif cached:
-                log_warning(f"[{correlation_id}] Cached data is {type(cached)}, not dict - invalidating")
+                log_warning(f"[{correlation_id}] [DEBUG] Cached data is {type(cached)}, not dict - invalidating")
                 cache_delete(cache_key)
         
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 4] Calling call_ha_api")
         result = call_ha_api('/api/states')
         
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 5] call_ha_api returned")
+        log_info(f"[{correlation_id}] [DEBUG] Result type: {type(result)}")
+        
         if not isinstance(result, dict):
-            log_error(f"[{correlation_id}] call_ha_api returned {type(result)}, not dict")
+            log_error(f"[{correlation_id}] [DEBUG] call_ha_api returned {type(result)}, not dict")
             return create_error_response(f'API returned invalid type: {type(result).__name__}', 'INVALID_API_RESPONSE')
         
         # EMERGENCY DEBUG: Log the full result structure
-        log_info(f"[{correlation_id}] call_ha_api result keys: {list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}")
-        log_info(f"[{correlation_id}] success: {result.get('success')}")
+        log_info(f"[{correlation_id}] [DEBUG] call_ha_api result keys: {list(result.keys())}")
+        log_info(f"[{correlation_id}] [DEBUG] success field: {result.get('success')}")
+        
         if not result.get('success'):
-            log_error(f"[{correlation_id}] API call failed - full result: {result}")
+            log_error(f"[{correlation_id}] [DEBUG GET_STATES STEP 6] API call failed")
+            log_error(f"[{correlation_id}] [DEBUG] Full result: {result}")
+            log_error(f"[{correlation_id}] [DEBUG] Returning failed result")
+            return result
         
-        if result.get('success'):
-            raw_data = result.get('data', [])
-            log_info(f"[{correlation_id}] Raw data type: {type(raw_data)}")
-            
-            entity_list = _extract_entity_list(raw_data, 'api_states')
-            
-            log_info(f"[{correlation_id}] Retrieved {len(entity_list)} entities from HA")
-            
-            normalized_result = create_success_response('States retrieved', entity_list)
-            
-            if use_cache:
-                cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
-            
-            increment_counter('ha_states_retrieved')
-            
-            if entity_ids and isinstance(entity_ids, list):
-                entity_set = set(entity_ids)
-                filtered = [e for e in entity_list 
-                           if isinstance(e, dict) and e.get('entity_id') in entity_set]
-                return create_success_response('States retrieved', filtered)
-            
-            return normalized_result
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 7] API call succeeded")
+        raw_data = result.get('data', [])
+        log_info(f"[{correlation_id}] [DEBUG] Raw data type: {type(raw_data)}")
         
-        log_error(f"[{correlation_id}] Returning failed result from call_ha_api")
-        return result
+        entity_list = _extract_entity_list(raw_data, 'api_states')
+        
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 8] Retrieved {len(entity_list)} entities from HA")
+        
+        normalized_result = create_success_response('States retrieved', entity_list)
+        
+        if use_cache:
+            cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
+        
+        increment_counter('ha_states_retrieved')
+        
+        if entity_ids and isinstance(entity_ids, list):
+            entity_set = set(entity_ids)
+            filtered = [e for e in entity_list 
+                       if isinstance(e, dict) and e.get('entity_id') in entity_set]
+            return create_success_response('States retrieved', filtered)
+        
+        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 9] Returning success")
+        return normalized_result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] Get states failed: {str(e)}")
+        log_error(f"[{correlation_id}] [DEBUG GET_STATES EXCEPTION] {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"[{correlation_id}] [DEBUG TRACEBACK] {traceback.format_exc()}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
