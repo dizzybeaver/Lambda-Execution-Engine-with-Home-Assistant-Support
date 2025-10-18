@@ -1,9 +1,14 @@
 """
 interface_config.py - Config Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.05
-Description: Firewall router for Config interface with parameter validation
+Version: 2025.10.17.14
+Description: Firewall router for Config interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.17.14: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for config_core imports
+  - Sets _CONFIG_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Config unavailable
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
   - Validates 'key' parameter for get/set operations
   - Validates 'category' parameter for get_category
@@ -29,18 +34,35 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any
 
-from config_core import (
-    _initialize_implementation,
-    _get_parameter_implementation,
-    _set_parameter_implementation,
-    _get_category_implementation,
-    _reload_implementation,
-    _switch_preset_implementation,
-    _get_state_implementation,
-    _load_environment_implementation,
-    _load_file_implementation,
-    _validate_all_implementation
-)
+# Import protection
+try:
+    from config_core import (
+        _initialize_implementation,
+        _get_parameter_implementation,
+        _set_parameter_implementation,
+        _get_category_implementation,
+        _reload_implementation,
+        _switch_preset_implementation,
+        _get_state_implementation,
+        _load_environment_implementation,
+        _load_file_implementation,
+        _validate_all_implementation
+    )
+    _CONFIG_AVAILABLE = True
+    _CONFIG_IMPORT_ERROR = None
+except ImportError as e:
+    _CONFIG_AVAILABLE = False
+    _CONFIG_IMPORT_ERROR = str(e)
+    _initialize_implementation = None
+    _get_parameter_implementation = None
+    _set_parameter_implementation = None
+    _get_category_implementation = None
+    _reload_implementation = None
+    _switch_preset_implementation = None
+    _get_state_implementation = None
+    _load_environment_implementation = None
+    _load_file_implementation = None
+    _validate_all_implementation = None
 
 
 _VALID_CONFIG_OPERATIONS = [
@@ -55,36 +77,63 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The config operation to execute
+        operation: Config operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from internal implementation
+        Operation result
         
     Raises:
-        ValueError: If operation is unknown or required parameters are missing/invalid
+        RuntimeError: If Config interface unavailable
+        ValueError: If operation is unknown or required parameters missing
     """
+    # Check Config availability
+    if not _CONFIG_AVAILABLE:
+        raise RuntimeError(
+            f"Config interface unavailable: {_CONFIG_IMPORT_ERROR}. "
+            "This may indicate missing config_core module or circular import."
+        )
+    
+    if operation not in _VALID_CONFIG_OPERATIONS:
+        raise ValueError(
+            f"Unknown config operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_CONFIG_OPERATIONS)}"
+        )
     
     if operation == 'initialize':
         return _initialize_implementation(**kwargs)
     
     elif operation == 'get':
-        _validate_key_param(kwargs, operation)
+        if 'key' not in kwargs:
+            raise ValueError("config.get requires 'key' parameter")
+        if not isinstance(kwargs['key'], str):
+            raise TypeError(f"config.get 'key' must be str, got {type(kwargs['key']).__name__}")
         return _get_parameter_implementation(**kwargs)
     
     elif operation == 'set':
-        _validate_set_params(kwargs, operation)
+        if 'key' not in kwargs:
+            raise ValueError("config.set requires 'key' parameter")
+        if 'value' not in kwargs:
+            raise ValueError("config.set requires 'value' parameter")
+        if not isinstance(kwargs['key'], str):
+            raise TypeError(f"config.set 'key' must be str, got {type(kwargs['key']).__name__}")
         return _set_parameter_implementation(**kwargs)
     
     elif operation == 'get_category':
-        _validate_category_param(kwargs, operation)
+        if 'category' not in kwargs:
+            raise ValueError("config.get_category requires 'category' parameter")
+        if not isinstance(kwargs['category'], str):
+            raise TypeError(f"config.get_category 'category' must be str, got {type(kwargs['category']).__name__}")
         return _get_category_implementation(**kwargs)
     
     elif operation == 'reload':
         return _reload_implementation(**kwargs)
     
     elif operation == 'switch_preset':
-        _validate_preset_param(kwargs, operation)
+        if 'preset_name' not in kwargs:
+            raise ValueError("config.switch_preset requires 'preset_name' parameter")
+        if not isinstance(kwargs['preset_name'], str):
+            raise TypeError(f"config.switch_preset 'preset_name' must be str, got {type(kwargs['preset_name']).__name__}")
         return _switch_preset_implementation(**kwargs)
     
     elif operation == 'get_state':
@@ -94,93 +143,19 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
         return _load_environment_implementation(**kwargs)
     
     elif operation == 'load_file':
-        _validate_filepath_param(kwargs, operation)
+        if 'filepath' not in kwargs:
+            raise ValueError("config.load_file requires 'filepath' parameter")
+        if not isinstance(kwargs['filepath'], str):
+            raise TypeError(f"config.load_file 'filepath' must be str, got {type(kwargs['filepath']).__name__}")
         return _load_file_implementation(**kwargs)
     
     elif operation == 'validate_all':
         return _validate_all_implementation(**kwargs)
     
     else:
-        raise ValueError(
-            f"Unknown config operation: '{operation}'. "
-            f"Valid operations: {', '.join(_VALID_CONFIG_OPERATIONS)}"
-        )
+        raise ValueError(f"Unhandled config operation: '{operation}'")
 
 
-def _validate_key_param(kwargs: dict, operation: str) -> None:
-    """Validate key parameter for config operations."""
-    if 'key' not in kwargs:
-        raise ValueError(f"Config operation '{operation}' requires parameter 'key'")
-    
-    key = kwargs.get('key')
-    if not isinstance(key, str):
-        raise ValueError(
-            f"Config operation '{operation}' parameter 'key' must be string, "
-            f"got {type(key).__name__}"
-        )
-    
-    if not key.strip():
-        raise ValueError(f"Config operation '{operation}' parameter 'key' cannot be empty")
-
-
-def _validate_set_params(kwargs: dict, operation: str) -> None:
-    """Validate parameters for config set operation."""
-    _validate_key_param(kwargs, operation)
-    
-    if 'value' not in kwargs:
-        raise ValueError(f"Config operation '{operation}' requires parameter 'value'")
-
-
-def _validate_category_param(kwargs: dict, operation: str) -> None:
-    """Validate category parameter."""
-    if 'category' not in kwargs:
-        raise ValueError(f"Config operation '{operation}' requires parameter 'category'")
-    
-    category = kwargs.get('category')
-    if not isinstance(category, str):
-        raise ValueError(
-            f"Config operation '{operation}' parameter 'category' must be string, "
-            f"got {type(category).__name__}"
-        )
-    
-    if not category.strip():
-        raise ValueError(f"Config operation '{operation}' parameter 'category' cannot be empty")
-
-
-def _validate_preset_param(kwargs: dict, operation: str) -> None:
-    """Validate preset_name parameter."""
-    if 'preset_name' not in kwargs:
-        raise ValueError(f"Config operation '{operation}' requires parameter 'preset_name'")
-    
-    preset_name = kwargs.get('preset_name')
-    if not isinstance(preset_name, str):
-        raise ValueError(
-            f"Config operation '{operation}' parameter 'preset_name' must be string, "
-            f"got {type(preset_name).__name__}"
-        )
-    
-    if not preset_name.strip():
-        raise ValueError(f"Config operation '{operation}' parameter 'preset_name' cannot be empty")
-
-
-def _validate_filepath_param(kwargs: dict, operation: str) -> None:
-    """Validate filepath parameter."""
-    if 'filepath' not in kwargs:
-        raise ValueError(f"Config operation '{operation}' requires parameter 'filepath'")
-    
-    filepath = kwargs.get('filepath')
-    if not isinstance(filepath, str):
-        raise ValueError(
-            f"Config operation '{operation}' parameter 'filepath' must be string, "
-            f"got {type(filepath).__name__}"
-        )
-    
-    if not filepath.strip():
-        raise ValueError(f"Config operation '{operation}' parameter 'filepath' cannot be empty")
-
-
-__all__ = [
-    'execute_config_operation'
-]
+__all__ = ['execute_config_operation']
 
 # EOF
