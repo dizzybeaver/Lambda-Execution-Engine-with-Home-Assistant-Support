@@ -1,18 +1,24 @@
 """
 interface_initialization.py - Initialization Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.16.01
-Description: Firewall router for Initialization interface - BUGS FIXED
+Version: 2025.10.17.14
+Description: Firewall router for Initialization interface with import protection
+
+CHANGELOG:
+- 2025.10.17.14: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for initialization_core imports
+  - Sets _INITIALIZATION_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Initialization unavailable
+- 2025.10.16.01: Bugs fixed - Added missing operations and imports
+  - Added missing 'get_config' operation route
+  - Added missing 'is_initialized' operation route
+  - Added missing 'reset' operation route
+  - Added 3 missing implementation function imports
+  - Improved error handling with complete operation list
 
 This file acts as the interface router (firewall) between the SUGA-ISP
 and internal implementation files. Only this file may be accessed by
 gateway.py. Internal files are isolated.
-
-FIXES APPLIED:
-- Added missing 'get_config' operation route
-- Added missing 'is_initialized' operation route
-- Added missing 'reset' operation route
-- Added 3 missing implementation function imports
-- Improved error handling with complete operation list
 
 Copyright 2025 Joseph Hersey
 
@@ -31,16 +37,35 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any
 
-# ✅ ALLOWED: Import internal files within same Initialization interface
-from initialization_core import (
-    _execute_initialize_implementation,
-    _execute_get_config_implementation,
-    _execute_is_initialized_implementation,
-    _execute_reset_implementation,
-    _execute_get_status_implementation,
-    _execute_set_flag_implementation,
-    _execute_get_flag_implementation
-)
+# Import protection
+try:
+    from initialization_core import (
+        _execute_initialize_implementation,
+        _execute_get_config_implementation,
+        _execute_is_initialized_implementation,
+        _execute_reset_implementation,
+        _execute_get_status_implementation,
+        _execute_set_flag_implementation,
+        _execute_get_flag_implementation
+    )
+    _INITIALIZATION_AVAILABLE = True
+    _INITIALIZATION_IMPORT_ERROR = None
+except ImportError as e:
+    _INITIALIZATION_AVAILABLE = False
+    _INITIALIZATION_IMPORT_ERROR = str(e)
+    _execute_initialize_implementation = None
+    _execute_get_config_implementation = None
+    _execute_is_initialized_implementation = None
+    _execute_reset_implementation = None
+    _execute_get_status_implementation = None
+    _execute_set_flag_implementation = None
+    _execute_get_flag_implementation = None
+
+
+_VALID_INITIALIZATION_OPERATIONS = [
+    'initialize', 'get_config', 'is_initialized', 'reset',
+    'get_status', 'set_flag', 'get_flag'
+]
 
 
 def execute_initialization_operation(operation: str, **kwargs) -> Any:
@@ -49,30 +74,31 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The initialization operation to execute
+        operation: Initialization operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from internal implementation
+        Operation result
         
     Raises:
+        RuntimeError: If Initialization interface unavailable
         ValueError: If operation is unknown
-        
-    Valid operations:
-        - initialize, initialize_system
-        - get_status, get_state
-        - get_config
-        - is_initialized
-        - reset
-        - set_flag
-        - get_flag
     """
+    # Check Initialization availability
+    if not _INITIALIZATION_AVAILABLE:
+        raise RuntimeError(
+            f"Initialization interface unavailable: {_INITIALIZATION_IMPORT_ERROR}. "
+            "This may indicate missing initialization_core module or circular import."
+        )
     
-    if operation == 'initialize' or operation == 'initialize_system':
+    if operation not in _VALID_INITIALIZATION_OPERATIONS:
+        raise ValueError(
+            f"Unknown initialization operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_INITIALIZATION_OPERATIONS)}"
+        )
+    
+    if operation == 'initialize':
         return _execute_initialize_implementation(**kwargs)
-    
-    elif operation == 'get_status' or operation == 'get_state':
-        return _execute_get_status_implementation(**kwargs)
     
     elif operation == 'get_config':
         return _execute_get_config_implementation(**kwargs)
@@ -83,22 +109,29 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
     elif operation == 'reset':
         return _execute_reset_implementation(**kwargs)
     
+    elif operation == 'get_status':
+        return _execute_get_status_implementation(**kwargs)
+    
     elif operation == 'set_flag':
+        if 'flag_name' not in kwargs:
+            raise ValueError("initialization.set_flag requires 'flag_name' parameter")
+        if 'value' not in kwargs:
+            raise ValueError("initialization.set_flag requires 'value' parameter")
+        if not isinstance(kwargs['flag_name'], str):
+            raise TypeError(f"initialization.set_flag 'flag_name' must be str, got {type(kwargs['flag_name']).__name__}")
         return _execute_set_flag_implementation(**kwargs)
     
     elif operation == 'get_flag':
+        if 'flag_name' not in kwargs:
+            raise ValueError("initialization.get_flag requires 'flag_name' parameter")
+        if not isinstance(kwargs['flag_name'], str):
+            raise TypeError(f"initialization.get_flag 'flag_name' must be str, got {type(kwargs['flag_name']).__name__}")
         return _execute_get_flag_implementation(**kwargs)
     
     else:
-        raise ValueError(
-            f"Unknown initialization operation: '{operation}'. "
-            f"Valid operations: initialize, get_status, get_config, "
-            f"is_initialized, reset, set_flag, get_flag"
-        )
+        raise ValueError(f"Unhandled initialization operation: '{operation}'")
 
 
-__all__ = [
-    'execute_initialization_operation'
-]
+__all__ = ['execute_initialization_operation']
 
 # EOF
