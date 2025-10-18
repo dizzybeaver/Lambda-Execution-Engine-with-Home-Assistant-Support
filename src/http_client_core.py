@@ -92,8 +92,14 @@ class HTTPClientCore:
             
             decoded = response_data.decode('utf-8')
             
-            if 'application/json' in content_type:
-                return json.loads(decoded)
+            # Try to parse as JSON first (even if content-type not set correctly)
+            # Home Assistant returns JSON but may not always set content-type header
+            if 'application/json' in content_type.lower() or decoded.strip().startswith('{'):
+                try:
+                    return json.loads(decoded)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, return as string
+                    pass
             
             return decoded
             
