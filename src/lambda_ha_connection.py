@@ -181,15 +181,15 @@ def test_config_loading_enhanced() -> Dict[str, Any]:
                 print("[DEBUG] ✓ config_param_store module imported")
                 
                 # Test URL loading directly
-                print("[DEBUG] Testing: config_param_store.get_parameter('homeassistant/url')")
-                direct_url = config_param_store.get_parameter('homeassistant/url')
+                print("[DEBUG] Testing: config_param_store.get_parameter('home_assistant/url')")
+                direct_url = config_param_store.get_parameter('home_assistant/url')
                 print(f"[DEBUG] Direct module returned:")
                 print(f"[DEBUG]   Type: {type(direct_url)}")
                 print(f"[DEBUG]   Value: {direct_url}")
                 
                 # Test token loading directly  
-                print("[DEBUG] Testing: config_param_store.get_parameter('homeassistant/token')")
-                direct_token = config_param_store.get_parameter('homeassistant/token')
+                print("[DEBUG] Testing: config_param_store.get_parameter('home_assistant/token')")
+                direct_token = config_param_store.get_parameter('home_assistant/token')
                 print(f"[DEBUG] Direct module returned:")
                 print(f"[DEBUG]   Type: {type(direct_token)}")
                 print(f"[DEBUG]   Value: {direct_token[:20] if isinstance(direct_token, str) else 'Not a string'}...")
@@ -206,22 +206,22 @@ def test_config_loading_enhanced() -> Dict[str, Any]:
             # Strategy 2: Via Gateway CONFIG interface
             print("\n[DEBUG] --- Strategy 2: Via Gateway CONFIG Interface ---")
             try:
-                print("[DEBUG] Loading homeassistant/url via gateway...")
+                print("[DEBUG] Loading home_assistant/url via gateway...")
                 ha_url = execute_operation(
                     GatewayInterface.CONFIG,
                     'get_parameter',
-                    key='homeassistant/url',
+                    key='home_assistant/url',
                     default=None
                 )
                 print(f"[DEBUG] Gateway returned:")
                 print(f"[DEBUG]   Type: {type(ha_url)}")
                 print(f"[DEBUG]   Value: {ha_url}")
                 
-                print("[DEBUG] Loading homeassistant/token via gateway...")
+                print("[DEBUG] Loading home_assistant/token via gateway...")
                 ha_token = execute_operation(
                     GatewayInterface.CONFIG,
                     'get_parameter',
-                    key='homeassistant/token',
+                    key='home_assistant/token',
                     default=None
                 )
                 print(f"[DEBUG] Gateway returned:")
