@@ -1,19 +1,17 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.03
+Version: 2025.10.18.04
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
 CHANGELOG:
+- 2025.10.18.04: FIXED Issue #31 - Fixed 'str' object has no attribute 'get'
+  - Added JSON parsing for HTTP response data using gateway.parse_json
+  - Added type validation for response data field (string vs dict)
+  - Auto-parse JSON strings in response data
+  - Ensure all .get() calls are on dicts, never strings
+  - Comprehensive attribute error prevention
 - 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get' in get_ha_states
-  - Added type checking for cached data before calling .get()
-  - Added cache invalidation for invalid cached types
-  - Added defensive data access with isinstance checks
-  - Added result validation to ensure dict responses
-  - Prevents 'object' object errors in Alexa Discovery
 - 2025.10.18.02: Fixed 'object has no attribute get' errors
-  - Added safe result wrapper for circuit breaker responses
-  - Added get_assistant_name_info function
-  - Renamed get_states to get_ha_states for consistency
 - 2025.10.16.01: Fixed circuit breaker calls
 
 Copyright 2025 Joseph Hersey
@@ -28,7 +26,8 @@ from gateway import (
     cache_get, cache_set, cache_delete,
     increment_counter, record_metric,
     create_success_response, create_error_response,
-    generate_correlation_id, get_timestamp
+    generate_correlation_id, get_timestamp,
+    parse_json
 )
 
 # Cache TTL Constants
@@ -36,6 +35,39 @@ HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
+
+
+def _ensure_dict(value: Any, context: str = "data") -> Dict[str, Any]:
+    """
+    Ensure value is a dict, parsing JSON strings if needed.
+    
+    CRITICAL: Prevents 'str' object has no attribute 'get' errors.
+    """
+    # Already a dict
+    if isinstance(value, dict):
+        return value
+    
+    # None or empty
+    if value is None:
+        return {}
+    
+    # JSON string - parse it
+    if isinstance(value, str):
+        try:
+            parsed = parse_json(value)
+            if isinstance(parsed, dict):
+                log_debug(f"Parsed JSON string in {context}")
+                return parsed
+            else:
+                log_warning(f"Parsed JSON in {context} is {type(parsed)}, not dict")
+                return {}
+        except Exception as e:
+            log_warning(f"Failed to parse JSON string in {context}: {str(e)}")
+            return {}
+    
+    # List or other type
+    log_warning(f"Value in {context} is {type(value)}, returning empty dict")
+    return {}
 
 
 def _safe_result_wrapper(result: Any, operation_name: str = "operation") -> Dict[str, Any]:
@@ -48,6 +80,10 @@ def _safe_result_wrapper(result: Any, operation_name: str = "operation") -> Dict
     """
     # Already a dict - validate structure
     if isinstance(result, dict):
+        # CRITICAL: Ensure 'data' field is a dict, not a string
+        if 'data' in result:
+            result['data'] = _ensure_dict(result['data'], f'{operation_name}.data')
+        
         # Ensure it has standard response fields
         if 'success' in result or 'error' in result:
             return result
@@ -125,7 +161,7 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
-        # CRITICAL: Wrap result to ensure it's a dict
+        # CRITICAL: Wrap result to ensure it's a dict with parsed data
         result = _safe_result_wrapper(raw_result, 'HA API call')
         
         if result.get('success'):
@@ -161,6 +197,9 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                     entity_set = set(entity_ids)
                     # Safely get data from cached dict
                     cached_data = cached.get('data', [])
+                    # FIXED: Ensure data is a list, handle string/dict cases
+                    if isinstance(cached_data, str):
+                        cached_data = parse_json(cached_data)
                     if isinstance(cached_data, list):
                         filtered = [e for e in cached_data 
                                    if isinstance(e, dict) and e.get('entity_id') in entity_set]
@@ -193,6 +232,9 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                 entity_set = set(entity_ids)
                 # Safely get data from result
                 result_data = result.get('data', [])
+                # FIXED: Ensure data is a list, handle string/dict cases
+                if isinstance(result_data, str):
+                    result_data = parse_json(result_data)
                 if isinstance(result_data, list):
                     filtered = [e for e in result_data 
                                if isinstance(e, dict) and e.get('entity_id') in entity_set]
@@ -246,8 +288,10 @@ def check_ha_status() -> Dict[str, Any]:
         result = call_ha_api('/api/')
         
         if result.get('success'):
+            # FIXED: Ensure data is dict before calling .get()
+            data = _ensure_dict(result.get('data', {}), 'status_check')
             return create_success_response('HA is available', {
-                'message': result.get('data', {}).get('message', 'API Running')
+                'message': data.get('message', 'API Running')
             })
         
         return result
