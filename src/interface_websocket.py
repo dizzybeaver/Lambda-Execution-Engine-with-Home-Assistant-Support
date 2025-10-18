@@ -50,7 +50,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from typing import Any
+from typing import Any, Dict, Callable
 
 # Import protection for websocket_core
 try:
@@ -73,15 +73,86 @@ except ImportError as e:
     websocket_request_implementation = None
 
 
-_VALID_WEBSOCKET_OPERATIONS = [
-    'connect', 'send', 'receive', 'close', 'request'
-]
+# ===== PARAMETER VALIDATION =====
 
+def _validate_url_param(kwargs: Dict[str, Any], operation: str) -> None:
+    """Validate url parameter exists."""
+    if 'url' not in kwargs:
+        raise ValueError(f"websocket.{operation} requires 'url' parameter")
+
+
+def _validate_connection_param(kwargs: Dict[str, Any], operation: str) -> None:
+    """Validate connection parameter exists."""
+    if 'connection' not in kwargs:
+        raise ValueError(f"websocket.{operation} requires 'connection' parameter")
+
+
+def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
+    """Validate message parameter exists."""
+    if 'message' not in kwargs:
+        raise ValueError(f"websocket.{operation} requires 'message' parameter")
+
+
+def _validate_send_params(kwargs: Dict[str, Any]) -> None:
+    """Validate send operation parameters."""
+    _validate_connection_param(kwargs, 'send')
+    _validate_message_param(kwargs, 'send')
+
+
+def _validate_request_params(kwargs: Dict[str, Any]) -> None:
+    """Validate request operation parameters."""
+    _validate_url_param(kwargs, 'request')
+    _validate_message_param(kwargs, 'request')
+
+
+# ===== DISPATCH DICTIONARY =====
+
+def _build_dispatch_dict() -> Dict[str, Callable]:
+    """
+    Build WebSocket operation dispatch dictionary.
+    
+    Uses Dispatch Dictionary Architecture (LEE.ARC.3) for O(1) operation routing.
+    All operations are CLIENT-SIDE ONLY (outbound connections to external servers).
+    """
+    return {
+        'connect': lambda **kwargs: (
+            _validate_url_param(kwargs, 'connect'),
+            websocket_connect_implementation(**kwargs)
+        )[1],
+        
+        'send': lambda **kwargs: (
+            _validate_send_params(kwargs),
+            websocket_send_implementation(**kwargs)
+        )[1],
+        
+        'receive': lambda **kwargs: (
+            _validate_connection_param(kwargs, 'receive'),
+            websocket_receive_implementation(**kwargs)
+        )[1],
+        
+        'close': lambda **kwargs: (
+            _validate_connection_param(kwargs, 'close'),
+            websocket_close_implementation(**kwargs)
+        )[1],
+        
+        'request': lambda **kwargs: (
+            _validate_request_params(kwargs),
+            websocket_request_implementation(**kwargs)
+        )[1],
+    }
+
+
+_OPERATION_DISPATCH: Dict[str, Callable] = _build_dispatch_dict()
+
+
+# ===== ROUTER FUNCTION =====
 
 def execute_websocket_operation(operation: str, **kwargs) -> Any:
     """
     Route WebSocket CLIENT operation requests to internal implementations.
     This is called by the SUGA-ISP (gateway.py).
+    
+    Uses Dispatch Dictionary Architecture for O(1) operation routing.
     
     All operations are CLIENT-SIDE ONLY (outbound from Lambda to external servers).
     Does NOT accept inbound connections (would require API Gateway - PAID SERVICE).
@@ -106,44 +177,15 @@ def execute_websocket_operation(operation: str, **kwargs) -> Any:
             "This may indicate missing websocket_core module or circular import."
         )
     
-    if operation not in _VALID_WEBSOCKET_OPERATIONS:
+    # Validate operation exists
+    if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown WebSocket operation: '{operation}'. "
-            f"Valid operations: {', '.join(_VALID_WEBSOCKET_OPERATIONS)}"
+            f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
         )
     
-    # Route to appropriate implementation
-    if operation == 'connect':
-        if 'url' not in kwargs:
-            raise ValueError("websocket.connect requires 'url' parameter")
-        return websocket_connect_implementation(**kwargs)
-    
-    elif operation == 'send':
-        if 'connection' not in kwargs:
-            raise ValueError("websocket.send requires 'connection' parameter")
-        if 'message' not in kwargs:
-            raise ValueError("websocket.send requires 'message' parameter")
-        return websocket_send_implementation(**kwargs)
-    
-    elif operation == 'receive':
-        if 'connection' not in kwargs:
-            raise ValueError("websocket.receive requires 'connection' parameter")
-        return websocket_receive_implementation(**kwargs)
-    
-    elif operation == 'close':
-        if 'connection' not in kwargs:
-            raise ValueError("websocket.close requires 'connection' parameter")
-        return websocket_close_implementation(**kwargs)
-    
-    elif operation == 'request':
-        if 'url' not in kwargs:
-            raise ValueError("websocket.request requires 'url' parameter")
-        if 'message' not in kwargs:
-            raise ValueError("websocket.request requires 'message' parameter")
-        return websocket_request_implementation(**kwargs)
-    
-    else:
-        raise ValueError(f"Unhandled WebSocket operation: '{operation}'")
+    # Execute via dispatch dictionary (O(1) lookup)
+    return _OPERATION_DISPATCH[operation](**kwargs)
 
 
 __all__ = ['execute_websocket_operation']
