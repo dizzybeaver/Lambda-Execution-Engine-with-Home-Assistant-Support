@@ -1,9 +1,10 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.16.10
+Version: 2025.10.18.01
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.18.01: Added ha_connection_test mode for HA connection diagnostics
 - 2025.10.16.10: Added network connectivity test (ha_ping/network_test)
 - 2025.10.16.09: Added SKIP_HA_HEALTH_CHECK environment variable option
 - 2025.10.16.08: Added missing log_error import in diagnostic exception handler
@@ -35,6 +36,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     - failsafe: Direct HA passthrough via lambda_failsafe.py
     - diagnostic: Import testing via lambda_diagnostic.py
     - emergency: Emergency bypass via lambda_emergency.py
+    - ha_connection_test: HA connection diagnostic via lambda_ha_connection.py
     """
     
     # Check Lambda mode
@@ -59,6 +61,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         try:
             import lambda_emergency
             return lambda_emergency.lambda_handler(event, context)
+        except ImportError:
+            lambda_mode = 'normal'  # Fallback to normal if file missing
+    
+    elif lambda_mode == 'ha_connection_test':
+        try:
+            import lambda_ha_connection
+            return lambda_ha_connection.lambda_handler(event, context)
         except ImportError:
             lambda_mode = 'normal'  # Fallback to normal if file missing
     
