@@ -1,9 +1,14 @@
 """
 logging_manager.py - Core logging manager implementation
-Version: 2025.10.17.04
+Version: 2025.10.18.01
 Description: LoggingCore class with template optimization and error tracking
 
 CHANGELOG:
+- 2025.10.18.01: FIXED ErrorLogLevel enum usage (Issue #15)
+  - Changed ErrorLogLevel.ERROR to ErrorLogLevel.HIGH (doesn't exist in enum)
+  - Changed ErrorLogLevel.WARNING to ErrorLogLevel.MEDIUM (doesn't exist in enum)
+  - Updated log_level mapping dict to include all four valid enum values
+  - Enum only has: LOW, MEDIUM, HIGH, CRITICAL
 - 2025.10.17.04: REMOVED threading locks for Lambda optimization (Issue #14 fix)
   - Removed self._lock and self.error_lock
   - Removed all "with self._lock:" and "with self.error_lock:" blocks
@@ -135,7 +140,7 @@ class LoggingCore:
     def log_error_response(self, error: str, status_code: int = 500,
                           error_code: Optional[str] = None,
                           correlation_id: Optional[str] = None,
-                          level: ErrorLogLevel = ErrorLogLevel.ERROR,
+                          level: ErrorLogLevel = ErrorLogLevel.HIGH,
                           **kwargs) -> Dict[str, Any]:
         """
         Log error and return error response dict.
@@ -157,9 +162,11 @@ class LoggingCore:
         
         self.error_log_entries.append(entry)
         
+        # FIXED: Map all four valid ErrorLogLevel enum values to Python logging levels
         log_level = {
-            ErrorLogLevel.WARNING: logging.WARNING,
-            ErrorLogLevel.ERROR: logging.ERROR,
+            ErrorLogLevel.LOW: logging.INFO,
+            ErrorLogLevel.MEDIUM: logging.WARNING,
+            ErrorLogLevel.HIGH: logging.ERROR,
             ErrorLogLevel.CRITICAL: logging.CRITICAL
         }.get(level, logging.ERROR)
         
@@ -218,11 +225,12 @@ class LoggingCore:
                            **kwargs) -> str:
         """Log operation start and return correlation ID."""
         # No lock needed - Lambda is single-threaded
-        correlation_id = correlation_id or str(uuid.uuid4())
+        if correlation_id is None:
+            correlation_id = str(uuid.uuid4())
         
         entry = {
-            'operation': operation,
             'correlation_id': correlation_id,
+            'operation': operation,
             'start_time': time.time(),
             'status': 'started',
             **kwargs
@@ -232,64 +240,89 @@ class LoggingCore:
         
         self.logger.info(
             f"Operation started: {operation}",
-            extra={
-                'correlation_id': correlation_id,
-                'operation': operation,
-                **kwargs
-            }
+            extra={'correlation_id': correlation_id, **kwargs}
         )
         
         return correlation_id
     
-    def log_operation_end(self, operation: str, correlation_id: str,
-                         success: bool = True, duration_ms: Optional[float] = None,
-                         **kwargs) -> None:
-        """Log operation completion."""
+    def log_operation_success(self, operation: str, duration_ms: float,
+                             correlation_id: Optional[str] = None,
+                             result: Optional[Any] = None, **kwargs) -> None:
+        """Log operation success."""
         # No lock needed - Lambda is single-threaded
-        status = 'completed' if success else 'failed'
-        
         self.logger.info(
-            f"Operation {status}: {operation}" + (f" ({duration_ms:.2f}ms)" if duration_ms else ""),
+            f"Operation succeeded: {operation} ({duration_ms:.2f}ms)",
             extra={
                 'correlation_id': correlation_id,
-                'operation': operation,
-                'success': success,
                 'duration_ms': duration_ms,
+                'operation': operation,
                 **kwargs
             }
         )
     
     def log_operation_failure(self, operation: str, error: str,
-                            correlation_id: Optional[str] = None,
-                            **kwargs) -> None:
+                             correlation_id: Optional[str] = None, **kwargs) -> None:
         """Log operation failure."""
         # No lock needed - Lambda is single-threaded
-        correlation_id = correlation_id or str(uuid.uuid4())
-        
-        self.log_error(
-            error=f"Operation failed: {operation} - {error}",
-            error_code='OPERATION_FAILURE',
-            correlation_id=correlation_id,
-            operation=operation,
-            **kwargs
+        self.logger.error(
+            f"Operation failed: {operation} - {error}",
+            extra={
+                'correlation_id': correlation_id,
+                'operation': operation,
+                'error': error,
+                **kwargs
+            }
         )
     
-    # ===== STATISTICS =====
+    # ===== ERROR ANALYTICS =====
+    
+    def get_error_response_analytics(self) -> Dict[str, Any]:
+        """Get analytics from error response logs."""
+        # No lock needed - Lambda is single-threaded
+        if not self.error_log_entries:
+            return {
+                'total_errors': 0,
+                'by_status_code': {},
+                'by_error_code': {},
+                'by_severity': {}
+            }
+        
+        by_status = {}
+        by_code = {}
+        by_severity = {}
+        
+        for entry in self.error_log_entries:
+            # Count by status code
+            by_status[entry.status_code] = by_status.get(entry.status_code, 0) + 1
+            
+            # Count by error code
+            by_code[entry.error_code] = by_code.get(entry.error_code, 0) + 1
+            
+            # Count by severity
+            severity = entry.level.value
+            by_severity[severity] = by_severity.get(severity, 0) + 1
+        
+        return {
+            'total_errors': len(self.error_log_entries),
+            'by_status_code': by_status,
+            'by_error_code': by_code,
+            'by_severity': by_severity
+        }
+    
+    # ===== STATS =====
     
     def get_stats(self) -> Dict[str, Any]:
         """Get logging statistics."""
         # No lock needed - Lambda is single-threaded
         return {
-            'error_entries_count': len(self.error_entries),
-            'error_log_entries_count': len(self.error_log_entries),
-            'operation_logs_count': len(self.operation_logs),
-            'max_error_entries': self.max_error_entries,
+            'error_count': len(self.error_entries),
+            'error_response_count': len(self.error_log_entries),
+            'operation_log_count': len(self.operation_logs),
             'template_hits': self._template_hits,
-            'template_fallbacks': self._template_fallbacks,
-            'template_enabled': _USE_LOG_TEMPLATES
+            'template_fallbacks': self._template_fallbacks
         }
     
-    # ===== CLEAR DATA =====
+    # ===== CLEANUP =====
     
     def clear_errors(self) -> int:
         """Clear error entries."""
