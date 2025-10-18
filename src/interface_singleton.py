@@ -1,18 +1,25 @@
 """
 interface_singleton.py - Singleton Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.14
+Version: 2025.10.18.01
 Description: Firewall router for Singleton interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.18.01: FIXED Issue #26 - Parameter name standardization (CRITICAL FIX)
+  - Changed 'key' parameter to 'name' throughout validation functions
+  - Renamed _validate_key_param() to _validate_name_param()
+  - Updated all validation calls to use 'name' instead of 'key'
+  - Aligns with singleton_core.py which expects 'name' parameter
+  - Fixes http_client singleton access through circuit breaker
+  - Resolves "singleton.get requires 'key' parameter" error
 - 2025.10.17.14: FIXED Issue #20 - Added import error protection
   - Added try/except wrapper for singleton_core imports
   - Sets _SINGLETON_AVAILABLE flag on success/failure
   - Stores import error message for debugging
   - Provides clear error when Singleton unavailable
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
-  - Validates 'key' parameter for get/set/has/delete operations
+  - Validates 'name' parameter for get/set/has/delete operations
   - Validates 'value' parameter for set operation
-  - Type checking for key (must be string)
+  - Type checking for name (must be string)
   - Clear error messages for missing/invalid parameters
 - 2025.10.16.01: Added missing 'set' operation route, improved error handling
 - 2025.10.15.01: Initial SUGA-ISP router implementation
@@ -62,19 +69,19 @@ _VALID_SINGLETON_OPERATIONS = [
 ]
 
 
-def _validate_key_param(kwargs: dict, operation: str) -> None:
-    """Validate key parameter presence and type."""
-    if 'key' not in kwargs:
-        raise ValueError(f"singleton.{operation} requires 'key' parameter")
-    if not isinstance(kwargs['key'], str):
+def _validate_name_param(kwargs: dict, operation: str) -> None:
+    """Validate name parameter presence and type."""
+    if 'name' not in kwargs:
+        raise ValueError(f"singleton.{operation} requires 'name' parameter")
+    if not isinstance(kwargs['name'], str):
         raise TypeError(
-            f"singleton.{operation} 'key' must be str, got {type(kwargs['key']).__name__}"
+            f"singleton.{operation} 'name' must be str, got {type(kwargs['name']).__name__}"
         )
 
 
 def _validate_set_params(kwargs: dict, operation: str) -> None:
     """Validate set operation parameters."""
-    _validate_key_param(kwargs, operation)
+    _validate_name_param(kwargs, operation)
     if 'value' not in kwargs:
         raise ValueError(f"singleton.{operation} requires 'value' parameter")
 
@@ -103,7 +110,7 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
         )
     
     if operation == 'get':
-        _validate_key_param(kwargs, operation)
+        _validate_name_param(kwargs, operation)
         return _execute_get_implementation(**kwargs)
     
     elif operation == 'set':
@@ -111,11 +118,11 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
         return _execute_set_implementation(**kwargs)
     
     elif operation == 'has':
-        _validate_key_param(kwargs, operation)
+        _validate_name_param(kwargs, operation)
         return _execute_has_implementation(**kwargs)
     
     elif operation == 'delete':
-        _validate_key_param(kwargs, operation)
+        _validate_name_param(kwargs, operation)
         return _execute_delete_implementation(**kwargs)
     
     elif operation == 'clear':
