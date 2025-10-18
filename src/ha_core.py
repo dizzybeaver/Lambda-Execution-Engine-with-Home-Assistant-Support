@@ -1,19 +1,14 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.06
+Version: 2025.10.18.07
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
 CHANGELOG:
+- 2025.10.18.07: Added DEBUG_MODE-controlled debug logging at entry points
+  - Added _is_debug_mode() helper function
+  - Added [DEBUG] logging controlled by DEBUG_MODE environment variable
+  - Traces HA extension call path for troubleshooting
 - 2025.10.18.06: FINAL - Complete defensive coding for all edge cases
-  - Type validation on every parameter
-  - Null checks everywhere
-  - Comprehensive error handling
-  - Fixed dict vs list response handling
-- 2025.10.18.05: FIXED Issue #32 - Handle dict response when expecting list
-- 2025.10.18.04: FIXED Issue #31 - Fixed 'str' object has no attribute 'get'
-- 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get'
-- 2025.10.18.02: Fixed 'object has no attribute get' errors
-- 2025.10.16.01: Fixed circuit breaker calls
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -36,6 +31,11 @@ HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
+
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 
 def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
@@ -148,40 +148,54 @@ def call_ha_api(endpoint: str, method: str = 'GET',
     correlation_id = generate_correlation_id()
     
     try:
-        log_info(f"[{correlation_id}] [DEBUG STEP 1] Starting call_ha_api for {endpoint}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 1] HA_CORE: Starting call_ha_api for {endpoint}")
         
         if not isinstance(endpoint, str) or not endpoint:
-            log_error(f"[{correlation_id}] [DEBUG] Invalid endpoint")
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Invalid endpoint")
             return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
         
         if not isinstance(method, str):
             method = 'GET'
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 2] Loading HA config")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 2] HA_CORE: Loading HA config")
+        
         config = get_ha_config()
-        log_info(f"[{correlation_id}] [DEBUG] Config type: {type(config)}")
+        
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Config type: {type(config)}")
         
         if not isinstance(config, dict):
-            log_error(f"[{correlation_id}] [DEBUG] Config is not dict")
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Config is not dict")
             return create_error_response('Invalid config', 'INVALID_CONFIG')
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 3] Checking if HA enabled")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 3] HA_CORE: Checking if HA enabled")
+        
         enabled = config.get('enabled')
-        log_info(f"[{correlation_id}] [DEBUG] HA enabled: {enabled}")
+        
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: HA enabled: {enabled}")
         
         if not enabled:
-            log_error(f"[{correlation_id}] [DEBUG] HA not enabled")
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: HA not enabled")
             return create_error_response('HA not enabled', 'HA_DISABLED')
         
         base_url = config.get('base_url', '')
         token = config.get('access_token', '')
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 4] Validating credentials")
-        log_info(f"[{correlation_id}] [DEBUG] Base URL present: {bool(base_url)}")
-        log_info(f"[{correlation_id}] [DEBUG] Token present: {bool(token)}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 4] HA_CORE: Validating credentials")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Base URL present: {bool(base_url)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Token present: {bool(token)}")
         
         if not base_url or not token:
-            log_error(f"[{correlation_id}] [DEBUG] Missing URL or token")
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Missing URL or token")
             return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
         
         url = f"{base_url}{endpoint}"
@@ -190,10 +204,13 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             'Content-Type': 'application/json'
         }
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 5] Making HTTP request to: {url}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 5] HA_CORE: Making HTTP request to: {url}")
         
         def _make_request():
-            log_info(f"[{correlation_id}] [DEBUG STEP 5a] Calling HTTP_CLIENT.{method.lower()}")
+            if _is_debug_mode():
+                log_info(f"[{correlation_id}] [DEBUG STEP 5a] HA_CORE: Calling HTTP_CLIENT.{method.lower()}")
+            
             http_result = execute_operation(
                 GatewayInterface.HTTP_CLIENT,
                 method.lower(),
@@ -202,11 +219,16 @@ def call_ha_api(endpoint: str, method: str = 'GET',
                 json=data,
                 timeout=config.get('timeout', 30)
             )
-            log_info(f"[{correlation_id}] [DEBUG STEP 5b] HTTP_CLIENT returned type: {type(http_result)}")
-            log_info(f"[{correlation_id}] [DEBUG] HTTP result keys: {list(http_result.keys()) if isinstance(http_result, dict) else 'NOT_DICT'}")
+            
+            if _is_debug_mode():
+                log_info(f"[{correlation_id}] [DEBUG STEP 5b] HA_CORE: HTTP_CLIENT returned type: {type(http_result)}")
+                log_info(f"[{correlation_id}] [DEBUG] HA_CORE: HTTP result keys: {list(http_result.keys()) if isinstance(http_result, dict) else 'NOT_DICT'}")
+            
             return http_result
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 6] Calling circuit breaker")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 6] HA_CORE: Calling circuit breaker")
+        
         raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -214,32 +236,39 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 7] Circuit breaker returned type: {type(raw_result)}")
-        log_info(f"[{correlation_id}] [DEBUG] Raw result: {raw_result if not isinstance(raw_result, dict) else list(raw_result.keys())}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 7] HA_CORE: Circuit breaker returned type: {type(raw_result)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Raw result: {raw_result if not isinstance(raw_result, dict) else list(raw_result.keys())}")
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 8] Wrapping result")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 8] HA_CORE: Wrapping result")
+        
         result = _safe_result_wrapper(raw_result, 'HA API call')
         
-        log_info(f"[{correlation_id}] [DEBUG STEP 9] Wrapped result type: {type(result)}")
-        log_info(f"[{correlation_id}] [DEBUG] Wrapped result keys: {list(result.keys())}")
-        log_info(f"[{correlation_id}] [DEBUG] Success: {result.get('success')}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG STEP 9] HA_CORE: Wrapped result type: {type(result)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Wrapped result keys: {list(result.keys())}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Success: {result.get('success')}")
         
         if result.get('success'):
-            log_info(f"[{correlation_id}] [DEBUG STEP 10] SUCCESS - Data type: {type(result.get('data'))}")
+            if _is_debug_mode():
+                log_info(f"[{correlation_id}] [DEBUG STEP 10] HA_CORE: SUCCESS - Data type: {type(result.get('data'))}")
             increment_counter('ha_api_success')
         else:
-            log_error(f"[{correlation_id}] [DEBUG STEP 10] FAILURE")
-            log_error(f"[{correlation_id}] [DEBUG] Error: {result.get('error', 'NO_ERROR_FIELD')}")
-            log_error(f"[{correlation_id}] [DEBUG] Error code: {result.get('error_code', 'NO_ERROR_CODE')}")
-            log_error(f"[{correlation_id}] [DEBUG] Full result: {result}")
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG STEP 10] HA_CORE: FAILURE")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error: {result.get('error', 'NO_ERROR_FIELD')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error code: {result.get('error_code', 'NO_ERROR_CODE')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Full result: {result}")
             increment_counter('ha_api_failure')
         
         return result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] [DEBUG EXCEPTION] {type(e).__name__}: {str(e)}")
-        import traceback
-        log_error(f"[{correlation_id}] [DEBUG TRACEBACK] {traceback.format_exc()}")
+        if _is_debug_mode():
+            log_error(f"[{correlation_id}] [DEBUG EXCEPTION] HA_CORE: {type(e).__name__}: {str(e)}")
+            import traceback
+            log_error(f"[{correlation_id}] [DEBUG TRACEBACK] HA_CORE:\n{traceback.format_exc()}")
         increment_counter('ha_api_error')
         return create_error_response(str(e), 'API_CALL_FAILED')
 
@@ -250,19 +279,18 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
     correlation_id = generate_correlation_id()
     
     try:
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 1] Starting get_ha_states")
-        log_info(f"[{correlation_id}] [DEBUG] entity_ids: {entity_ids}")
-        log_info(f"[{correlation_id}] [DEBUG] use_cache: {use_cache}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: get_ha_states called")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: entity_ids={entity_ids}, use_cache={use_cache}")
         
         cache_key = 'ha_all_states'
         
         if use_cache:
-            log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 2] Checking cache")
             cached = cache_get(cache_key)
-            log_info(f"[{correlation_id}] [DEBUG] Cached value type: {type(cached)}")
-            
             if cached and isinstance(cached, dict):
-                log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 3] Using cached states")
+                if _is_debug_mode():
+                    log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Using cached states")
+                log_debug(f"[{correlation_id}] Using cached states")
                 increment_counter('ha_state_cache_hit')
                 
                 if entity_ids and isinstance(entity_ids, list):
@@ -274,57 +302,64 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                 
                 return cached
             elif cached:
-                log_warning(f"[{correlation_id}] [DEBUG] Cached data is {type(cached)}, not dict - invalidating")
+                log_warning(f"[{correlation_id}] Cached data is {type(cached)}, not dict - invalidating")
                 cache_delete(cache_key)
         
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 4] Calling call_ha_api")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Calling call_ha_api('/api/states')")
+        
         result = call_ha_api('/api/states')
         
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 5] call_ha_api returned")
-        log_info(f"[{correlation_id}] [DEBUG] Result type: {type(result)}")
-        
         if not isinstance(result, dict):
-            log_error(f"[{correlation_id}] [DEBUG] call_ha_api returned {type(result)}, not dict")
+            log_error(f"[{correlation_id}] call_ha_api returned {type(result)}, not dict")
             return create_error_response(f'API returned invalid type: {type(result).__name__}', 'INVALID_API_RESPONSE')
         
-        # EMERGENCY DEBUG: Log the full result structure
-        log_info(f"[{correlation_id}] [DEBUG] call_ha_api result keys: {list(result.keys())}")
-        log_info(f"[{correlation_id}] [DEBUG] success field: {result.get('success')}")
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: call_ha_api result keys: {list(result.keys())}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: success: {result.get('success')}")
         
         if not result.get('success'):
-            log_error(f"[{correlation_id}] [DEBUG GET_STATES STEP 6] API call failed")
-            log_error(f"[{correlation_id}] [DEBUG] Full result: {result}")
-            log_error(f"[{correlation_id}] [DEBUG] Returning failed result")
-            return result
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: API call failed - full result: {result}")
+            log_error(f"[{correlation_id}] API call failed - full result: {result}")
         
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 7] API call succeeded")
-        raw_data = result.get('data', [])
-        log_info(f"[{correlation_id}] [DEBUG] Raw data type: {type(raw_data)}")
+        if result.get('success'):
+            raw_data = result.get('data', [])
+            
+            if _is_debug_mode():
+                log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Raw data type: {type(raw_data)}")
+            
+            entity_list = _extract_entity_list(raw_data, 'api_states')
+            
+            if _is_debug_mode():
+                log_info(f"[{correlation_id}] [DEBUG] HA_CORE: Extracted {len(entity_list)} entities")
+            
+            log_info(f"[{correlation_id}] Retrieved {len(entity_list)} entities from HA")
+            
+            normalized_result = create_success_response('States retrieved', entity_list)
+            
+            if use_cache:
+                cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
+            
+            increment_counter('ha_states_retrieved')
+            
+            if entity_ids and isinstance(entity_ids, list):
+                entity_set = set(entity_ids)
+                filtered = [e for e in entity_list 
+                           if isinstance(e, dict) and e.get('entity_id') in entity_set]
+                return create_success_response('States retrieved', filtered)
+            
+            return normalized_result
         
-        entity_list = _extract_entity_list(raw_data, 'api_states')
-        
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 8] Retrieved {len(entity_list)} entities from HA")
-        
-        normalized_result = create_success_response('States retrieved', entity_list)
-        
-        if use_cache:
-            cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
-        
-        increment_counter('ha_states_retrieved')
-        
-        if entity_ids and isinstance(entity_ids, list):
-            entity_set = set(entity_ids)
-            filtered = [e for e in entity_list 
-                       if isinstance(e, dict) and e.get('entity_id') in entity_set]
-            return create_success_response('States retrieved', filtered)
-        
-        log_info(f"[{correlation_id}] [DEBUG GET_STATES STEP 9] Returning success")
-        return normalized_result
+        if _is_debug_mode():
+            log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Returning failed result from call_ha_api")
+        log_error(f"[{correlation_id}] Returning failed result from call_ha_api")
+        return result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] [DEBUG GET_STATES EXCEPTION] {type(e).__name__}: {str(e)}")
-        import traceback
-        log_error(f"[{correlation_id}] [DEBUG TRACEBACK] {traceback.format_exc()}")
+        if _is_debug_mode():
+            log_error(f"[{correlation_id}] [DEBUG EXCEPTION] HA_CORE: Get states failed: {str(e)}")
+        log_error(f"[{correlation_id}] Get states failed: {str(e)}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
@@ -335,6 +370,10 @@ def call_ha_service(domain: str, service: str,
     correlation_id = generate_correlation_id()
     
     try:
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: call_ha_service called")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: domain={domain}, service={service}, entity_id={entity_id}")
+        
         if not isinstance(domain, str) or not domain:
             return create_error_response('Invalid domain', 'INVALID_DOMAIN')
         
@@ -371,142 +410,145 @@ def call_ha_service(domain: str, service: str,
 
 def check_ha_status() -> Dict[str, Any]:
     """Check HA connection status using Gateway services."""
+    correlation_id = generate_correlation_id()
+    
     try:
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: check_ha_status called")
+        
         result = call_ha_api('/api/')
         
         if result.get('success'):
-            data = _ensure_dict(result.get('data', {}), 'status_check')
-            return create_success_response('HA is available', {
-                'message': data.get('message', 'API Running')
+            return create_success_response('Connected to Home Assistant', {
+                'connected': True,
+                'message': result.get('data', {}).get('message', 'API running')
             })
         
-        return result
+        return create_error_response('Failed to connect to HA', 'CONNECTION_FAILED', result)
         
     except Exception as e:
-        log_error(f"HA status check failed: {str(e)}")
+        log_error(f"[{correlation_id}] Status check failed: {str(e)}")
         return create_error_response(str(e), 'STATUS_CHECK_FAILED')
 
 
 def get_diagnostic_info() -> Dict[str, Any]:
-    """Get comprehensive diagnostic info about HA integration."""
-    try:
-        config = get_ha_config()
-        status = check_ha_status()
-        
-        breaker_state = execute_operation(
-            GatewayInterface.CIRCUIT_BREAKER,
-            'get',
-            name=HA_CIRCUIT_BREAKER_NAME
-        )
-        
-        return create_success_response('Diagnostic info retrieved', {
-            'timestamp': get_timestamp(),
-            'ha_enabled': config.get('enabled', False),
-            'connection_status': status.get('success', False),
-            'assistant_name': config.get('assistant_name', 'Unknown'),
-            'circuit_breaker': breaker_state,
-            'configuration': {
-                'base_url': config.get('base_url', 'Not set'),
-                'timeout': config.get('timeout', 30)
-            }
-        })
-        
-    except Exception as e:
-        log_error(f"Diagnostic info failed: {str(e)}")
-        return create_error_response(str(e), 'DIAGNOSTIC_FAILED')
+    """Get HA diagnostic information."""
+    return {
+        'ha_core_version': '2025.10.18.07',
+        'cache_ttl_entities': HA_CACHE_TTL_ENTITIES,
+        'cache_ttl_state': HA_CACHE_TTL_STATE,
+        'circuit_breaker_name': HA_CIRCUIT_BREAKER_NAME,
+        'debug_mode': _is_debug_mode()
+    }
 
 
 def get_assistant_name_info() -> Dict[str, Any]:
-    """Get assistant name configuration status."""
-    try:
-        config = get_ha_config()
-        assistant_name = config.get('assistant_name', 'Not configured')
-        
-        return create_success_response('Assistant name info retrieved', {
-            'assistant_name': assistant_name,
-            'configured': bool(assistant_name and assistant_name != 'Not configured'),
-            'source': 'environment' if os.getenv('HA_ASSISTANT_NAME') else 'parameter_store'
-        })
-        
-    except Exception as e:
-        log_error(f"Assistant name check failed: {str(e)}")
-        return create_error_response(str(e), 'ASSISTANT_NAME_CHECK_FAILED')
+    """Get assistant name configuration info."""
+    config = get_ha_config()
+    assistant_name = config.get('assistant_name', 'Unknown')
+    
+    return create_success_response('Assistant name info', {
+        'assistant_name': assistant_name,
+        'configured': bool(assistant_name and assistant_name != 'Unknown')
+    })
 
 
-def get_ha_entity_registry(use_cache: bool = True) -> Dict[str, Any]:
-    """Get entity registry via WebSocket if enabled, fallback to REST."""
-    try:
-        from ha_websocket import is_websocket_enabled, get_entity_registry_via_websocket
-        
-        if is_websocket_enabled():
-            log_debug("Attempting WebSocket entity registry fetch")
-            result = get_entity_registry_via_websocket(use_cache=use_cache)
-            
-            if result.get('success'):
-                return result
-            else:
-                log_warning("WebSocket registry fetch failed, falling back to REST")
-        
-        log_debug("Using REST API for entity list")
-        return get_ha_states(use_cache=use_cache)
-        
-    except Exception as e:
-        log_error(f"Entity registry fetch failed: {str(e)}")
-        return get_ha_states(use_cache=use_cache)
+def get_ha_entity_registry() -> Dict[str, Any]:
+    """Get entity registry from HA."""
+    return call_ha_api('/api/config/entity_registry/list')
 
 
-def filter_exposed_entities_wrapper(entities: Optional[List[Dict]] = None) -> Dict[str, Any]:
-    """Filter entities to exposed ones with WebSocket support."""
-    try:
-        from ha_websocket import is_websocket_enabled, filter_exposed_entities
-        
-        if entities is None:
-            result = get_ha_entity_registry(use_cache=True)
-            if not result.get('success'):
-                return result
-            entities = result.get('data', [])
-        
-        if is_websocket_enabled():
-            filtered = filter_exposed_entities(entities)
-            return create_success_response('Entities filtered', filtered)
-        
-        return create_success_response('All entities returned (WebSocket disabled)', entities)
-        
-    except Exception as e:
-        log_error(f"Filter exposed entities failed: {str(e)}")
-        return create_error_response(str(e), 'FILTER_ENTITIES_FAILED')
+def fuzzy_match_name(search_name: str, names: List[str], threshold: float = 0.6) -> Optional[str]:
+    """Fuzzy match a name against a list."""
+    from difflib import SequenceMatcher
+    
+    search_lower = search_name.lower()
+    best_match = None
+    best_ratio = threshold
+    
+    for name in names:
+        ratio = SequenceMatcher(None, search_lower, name.lower()).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = name
+    
+    return best_match
+
+
+def filter_exposed_entities_wrapper(entities: List[Dict[str, Any]], 
+                                    config: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    """Filter entities for Alexa exposure."""
+    # For now, return all entities - implement filtering logic as needed
+    return entities
+
+
+def initialize_ha_system(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Initialize HA system."""
+    correlation_id = generate_correlation_id()
+    
+    if _is_debug_mode():
+        log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: initialize_ha_system called")
+    
+    log_info(f"[{correlation_id}] Initializing HA system")
+    
+    # Validate config
+    ha_config = get_ha_config()
+    if not ha_config.get('enabled'):
+        return create_error_response('HA not enabled', 'HA_DISABLED')
+    
+    # Test connection
+    status = check_ha_status()
+    if not status.get('success'):
+        return status
+    
+    return create_success_response('HA system initialized', {
+        'correlation_id': correlation_id
+    })
+
+
+def cleanup_ha_system() -> Dict[str, Any]:
+    """Cleanup HA system resources."""
+    correlation_id = generate_correlation_id()
+    
+    if _is_debug_mode():
+        log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: cleanup_ha_system called")
+    
+    log_info(f"[{correlation_id}] Cleaning up HA system")
+    
+    # Clear caches
+    cache_delete('ha_all_states')
+    
+    return create_success_response('HA system cleaned up', {
+        'correlation_id': correlation_id
+    })
 
 
 def ha_operation_wrapper(feature: str, operation: str, func: Callable,
-                        config: Optional[Dict] = None, cache_key: Optional[str] = None,
-                        cache_ttl: int = 300, **kwargs) -> Dict[str, Any]:
-    """Generic wrapper for HA operations with circuit breaker and caching."""
+                         cache_key: Optional[str] = None,
+                         cache_ttl: int = HA_CACHE_TTL_ENTITIES,
+                         config: Optional[Dict] = None) -> Dict[str, Any]:
+    """Generic operation wrapper for HA features."""
     correlation_id = generate_correlation_id()
     
     try:
-        log_debug(f"[{correlation_id}] HA operation: {feature}.{operation}")
-        record_metric(f'ha_{feature}_{operation}_started', 1.0)
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_CORE: ha_operation_wrapper called")
+            log_info(f"[{correlation_id}] [DEBUG] HA_CORE: feature={feature}, operation={operation}")
+        
+        log_info(f"[{correlation_id}] HA operation: {feature}.{operation}")
+        
+        if not config:
+            config = get_ha_config()
         
         if cache_key:
             cached = cache_get(cache_key)
             if cached:
-                log_debug(f"[{correlation_id}] Using cached result")
-                increment_counter(f'ha_{feature}_cache_hit')
+                log_debug(f"[{correlation_id}] Using cached result for {feature}.{operation}")
                 return cached
         
-        ha_config = config or get_ha_config()
+        result = func(config)
         
-        def _execute():
-            return func(ha_config, **kwargs)
-        
-        raw_result = execute_operation(
-            GatewayInterface.CIRCUIT_BREAKER,
-            'call',
-            name=HA_CIRCUIT_BREAKER_NAME,
-            func=_execute
-        )
-        
-        result = _safe_result_wrapper(raw_result, f'{feature}.{operation}')
+        log_info(f"[{correlation_id}] HA operation {feature}.{operation} completed")
         
         if result.get('success') and cache_key:
             cache_set(cache_key, result, ttl=cache_ttl)
@@ -535,6 +577,9 @@ __all__ = [
     'get_ha_entity_registry',
     'filter_exposed_entities_wrapper',
     'ha_operation_wrapper',
+    'fuzzy_match_name',
+    'initialize_ha_system',
+    'cleanup_ha_system',
 ]
 
 # EOF
