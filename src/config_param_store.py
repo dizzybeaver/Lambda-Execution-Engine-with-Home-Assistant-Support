@@ -70,7 +70,7 @@ class ParameterStoreClient:
         Get parameter from SSM - SIMPLE AND DIRECT.
         
         Args:
-            key: Parameter key (e.g., 'homeassistant/url')
+            key: Parameter key (e.g., 'home_assistant/url')
             default: Default value if not found
             with_decryption: Decrypt SecureString
             use_cache: Use cache
