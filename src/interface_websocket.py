@@ -1,14 +1,37 @@
 """
-interface_websocket.py - WebSocket Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.14
-Description: Firewall router for WebSocket interface with parameter validation and import protection
+interface_websocket.py - WebSocket CLIENT Interface Router (SUGA-ISP Architecture)
+Version: 2025.10.18.01
+Description: Firewall router for WebSocket CLIENT interface with free tier compliance.
+             Gateway calls only this file. Internal implementations in websocket_core.
+
+FREE TIER COMPLIANCE NOTICE:
+============================
+This WebSocket interface provides CLIENT functionality ONLY.
+Lambda acts as a WebSocket client connecting TO external WebSocket servers (e.g., Home Assistant).
+
+✅ FREE TIER COMPLIANT - Client operations incur only standard Lambda costs:
+   - Lambda execution time (400,000 GB-seconds/month free)
+   - Lambda invocations (1 million/month free)
+   - Data transfer OUT (1GB/month free, then $0.09/GB)
+
+❌ NOT IMPLEMENTED - WebSocket SERVER functionality (would require AWS API Gateway):
+   - Accepting inbound WebSocket connections from external clients
+   - Maintaining persistent connections between Lambda invocations
+   - Acting as WebSocket endpoint/server
+
+COST WARNING:
+=============
+If WebSocket SERVER functionality is ever needed:
+   - Requires AWS API Gateway WebSocket APIs
+   - Free tier: 1M messages + 750K connection-minutes for FIRST 12 MONTHS ONLY
+   - After 12 months: PAID SERVICE ($1.00/million messages + connection-minute charges)
+   - Violates "free tier only" constraint after initial 12-month period
+
+To maintain permanent free tier compliance, this implementation is CLIENT-ONLY.
 
 CHANGELOG:
+- 2025.10.18.01: Added free tier compliance documentation
 - 2025.10.17.14: FIXED Issue #20 - Added import error protection
-  - Added try/except wrapper for websocket_core imports
-  - Sets _WEBSOCKET_AVAILABLE flag on success/failure
-  - Stores import error message for debugging
-  - Provides clear error when WebSocket unavailable
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
 - 2025.10.15.01: Initial SUGA-ISP router implementation
 
@@ -29,34 +52,39 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any
 
-# Import protection
+# Import protection for websocket_core
 try:
     from websocket_core import (
-        _execute_connect_implementation,
-        _execute_send_implementation,
-        _execute_disconnect_implementation,
-        _execute_get_state_implementation
+        websocket_connect_implementation,
+        websocket_send_implementation,
+        websocket_receive_implementation,
+        websocket_close_implementation,
+        websocket_request_implementation
     )
     _WEBSOCKET_AVAILABLE = True
     _WEBSOCKET_IMPORT_ERROR = None
 except ImportError as e:
     _WEBSOCKET_AVAILABLE = False
     _WEBSOCKET_IMPORT_ERROR = str(e)
-    _execute_connect_implementation = None
-    _execute_send_implementation = None
-    _execute_disconnect_implementation = None
-    _execute_get_state_implementation = None
+    websocket_connect_implementation = None
+    websocket_send_implementation = None
+    websocket_receive_implementation = None
+    websocket_close_implementation = None
+    websocket_request_implementation = None
 
 
 _VALID_WEBSOCKET_OPERATIONS = [
-    'connect', 'send', 'disconnect', 'get_state'
+    'connect', 'send', 'receive', 'close', 'request'
 ]
 
 
 def execute_websocket_operation(operation: str, **kwargs) -> Any:
     """
-    Route WebSocket operation requests to internal implementations with parameter validation.
+    Route WebSocket CLIENT operation requests to internal implementations.
     This is called by the SUGA-ISP (gateway.py).
+    
+    All operations are CLIENT-SIDE ONLY (outbound from Lambda to external servers).
+    Does NOT accept inbound connections (would require API Gateway - PAID SERVICE).
     
     Args:
         operation: WebSocket operation to execute
@@ -68,6 +96,8 @@ def execute_websocket_operation(operation: str, **kwargs) -> Any:
     Raises:
         RuntimeError: If WebSocket interface unavailable
         ValueError: If operation is unknown or required parameters missing
+        
+    Free tier: YES - all operations incur only standard Lambda execution costs
     """
     # Check WebSocket availability
     if not _WEBSOCKET_AVAILABLE:
@@ -82,31 +112,35 @@ def execute_websocket_operation(operation: str, **kwargs) -> Any:
             f"Valid operations: {', '.join(_VALID_WEBSOCKET_OPERATIONS)}"
         )
     
+    # Route to appropriate implementation
     if operation == 'connect':
         if 'url' not in kwargs:
             raise ValueError("websocket.connect requires 'url' parameter")
-        if not isinstance(kwargs['url'], str):
-            raise TypeError(f"websocket.connect 'url' must be str, got {type(kwargs['url']).__name__}")
-        return _execute_connect_implementation(**kwargs)
+        return websocket_connect_implementation(**kwargs)
     
     elif operation == 'send':
-        if 'connection_id' not in kwargs:
-            raise ValueError("websocket.send requires 'connection_id' parameter")
+        if 'connection' not in kwargs:
+            raise ValueError("websocket.send requires 'connection' parameter")
         if 'message' not in kwargs:
             raise ValueError("websocket.send requires 'message' parameter")
-        if not isinstance(kwargs['connection_id'], str):
-            raise TypeError(f"websocket.send 'connection_id' must be str, got {type(kwargs['connection_id']).__name__}")
-        return _execute_send_implementation(**kwargs)
+        return websocket_send_implementation(**kwargs)
     
-    elif operation == 'disconnect':
-        if 'connection_id' not in kwargs:
-            raise ValueError("websocket.disconnect requires 'connection_id' parameter")
-        if not isinstance(kwargs['connection_id'], str):
-            raise TypeError(f"websocket.disconnect 'connection_id' must be str, got {type(kwargs['connection_id']).__name__}")
-        return _execute_disconnect_implementation(**kwargs)
+    elif operation == 'receive':
+        if 'connection' not in kwargs:
+            raise ValueError("websocket.receive requires 'connection' parameter")
+        return websocket_receive_implementation(**kwargs)
     
-    elif operation == 'get_state':
-        return _execute_get_state_implementation(**kwargs)
+    elif operation == 'close':
+        if 'connection' not in kwargs:
+            raise ValueError("websocket.close requires 'connection' parameter")
+        return websocket_close_implementation(**kwargs)
+    
+    elif operation == 'request':
+        if 'url' not in kwargs:
+            raise ValueError("websocket.request requires 'url' parameter")
+        if 'message' not in kwargs:
+            raise ValueError("websocket.request requires 'message' parameter")
+        return websocket_request_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unhandled WebSocket operation: '{operation}'")
