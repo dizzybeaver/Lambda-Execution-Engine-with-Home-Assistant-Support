@@ -358,6 +358,7 @@ class LoggingCore:
 # ===== GLOBAL INSTANCE =====
 
 _LOGGING_CORE = LoggingCore()
+_MANAGER = _LOGGING_CORE  # Alias for compatibility with logging_core.py
 
 
 # ===== MODULE EXPORTS =====
@@ -365,6 +366,7 @@ _LOGGING_CORE = LoggingCore()
 __all__ = [
     'LoggingCore',
     '_LOGGING_CORE',
+    '_MANAGER',
 ]
 
 # EOF
