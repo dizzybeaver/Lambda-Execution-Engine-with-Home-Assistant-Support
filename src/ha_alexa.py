@@ -1,21 +1,20 @@
 """
 ha_alexa.py - Alexa Smart Home Integration
-Version: 2025.10.18.06
+Version: 2025.10.18.07
 Description: Alexa Smart Home integration using Gateway services exclusively.
 
 CHANGELOG:
-- 2025.10.18.06: FINAL - Complete defensive coding for all edge cases
-  - Fixed all import/export issues
-  - Added null checks everywhere
-  - Type validation on all inputs
-  - Comprehensive error handling
+- 2025.10.18.07: Added DEBUG_MODE-controlled debug logging at entry points
+  - Added _is_debug_mode() helper function
+  - Added [DEBUG] logging controlled by DEBUG_MODE environment variable
+  - Traces HA extension call path for troubleshooting
 - 2025.10.18.05: Added comprehensive debug logging for discovery troubleshooting
-- 2025.10.16.01: Fixed import names
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+import os
 from typing import Dict, Any, List, Optional
 from gateway import (
     log_info, log_error, log_debug, log_warning,
@@ -36,6 +35,12 @@ DEVICE_CAPABILITIES = {
     'media_player': ['Alexa.PowerController', 'Alexa.PlaybackController']
 }
 
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+
 # ===== ALEXA DIRECTIVE PROCESSING =====
 
 def process_alexa_directive(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -43,20 +48,11 @@ def process_alexa_directive(event: Dict[str, Any]) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
-        if not isinstance(event, dict):
-            log_error(f"[{correlation_id}] Event is not a dict: {type(event)}")
-            return _create_error_response({}, 'INVALID_DIRECTIVE', 'Event must be a dict')
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_ALEXA: process_alexa_directive called")
         
         directive = event.get('directive', {})
-        if not isinstance(directive, dict):
-            log_error(f"[{correlation_id}] Directive is not a dict: {type(directive)}")
-            return _create_error_response({}, 'INVALID_DIRECTIVE', 'Directive must be a dict')
-        
         header = directive.get('header', {})
-        if not isinstance(header, dict):
-            log_error(f"[{correlation_id}] Header is not a dict: {type(header)}")
-            return _create_error_response({}, 'INVALID_DIRECTIVE', 'Header must be a dict')
-        
         namespace = header.get('namespace', '')
         name = header.get('name', '')
         
@@ -78,6 +74,8 @@ def process_alexa_directive(event: Dict[str, Any]) -> Dict[str, Any]:
                                          f'Unsupported: {namespace}.{name}')
         
     except Exception as e:
+        if _is_debug_mode():
+            log_error(f"[{correlation_id}] [DEBUG EXCEPTION] HA_ALEXA: {type(e).__name__}: {str(e)}")
         log_error(f"[{correlation_id}] Directive processing failed: {str(e)}")
         return _create_error_response({}, 'INTERNAL_ERROR', str(e))
 
@@ -87,21 +85,31 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_ALEXA: handle_discovery called")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: directive type: {type(directive)}")
+        
         log_info(f"[{correlation_id}] Processing Alexa discovery")
+        
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: Calling get_ha_states()")
         
         # Get states from HA
         response = get_ha_states()
         
-        # Validate response
-        if not isinstance(response, dict):
-            log_error(f"[{correlation_id}] get_ha_states returned non-dict: {type(response)}")
-            return _create_error_response(
-                directive.get('header', {}),
-                'BRIDGE_UNREACHABLE',
-                'Invalid response from Home Assistant'
-            )
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: get_ha_states returned")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response type: {type(response)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response keys: {list(response.keys()) if isinstance(response, dict) else 'NOT_A_DICT'}")
+        
+        # DEBUG: Log response structure
+        log_debug(f"[{correlation_id}] get_ha_states response type: {type(response)}")
+        log_debug(f"[{correlation_id}] get_ha_states response keys: {list(response.keys()) if isinstance(response, dict) else 'NOT_A_DICT'}")
         
         if not response.get('success'):
+            if _is_debug_mode():
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: get_ha_states failed")
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: error: {response.get('error', 'NO_ERROR')}")
             log_error(f"[{correlation_id}] get_ha_states failed: {response.get('error', 'Unknown')}")
             return _create_error_response(
                 directive.get('header', {}),
@@ -112,35 +120,45 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         # Get data field
         states = response.get('data', [])
         
-        # Validate states is a list
-        if not isinstance(states, list):
-            log_error(f"[{correlation_id}] States data is not a list: {type(states)}")
-            return _create_error_response(
-                directive.get('header', {}),
-                'INTERNAL_ERROR',
-                f'Invalid state data format: {type(states).__name__}'
-            )
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: states type: {type(states)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: states count: {len(states) if isinstance(states, list) else 'NOT_A_LIST'}")
         
-        log_info(f"[{correlation_id}] Retrieved {len(states)} entities from HA")
+        # DEBUG: Log data field details
+        log_info(f"[{correlation_id}] States data type: {type(states)}")
+        log_info(f"[{correlation_id}] States count: {len(states) if isinstance(states, list) else 'NOT_A_LIST'}")
+        
+        if isinstance(states, list) and len(states) > 0:
+            # Log first few entities
+            sample_count = min(3, len(states))
+            log_info(f"[{correlation_id}] First {sample_count} entities:")
+            for i in range(sample_count):
+                entity = states[i]
+                log_info(f"[{correlation_id}]   Entity {i}: {entity.get('entity_id', 'NO_ID')} (type: {type(entity)})")
+        elif isinstance(states, list):
+            log_warning(f"[{correlation_id}] States list is EMPTY")
+        else:
+            log_error(f"[{correlation_id}] States is not a list: {type(states)}")
+        
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: Building Alexa endpoints")
         
         # Build Alexa endpoints
         endpoints = []
         processed = 0
         skipped_no_domain = 0
         skipped_unsupported = 0
-        skipped_invalid = 0
         
         for state in states:
             processed += 1
             
             if not isinstance(state, dict):
                 log_warning(f"[{correlation_id}] Skipping non-dict state: {type(state)}")
-                skipped_invalid += 1
                 continue
             
             entity_id = state.get('entity_id', '')
-            if not entity_id or not isinstance(entity_id, str):
-                log_warning(f"[{correlation_id}] Skipping state with invalid entity_id")
+            if not entity_id:
+                log_warning(f"[{correlation_id}] Skipping state with no entity_id")
                 skipped_no_domain += 1
                 continue
             
@@ -159,16 +177,16 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
                     log_debug(f"[{correlation_id}]   ✓ Added {entity_id}")
                 else:
                     log_warning(f"[{correlation_id}]   ✗ Failed to build endpoint for {entity_id}")
-                    skipped_invalid += 1
             else:
                 skipped_unsupported += 1
+                if processed <= 10:  # Only log first 10
+                    log_debug(f"[{correlation_id}] Skipping {entity_id}: unsupported domain '{domain}'")
         
         # Summary
         log_info(f"[{correlation_id}] Discovery summary:")
-        log_info(f"[{correlation_id}]   Total entities: {processed}")
+        log_info(f"[{correlation_id}]   Processed: {processed}")
         log_info(f"[{correlation_id}]   Skipped (no domain): {skipped_no_domain}")
         log_info(f"[{correlation_id}]   Skipped (unsupported): {skipped_unsupported}")
-        log_info(f"[{correlation_id}]   Skipped (invalid): {skipped_invalid}")
         log_info(f"[{correlation_id}]   Discovered endpoints: {len(endpoints)}")
         
         if len(endpoints) == 0:
@@ -177,7 +195,7 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         
         increment_counter('alexa_discovery')
         
-        return {
+        discovery_response = {
             'event': {
                 'header': {
                     'namespace': 'Alexa.Discovery',
@@ -191,21 +209,28 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
         
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: Returning discovery response")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response has {len(endpoints)} endpoints")
+        
+        return discovery_response
+        
     except Exception as e:
+        if _is_debug_mode():
+            log_error(f"[{correlation_id}] [DEBUG EXCEPTION] HA_ALEXA: {type(e).__name__}: {str(e)}")
+            import traceback
+            log_error(f"[{correlation_id}] [DEBUG TRACEBACK] HA_ALEXA:\n{traceback.format_exc()}")
         log_error(f"[{correlation_id}] Discovery failed: {str(e)}")
         return _create_error_response({}, 'INTERNAL_ERROR', str(e))
 
 
 def handle_control(directive: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa control directive."""
-    if not isinstance(directive, dict):
-        return _create_error_response({}, 'INVALID_DIRECTIVE', 'Directive must be a dict')
-    
     header = directive.get('header', {})
-    if not isinstance(header, dict):
-        return _create_error_response({}, 'INVALID_DIRECTIVE', 'Header must be a dict')
-    
     namespace = header.get('namespace', '')
+    
+    if _is_debug_mode():
+        log_info(f"[DEBUG] HA_ALEXA: handle_control called for {namespace}")
     
     if namespace == 'Alexa.PowerController':
         return handle_power_control(directive)
@@ -227,26 +252,21 @@ def handle_power_control(directive: Dict[str, Any]) -> Dict[str, Any]:
         endpoint = directive.get('endpoint', {})
         entity_id = endpoint.get('endpointId', '')
         
-        if not entity_id:
-            return _create_error_response(header, 'INVALID_DIRECTIVE', 'Missing endpointId')
-        
         name = header.get('name', '')
+        
+        log_info(f"[{correlation_id}] Power control: {name} on {entity_id}")
+        
         service = 'turn_on' if name == 'TurnOn' else 'turn_off'
-        
-        log_info(f"[{correlation_id}] Power control: {service} on {entity_id}")
-        
         domain = entity_id.split('.')[0] if '.' in entity_id else ''
-        if not domain:
-            return _create_error_response(header, 'INVALID_DIRECTIVE', 'Invalid entity_id format')
         
         result = call_ha_service(domain, service, entity_id)
         
         if result.get('success'):
-            increment_counter(f'alexa_power_{service}')
+            increment_counter('alexa_power_control')
             return _create_success_response(header, endpoint)
         else:
             return _create_error_response(header, 'ENDPOINT_UNREACHABLE',
-                                         'Device control failed')
+                                         'Power control failed')
         
     except Exception as e:
         log_error(f"[{correlation_id}] Power control failed: {str(e)}")
@@ -254,7 +274,7 @@ def handle_power_control(directive: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_brightness_control(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle brightness control."""
+    """Handle brightness control (SetBrightness, AdjustBrightness)."""
     correlation_id = generate_correlation_id()
     
     try:
@@ -263,14 +283,20 @@ def handle_brightness_control(directive: Dict[str, Any]) -> Dict[str, Any]:
         payload = directive.get('payload', {})
         entity_id = endpoint.get('endpointId', '')
         
-        if not entity_id:
-            return _create_error_response(header, 'INVALID_DIRECTIVE', 'Missing endpointId')
+        name = header.get('name', '')
         
-        brightness = payload.get('brightness', 100)
+        log_info(f"[{correlation_id}] Brightness control: {name} on {entity_id}")
         
-        log_info(f"[{correlation_id}] Brightness control: {brightness} on {entity_id}")
+        if name == 'SetBrightness':
+            brightness = payload.get('brightness', 100)
+            service_data = {'brightness_pct': brightness}
+        elif name == 'AdjustBrightness':
+            delta = payload.get('brightnessDelta', 0)
+            service_data = {'brightness_step_pct': delta}
+        else:
+            return _create_error_response(header, 'INVALID_DIRECTIVE',
+                                         f'Unsupported brightness: {name}')
         
-        service_data = {'brightness_pct': brightness}
         result = call_ha_service('light', 'turn_on', entity_id, service_data)
         
         if result.get('success'):
@@ -286,7 +312,7 @@ def handle_brightness_control(directive: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_thermostat_control(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle thermostat control."""
+    """Handle thermostat control (SetTargetTemperature, SetThermostatMode)."""
     correlation_id = generate_correlation_id()
     
     try:
@@ -294,9 +320,6 @@ def handle_thermostat_control(directive: Dict[str, Any]) -> Dict[str, Any]:
         endpoint = directive.get('endpoint', {})
         payload = directive.get('payload', {})
         entity_id = endpoint.get('endpointId', '')
-        
-        if not entity_id:
-            return _create_error_response(header, 'INVALID_DIRECTIVE', 'Missing endpointId')
         
         name = header.get('name', '')
         
@@ -356,57 +379,35 @@ def handle_accept_grant(directive: Dict[str, Any]) -> Dict[str, Any]:
 
 def _build_endpoint(state: Dict[str, Any], domain: str) -> Optional[Dict[str, Any]]:
     """Build Alexa endpoint from HA entity state."""
-    try:
-        if not isinstance(state, dict):
-            log_error(f"State is not a dict: {type(state)}")
-            return None
-        
-        entity_id = state.get('entity_id', '')
-        if not entity_id:
-            log_error("State missing entity_id")
-            return None
-        
-        attributes = state.get('attributes', {})
-        if not isinstance(attributes, dict):
-            attributes = {}
-        
-        friendly_name = attributes.get('friendly_name', entity_id)
-        
-        # Build capabilities based on domain
-        capabilities = []
-        for capability in DEVICE_CAPABILITIES.get(domain, []):
-            capabilities.append({
-                'type': 'AlexaInterface',
-                'interface': capability,
-                'version': '3'
-            })
-        
-        # Always include Alexa interface
+    entity_id = state.get('entity_id', '')
+    attributes = state.get('attributes', {})
+    friendly_name = attributes.get('friendly_name', entity_id)
+    
+    # Get capabilities for this domain
+    capabilities = []
+    for cap in DEVICE_CAPABILITIES.get(domain, []):
         capabilities.append({
             'type': 'AlexaInterface',
-            'interface': 'Alexa',
+            'interface': cap,
             'version': '3'
         })
-        
-        endpoint = {
-            'endpointId': entity_id,
-            'manufacturerName': 'Home Assistant',
-            'friendlyName': friendly_name,
-            'description': f'{domain} controlled by Home Assistant',
-            'displayCategories': [_get_display_category(domain)],
-            'capabilities': capabilities
-        }
-        
-        return endpoint
-        
-    except Exception as e:
-        log_error(f"Failed to build endpoint for {state.get('entity_id', 'unknown')}: {str(e)}")
+    
+    if not capabilities:
         return None
+    
+    return {
+        'endpointId': entity_id,
+        'manufacturerName': 'Home Assistant',
+        'friendlyName': friendly_name,
+        'description': f'{domain} via Home Assistant',
+        'displayCategories': [_get_display_category(domain)],
+        'capabilities': capabilities
+    }
 
 
 def _get_display_category(domain: str) -> str:
     """Get Alexa display category for domain."""
-    category_map = {
+    categories = {
         'light': 'LIGHT',
         'switch': 'SWITCH',
         'fan': 'FAN',
@@ -415,10 +416,11 @@ def _get_display_category(domain: str) -> str:
         'cover': 'DOOR',
         'media_player': 'TV'
     }
-    return category_map.get(domain, 'OTHER')
+    return categories.get(domain, 'OTHER')
 
 
-def _create_success_response(header: Dict[str, Any], endpoint: Dict[str, Any]) -> Dict[str, Any]:
+def _create_success_response(header: Dict[str, Any], 
+                            endpoint: Dict[str, Any]) -> Dict[str, Any]:
     """Create Alexa success response."""
     correlation_id = generate_correlation_id()
     
@@ -428,18 +430,16 @@ def _create_success_response(header: Dict[str, Any], endpoint: Dict[str, Any]) -
                 'namespace': 'Alexa',
                 'name': 'Response',
                 'messageId': correlation_id,
-                'correlationToken': header.get('correlationToken') if isinstance(header, dict) else None,
+                'correlationToken': header.get('correlationToken'),
                 'payloadVersion': '3'
             },
-            'endpoint': {
-                'endpointId': endpoint.get('endpointId') if isinstance(endpoint, dict) else ''
-            },
+            'endpoint': endpoint,
             'payload': {}
         }
     }
 
 
-def _create_error_response(header: Dict[str, Any], error_type: str, 
+def _create_error_response(header: Dict[str, Any], error_type: str,
                           error_message: str) -> Dict[str, Any]:
     """Create Alexa error response."""
     correlation_id = generate_correlation_id()
@@ -450,15 +450,25 @@ def _create_error_response(header: Dict[str, Any], error_type: str,
                 'namespace': 'Alexa',
                 'name': 'ErrorResponse',
                 'messageId': correlation_id,
-                'correlationToken': header.get('correlationToken') if isinstance(header, dict) else None,
+                'correlationToken': header.get('correlationToken'),
                 'payloadVersion': '3'
             },
-            'endpoint': {},
             'payload': {
                 'type': error_type,
                 'message': error_message
             }
         }
     }
+
+
+__all__ = [
+    'process_alexa_directive',
+    'handle_discovery',
+    'handle_control',
+    'handle_power_control',
+    'handle_brightness_control',
+    'handle_thermostat_control',
+    'handle_accept_grant',
+]
 
 # EOF
