@@ -1,12 +1,16 @@
 """
 ha_config.py - Configuration Management
-Version: 2025.10.18.01
-Description: Configuration loading using Gateway services.
+Version: 2025.10.18.02
+Description: Configuration loading with SSM Parameter Store support
 
-FIXES:
-- Cache returns raw dict, not wrapped response objects
-- Type validation on cached values
-- Emergency fallback if cache corrupted
+CHANGELOG:
+- 2025.10.18.02: FIXED Issue #28 - Added SSM Parameter Store support (CRITICAL)
+  - Now reads from SSM when USE_PARAMETER_STORE=true
+  - Uses gateway.execute_operation(CONFIG, 'get_parameter') for smart loading
+  - Falls back to environment variables if SSM unavailable
+  - Maintains backward compatibility with env-only configuration
+  - Fixes connection failure when token in SSM Parameter Store
+- 2025.10.18.01: Fixed cache validation, type checking
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -16,7 +20,7 @@ import os
 from typing import Dict, Any, Optional
 from gateway import (
     log_info, log_error, log_debug, log_warning,
-    cache_get, cache_set,
+    cache_get, cache_set, execute_operation, GatewayInterface,
     create_success_response, create_error_response
 )
 
@@ -25,24 +29,77 @@ HA_CONFIG_CACHE_KEY = 'ha_configuration'
 HA_CONFIG_TTL = 600
 
 
-def _build_config_from_env() -> Dict[str, Any]:
-    """Build configuration dict from environment variables."""
+def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
+    """
+    Get configuration value with SSM Parameter Store support.
+    
+    Priority:
+    1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
+    2. Environment variable
+    3. Default value
+    
+    Args:
+        key: Parameter Store key (e.g., 'homeassistant/url')
+        env_var: Environment variable name (e.g., 'HOME_ASSISTANT_URL')
+        default: Default value if not found
+        
+    Returns:
+        Configuration value
+    """
+    use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+    
+    if use_ssm:
+        try:
+            # Try to get from SSM via config interface
+            # Config interface checks SSM first, then env, then defaults
+            value = execute_operation(
+                GatewayInterface.CONFIG,
+                'get_parameter',
+                key=key,
+                default=None
+            )
+            
+            if value is not None:
+                log_debug(f"Loaded {key} from Parameter Store")
+                return value
+                
+        except Exception as e:
+            log_warning(f"Failed to load {key} from Parameter Store: {e}")
+    
+    # Fallback to environment variable
+    value = os.getenv(env_var, default)
+    if value != default:
+        log_debug(f"Loaded {key} from environment variable {env_var}")
+    else:
+        log_debug(f"Using default value for {key}")
+    
+    return value
+
+
+def _build_config_from_sources() -> Dict[str, Any]:
+    """Build configuration dict from SSM and environment variables."""
     return {
         'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
-        'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
-        'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
-        'timeout': int(os.getenv('HOME_ASSISTANT_TIMEOUT', '30')),
-        'verify_ssl': os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
-        'assistant_name': os.getenv('HA_ASSISTANT_NAME', 'Jarvis')
+        'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
+        'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
+        'timeout': int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30')),
+        'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
+        'assistant_name': _get_config_value('homeassistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
     }
 
 
 def load_ha_config() -> Dict[str, Any]:
     """
-    Load HA configuration from environment.
+    Load HA configuration from SSM Parameter Store or environment.
     
     CRITICAL: Always returns a dict, never a response object.
     Cache stores raw config dict, not wrapped responses.
+    
+    Configuration priority:
+    1. Cache (if valid)
+    2. SSM Parameter Store (if USE_PARAMETER_STORE=true)
+    3. Environment variables
+    4. Emergency fallback dict
     """
     try:
         # Try cache first
@@ -60,19 +117,35 @@ def load_ha_config() -> Dict[str, Any]:
             else:
                 log_warning(f"Cached config is {type(cached)}, not dict - rebuilding")
         
-        # Build fresh config from environment
-        config = _build_config_from_env()
+        # Build fresh config from SSM/environment
+        config = _build_config_from_sources()
+        
+        # Validate we got actual values
+        if config['enabled']:
+            if not config.get('base_url'):
+                log_error("HOME_ASSISTANT_URL not configured")
+            if not config.get('access_token'):
+                log_error("HOME_ASSISTANT_TOKEN not configured")
         
         # Cache the raw dict (NOT a response wrapper)
         cache_set(HA_CONFIG_CACHE_KEY, config, ttl=HA_CONFIG_TTL)
-        log_debug("HA configuration loaded from environment")
+        
+        use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+        log_info(f"HA configuration loaded (SSM: {use_ssm})")
         
         return config
         
     except Exception as e:
         log_error(f"Failed to load HA config: {str(e)}")
         # Emergency fallback - always return a valid dict
-        return _build_config_from_env()
+        return {
+            'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
+            'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
+            'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
+            'timeout': 30,
+            'verify_ssl': True,
+            'assistant_name': 'Jarvis'
+        }
 
 
 def validate_ha_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -137,10 +210,10 @@ def get_ha_preset(preset_name: str = 'default') -> Dict[str, Any]:
 def load_ha_connection_config() -> Dict[str, Any]:
     """Load connection-specific configuration."""
     return {
-        'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
-        'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
-        'timeout': int(os.getenv('HOME_ASSISTANT_TIMEOUT', '30')),
-        'verify_ssl': os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
+        'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
+        'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
+        'timeout': int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30')),
+        'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
     }
 
 
