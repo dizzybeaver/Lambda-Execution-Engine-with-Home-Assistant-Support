@@ -212,24 +212,21 @@ def get_fast_path_stats() -> Dict[str, Any]:
 
 # ===== RESPONSE HELPERS =====
 
-def create_error_response(status_code: int, message: str, error_type: str = "Error") -> Dict[str, Any]:
-    """Create standardized error response."""
+def create_error_response(error: str, error_code: str, details: Any = None) -> Dict[str, Any]:
+    """Create standardized error response for INTERNAL use."""
     return {
-        'statusCode': status_code,
-        'body': {
-            'error': {
-                'type': error_type,
-                'message': message
-            }
-        }
+        'success': False,
+        'error': error,
+        'error_code': error_code,
+        'details': details
     }
 
-
-def create_success_response(status_code: int, data: Any) -> Dict[str, Any]:
-    """Create standardized success response."""
+def create_success_response(message: str, data: Any = None) -> Dict[str, Any]:
+    """Create standardized success response for INTERNAL use."""
     return {
-        'statusCode': status_code,
-        'body': data
+        'success': True,
+        'message': message,
+        'data': data
     }
 
 
