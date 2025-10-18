@@ -1,13 +1,14 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.01
-Description: Core HA operations using Gateway exclusively. NO direct HTTP.
+Version: 2025.10.18.02
+Description: Core operations using Gateway services exclusively. No direct HTTP.
 
-SUGA-ISP COMPLIANT:
-- All infrastructure via gateway.py
-- All HTTP via Gateway HTTP_CLIENT interface
-- No direct urllib3/requests imports
-- Circuit breaker protection via Gateway CIRCUIT_BREAKER interface
+CHANGELOG:
+- 2025.10.18.02: Fixed 'object has no attribute get' errors
+  - Added safe result wrapper for circuit breaker responses
+  - Added get_assistant_name_info function
+  - Renamed get_states to get_ha_states for consistency
+- 2025.10.16.01: Fixed circuit breaker calls
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -29,6 +30,51 @@ HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
+
+
+def _safe_result_wrapper(result: Any, operation_name: str = "operation") -> Dict[str, Any]:
+    """
+    Safely wrap circuit breaker results to ensure dict response.
+    
+    Circuit breaker returns whatever the wrapped function returns,
+    which could be a dict, object, or exception. This ensures we
+    always return a proper dict response.
+    """
+    # Already a dict - validate structure
+    if isinstance(result, dict):
+        # Ensure it has standard response fields
+        if 'success' in result or 'error' in result:
+            return result
+        # Has data but no success flag - wrap it
+        return create_success_response(f'{operation_name} completed', result)
+    
+    # None result
+    if result is None:
+        return create_error_response(
+            f'{operation_name} returned None',
+            'NULL_RESULT'
+        )
+    
+    # Exception object
+    if isinstance(result, Exception):
+        return create_error_response(str(result), 'EXCEPTION_RESULT')
+    
+    # Some other object with attributes
+    if hasattr(result, '__dict__'):
+        return create_error_response(
+            f'{operation_name} returned unexpected object type: {type(result).__name__}',
+            'INVALID_RESULT_TYPE',
+            details={'object_type': type(result).__name__}
+        )
+    
+    # Primitive or unknown type - try to convert
+    try:
+        return create_success_response(f'{operation_name} completed', {'result': result})
+    except Exception as e:
+        return create_error_response(
+            f'Failed to wrap {operation_name} result: {str(e)}',
+            'RESULT_WRAP_FAILED'
+        )
 
 
 def get_ha_config() -> Dict[str, Any]:
@@ -65,17 +111,22 @@ def call_ha_api(endpoint: str, method: str = 'GET',
                 timeout=config.get('timeout', 30)
             )
         
-        result = execute_operation(
+        # Circuit breaker returns whatever _make_request returns
+        raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
             name=HA_CIRCUIT_BREAKER_NAME,
             func=_make_request
         )
         
-        if isinstance(result, dict) and result.get('success'):
+        # CRITICAL: Wrap result to ensure it's a dict
+        result = _safe_result_wrapper(raw_result, 'HA API call')
+        
+        if result.get('success'):
             increment_counter('ha_api_success')
         else:
             increment_counter('ha_api_failure')
+            log_warning(f"[{correlation_id}] HA API failed: {result.get('error', 'Unknown')}")
         
         return result
         
@@ -292,12 +343,16 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
         def _execute():
             return func(ha_config, **kwargs)
         
-        result = execute_operation(
+        # Circuit breaker returns raw result
+        raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
             name=HA_CIRCUIT_BREAKER_NAME,
             func=_execute
         )
+        
+        # CRITICAL: Wrap result to ensure it's a dict
+        result = _safe_result_wrapper(raw_result, f'{feature}.{operation}')
         
         if result.get('success') and cache_key:
             cache_set(cache_key, result, ttl=cache_ttl)
