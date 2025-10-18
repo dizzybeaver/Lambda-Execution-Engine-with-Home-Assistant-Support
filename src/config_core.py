@@ -1,9 +1,15 @@
 """
 config_core.py - Configuration Core Implementation
-Version: 2025.10.18.07
+Version: 2025.10.18.08
 Description: Configuration system with SSM Parameter Store support via dedicated module
 
 CHANGELOG:
+- 2025.10.18.08: FIXED Issue #32 - Cache validation prevents object() returns (CRITICAL)
+  - Added type validation after cache_get() in get_parameter()
+  - Prevents returning object() instances from corrupted cache
+  - Invalidates bad cache entries automatically
+  - Validates cached values are usable types before returning
+  - Resolves "SSM returned non-string values" diagnostic failure
 - 2025.10.18.07: INTEGRATED config_param_store module (Issue #31 fix)
   - Removed complex SSM validation logic from get_parameter()
   - Now delegates all SSM operations to config_param_store module
@@ -28,11 +34,17 @@ DESIGN DECISIONS:
    - Does NOT persist to external storage
    - Useful for environment variable changes mid-execution
 
-**SSM via Dedicated Module (NEW):**
+**SSM via Dedicated Module:**
    - All SSM operations delegated to config_param_store module
    - Reason: Separation of concerns, better error handling, reusability
    - config_core handles config logic, config_param_store handles AWS SSM
    - Simplifies this file and makes SSM logic testable independently
+
+**Cache Validation (NEW):**
+   - Cache entries validated before return to prevent object() corruption
+   - Reason: SSM failures can cache object() instances which break everything
+   - Invalid cache entries automatically deleted and retried
+   - Only valid types (str, int, float, bool, dict, list) allowed
 
 DECISION RATIONALE:
 Memory-only storage is intentional for Lambda's stateless execution model.
@@ -153,8 +165,13 @@ class ConfigurationCore:
         Reason: Separation of concerns - config logic separate from AWS SSM logic.
                 Makes SSM handling testable, maintainable, and reusable.
         
+        DESIGN DECISION: Cache validation prevents object() corruption
+        Reason: SSM failures can cache object() instances which break subsequent calls.
+                Only valid types (str, int, float, bool, dict, list, None) allowed from cache.
+                Invalid entries automatically deleted and retried.
+        
         Priority:
-        1. Cache
+        1. Cache (with type validation)
         2. Environment variable (uppercase with underscores/slashes replaced)
         3. SSM Parameter Store (if enabled) - via config_param_store module
         4. Config dict
@@ -167,13 +184,20 @@ class ConfigurationCore:
         Returns:
             Parameter value or default
         """
-        from gateway import cache_get, cache_set, log_debug, log_warning
+        from gateway import cache_get, cache_set, cache_delete, log_debug, log_warning
         
         # Try cache first
         cache_key = f"{self._cache_prefix}{key}"
         cached = cache_get(cache_key)
         if cached is not None:
-            return cached
+            # CRITICAL: Validate cached value type before returning
+            # Prevents returning object() instances from SSM failures
+            if not isinstance(cached, (str, int, float, bool, dict, list, type(None))):
+                log_warning(f"Invalid cached type {type(cached).__name__} for {key}, invalidating cache")
+                cache_delete(cache_key)
+                # Don't return - continue to next source
+            else:
+                return cached
         
         # Try environment (convert key format: '/' or '.' → '_', make uppercase)
         env_key = key.upper().replace('.', '_').replace('/', '_')
