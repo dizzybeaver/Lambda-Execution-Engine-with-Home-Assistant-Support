@@ -1,11 +1,11 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.16.02
+Version: 2025.10.18.01
 Description: Core HTTPClientCore class and gateway implementation functions.
 
-CHANGELOG:
-- 2025.10.16.02: Bug fixes - JSON parsing, header merging, error handling, validation
-- 2025.10.16.01: Fixed imports - removed 'network.' prefix from import statements
+CRITICAL FIX:
+- Remove 'url' from kwargs before passing to _make_http_request
+- Prevents "got multiple values for argument 'url'" error
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -58,7 +58,7 @@ class HTTPClientCore:
         """Validate and bound timeout value."""
         if timeout <= 0:
             return 30.0
-        if timeout > 900:  # Max 15 minutes for Lambda
+        if timeout > 900:
             return 900.0
         return timeout
     
@@ -70,17 +70,14 @@ class HTTPClientCore:
         try:
             decoded = response_data.decode('utf-8')
             
-            # Try JSON first if content-type suggests it
             if 'application/json' in content_type.lower():
                 try:
                     return json.loads(decoded)
                 except json.JSONDecodeError:
-                    # If JSON parsing fails but content-type says JSON, log warning
                     from gateway import log_warning
-                    log_warning(f"Failed to parse JSON response despite content-type: {content_type}")
+                    log_warning(f"Failed to parse JSON despite content-type: {content_type}")
                     return decoded
             
-            # For other content types, try JSON anyway, fallback to string
             try:
                 return json.loads(decoded)
             except json.JSONDecodeError:
@@ -89,24 +86,21 @@ class HTTPClientCore:
         except UnicodeDecodeError as e:
             from gateway import log_error
             log_error(f"Failed to decode response data: {e}")
-            return response_data.hex()  # Return hex string for binary data
+            return response_data.hex()
     
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
         try:
-            # Merge headers - start with standard, then add custom
             headers = get_standard_headers()
             custom_headers = kwargs.get('headers', {})
             if custom_headers:
                 headers.update(custom_headers)
             
-            # Get body from 'json' kwarg
             body = kwargs.get('json')
             if body:
                 body = json.dumps(body)
                 headers['Content-Type'] = 'application/json'
             
-            # Validate timeout
             timeout = self._validate_timeout(kwargs.get('timeout', 30.0))
             
             response = self.http.request(
@@ -122,7 +116,6 @@ class HTTPClientCore:
             if 200 <= response.status < 300:
                 self._stats['successful'] += 1
                 
-                # Get content type for parsing
                 content_type = dict(response.headers).get('content-type', '')
                 parsed_data = self._parse_response_data(response.data, content_type)
                 
@@ -197,8 +190,6 @@ class HTTPClientCore:
         }
 
 
-# ===== SINGLETON ACCESS =====
-
 def get_http_client() -> HTTPClientCore:
     """Get singleton HTTP client instance."""
     from gateway import execute_operation, GatewayInterface
@@ -220,36 +211,34 @@ def _make_http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
     return client.make_request(method, url, **kwargs)
 
 
-# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
-
 def http_request_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP request."""
-    method = kwargs.get('method', 'GET')
-    url = kwargs.get('url', '')
+    method = kwargs.pop('method', 'GET')
+    url = kwargs.pop('url', '')
     return _make_http_request(method, url, **kwargs)
 
 
 def http_get_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP GET."""
-    url = kwargs.get('url', '')
+    url = kwargs.pop('url', '')
     return _make_http_request('GET', url, **kwargs)
 
 
 def http_post_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP POST."""
-    url = kwargs.get('url', '')
+    url = kwargs.pop('url', '')
     return _make_http_request('POST', url, **kwargs)
 
 
 def http_put_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP PUT."""
-    url = kwargs.get('url', '')
+    url = kwargs.pop('url', '')
     return _make_http_request('PUT', url, **kwargs)
 
 
 def http_delete_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for HTTP DELETE."""
-    url = kwargs.get('url', '')
+    url = kwargs.pop('url', '')
     return _make_http_request('DELETE', url, **kwargs)
 
 
