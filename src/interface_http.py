@@ -1,14 +1,14 @@
 """
 interface_http.py - HTTP Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.05
+Version: 2025.10.17.07
 Description: Firewall router for HTTP interface with parameter validation
 
 CHANGELOG:
+- 2025.10.17.07: Fixed fake success responses for unimplemented operations (Issue #17 fix)
+  - configure_retry: Now raises NotImplementedError instead of fake success
+  - get_statistics: Now raises NotImplementedError instead of fake success
+  - Clear error messages indicating operations are not yet implemented
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
-  - Validates 'url' parameter for request operations
-  - Validates 'method' parameter where required
-  - Type checking for URL (must be string)
-  - Clear error messages for missing/invalid parameters
 - 2025.10.15.01: Initial SUGA-ISP router implementation
 
 Copyright 2025 Joseph Hersey
@@ -51,19 +51,25 @@ def execute_http_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The HTTP operation to execute
+        operation: HTTP operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from internal implementation
+        Operation result
         
     Raises:
-        ValueError: If operation is unknown or required parameters are missing/invalid
+        ValueError: If operation is unknown or required parameters missing
         NotImplementedError: If operation is not yet implemented
     """
+    if operation not in _VALID_HTTP_OPERATIONS:
+        raise ValueError(
+            f"Unknown HTTP operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_HTTP_OPERATIONS)}"
+        )
     
     if operation == 'request':
-        _validate_request_params(kwargs, operation)
+        _validate_url_param(kwargs, operation)
+        _validate_method_param(kwargs, operation)
         return http_request_implementation(**kwargs)
     
     elif operation == 'get':
@@ -83,22 +89,29 @@ def execute_http_operation(operation: str, **kwargs) -> Any:
         return http_delete_implementation(**kwargs)
     
     elif operation == 'get_state':
+        # No required parameters
         return get_state_implementation(**kwargs)
     
     elif operation == 'reset_state':
+        # No required parameters
         return reset_state_implementation(**kwargs)
     
     elif operation == 'configure_retry':
-        raise NotImplementedError(f"HTTP operation '{operation}' not yet implemented")
+        # FIXED (Issue #17): Raise NotImplementedError instead of fake success
+        raise NotImplementedError(
+            f"HTTP operation '{operation}' is not yet implemented. "
+            "This operation will be added in a future version."
+        )
     
     elif operation == 'get_statistics':
-        raise NotImplementedError(f"HTTP operation '{operation}' not yet implemented")
+        # FIXED (Issue #17): Raise NotImplementedError instead of fake success
+        raise NotImplementedError(
+            f"HTTP operation '{operation}' is not yet implemented. "
+            "This operation will be added in a future version."
+        )
     
     else:
-        raise ValueError(
-            f"Unknown HTTP operation: '{operation}'. "
-            f"Valid operations: {', '.join(_VALID_HTTP_OPERATIONS)}"
-        )
+        raise ValueError(f"Unknown HTTP operation: '{operation}'")
 
 
 def _validate_url_param(kwargs: dict, operation: str) -> None:
@@ -123,24 +136,20 @@ def _validate_url_param(kwargs: dict, operation: str) -> None:
         )
     
     if not url.strip():
-        raise ValueError(
-            f"HTTP operation '{operation}' parameter 'url' cannot be empty"
-        )
+        raise ValueError(f"HTTP operation '{operation}' parameter 'url' cannot be empty")
 
 
-def _validate_request_params(kwargs: dict, operation: str) -> None:
+def _validate_method_param(kwargs: dict, operation: str) -> None:
     """
-    Validate parameters for HTTP request operation.
+    Validate that method parameter exists and is a valid string.
     
     Args:
         kwargs: Parameter dictionary
         operation: Operation name (for error context)
         
     Raises:
-        ValueError: If required parameters are missing or invalid
+        ValueError: If method is missing, not a string, or invalid
     """
-    _validate_url_param(kwargs, operation)
-    
     if 'method' not in kwargs:
         raise ValueError(f"HTTP operation '{operation}' requires parameter 'method'")
     
