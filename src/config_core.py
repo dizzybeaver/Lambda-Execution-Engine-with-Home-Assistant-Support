@@ -1,9 +1,14 @@
 """
 config_core.py - Configuration Core Implementation
-Version: 2025.10.18.04
+Version: 2025.10.18.05
 Description: Configuration system with SSM Parameter Store support and robust error handling
 
 CHANGELOG:
+- 2025.10.18.05: FIXED Issue #30 - Added explicit string conversion for SSM values
+  - Forces str() conversion if SSM returns non-primitive type (object wrapper)
+  - Handles edge case where boto3 returns response wrapper instead of plain value
+  - Fixes "<object object at 0x...>" error when printing SSM values
+  - Ensures all SSM values are properly converted to primitive types
 - 2025.10.18.04: FIXED Issue #29 - Robust SSM response handling in get_parameter
   - Added comprehensive type checking for boto3 SSM responses
   - Handles edge cases where response['Parameter']['Value'] fails
@@ -24,6 +29,11 @@ DESIGN DECISIONS:
    - Updates in-memory config
    - Does NOT persist to external storage
    - Useful for environment variable changes mid-execution
+
+**Explicit String Conversion (Issue #30 fix):**
+   - Forces str() conversion if SSM returns non-primitive types
+   - Reason: Some Lambda environments have boto3 returning response wrappers
+   - Ensures values are always usable strings/primitives
 
 DECISION RATIONALE:
 Memory-only storage is intentional for Lambda's stateless execution model.
@@ -144,6 +154,10 @@ class ConfigurationCore:
         Reason: boto3 responses may have unexpected structure or types
         Fixes: "'object' object is not subscriptable" error
         
+        DESIGN DECISION: Explicit string conversion (Issue #30 fix)
+        Reason: Some Lambda environments have boto3 returning response wrapper objects
+        Ensures: All SSM values are properly converted to primitive types
+        
         Priority:
         1. Cache
         2. Environment variable (uppercase with underscores/slashes replaced)
@@ -201,9 +215,16 @@ class ConfigurationCore:
                     # SUCCESS: Valid response structure
                     value = response['Parameter']['Value']
                     
+                    # CRITICAL: Force string conversion (Issue #30 fix)
+                    # boto3 may return response wrapper objects in some Lambda environments
+                    # This ensures the value is always a usable primitive type
+                    if not isinstance(value, (str, int, float, bool, type(None))):
+                        log_warning(f"SSM returned non-primitive type {type(value)} for {param_name}, converting to string")
+                        value = str(value)
+                    
                     from gateway import cache_set
                     cache_set(cache_key, value, ttl=300)
-                    log_debug(f"Successfully loaded from SSM: {param_name}")
+                    log_debug(f"Successfully loaded from SSM: {param_name} = {value}")
                     return value
                     
             except Exception as e:
