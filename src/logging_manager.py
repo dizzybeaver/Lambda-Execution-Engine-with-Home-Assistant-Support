@@ -121,18 +121,17 @@ class LoggingCore:
         # No lock needed - Lambda is single-threaded
         entry = ErrorEntry(
             timestamp=time.time(),
-            error=str(message),
-            error_code=error_code or 'UNKNOWN_ERROR',
-            correlation_id=correlation_id or str(uuid.uuid4())
+            error_type=error_code or 'UNKNOWN_ERROR',
+            message=str(message)
         )
         
         self.error_entries.append(entry)
         
         self.logger.error(
-            f"[{entry.error_code}] {entry.error}",
+            f"[{entry.error_type}] {entry.message}",
             extra={
-                'correlation_id': entry.correlation_id,
-                'error_code': entry.error_code,
+                'correlation_id': correlation_id,
+                'error_type': entry.error_type,
                 **kwargs
             }
         )
@@ -152,12 +151,17 @@ class LoggingCore:
         """
         # No lock needed - Lambda is single-threaded
         entry = ErrorLogEntry(
+            id=str(uuid.uuid4()),
             timestamp=time.time(),
-            error=str(message),
-            status_code=status_code,
-            error_code=error_code or 'INTERNAL_ERROR',
+            datetime=datetime.now(),
             correlation_id=correlation_id or str(uuid.uuid4()),
-            level=level
+            source_module=None,
+            error_type=error_code or 'INTERNAL_ERROR',
+            severity=level,
+            status_code=status_code,
+            error_response={'message': str(message), 'statusCode': status_code},
+            lambda_context_info=None,
+            additional_context=kwargs if kwargs else None
         )
         
         self.error_log_entries.append(entry)
@@ -172,19 +176,19 @@ class LoggingCore:
         
         self.logger.log(
             log_level,
-            f"[{entry.status_code}] [{entry.error_code}] {entry.error}",
+            f"[{status_code}] [{entry.error_type}] {message}",
             extra={
                 'correlation_id': entry.correlation_id,
-                'status_code': entry.status_code,
-                'error_code': entry.error_code,
+                'status_code': status_code,
+                'error_type': entry.error_type,
                 **kwargs
             }
         )
         
         return {
-            'error': entry.error,
-            'status_code': entry.status_code,
-            'error_code': entry.error_code,
+            'error': message,
+            'status_code': status_code,
+            'error_code': entry.error_type,
             'correlation_id': entry.correlation_id,
             'timestamp': entry.timestamp
         }
@@ -196,9 +200,8 @@ class LoggingCore:
         return [
             {
                 'timestamp': entry.timestamp,
-                'error': entry.error,
-                'error_code': entry.error_code,
-                'correlation_id': entry.correlation_id
+                'error_type': entry.error_type,
+                'message': entry.message
             }
             for entry in recent
         ]
@@ -210,11 +213,10 @@ class LoggingCore:
         return [
             {
                 'timestamp': entry.timestamp,
-                'error': entry.error,
+                'error_type': entry.error_type,
                 'status_code': entry.status_code,
-                'error_code': entry.error_code,
                 'correlation_id': entry.correlation_id,
-                'level': entry.level.value
+                'severity': entry.severity.value
             }
             for entry in recent
         ]
