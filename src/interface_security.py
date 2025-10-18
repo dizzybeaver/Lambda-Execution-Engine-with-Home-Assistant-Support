@@ -1,9 +1,14 @@
 """
 interface_security.py - Security Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.05
-Description: Firewall router for Security interface with parameter validation
+Version: 2025.10.17.14
+Description: Firewall router for Security interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.17.14: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for security_core imports
+  - Sets _SECURITY_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Security unavailable
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
   - Validates 'data' parameter for encrypt/decrypt/hash operations
   - Validates 'value' parameter for validation operations
@@ -29,20 +34,39 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any, Dict
 
-from security_core import (
-    _execute_validate_request_implementation,
-    _execute_validate_token_implementation,
-    _execute_encrypt_implementation,
-    _execute_decrypt_implementation,
-    _execute_hash_implementation,
-    _execute_verify_hash_implementation,
-    _execute_sanitize_implementation,
-    _execute_generate_correlation_id_implementation,
-    _execute_validate_string_implementation,
-    _execute_validate_email_implementation,
-    _execute_validate_url_implementation,
-    get_security_stats
-)
+# Import protection
+try:
+    from security_core import (
+        _execute_validate_request_implementation,
+        _execute_validate_token_implementation,
+        _execute_encrypt_implementation,
+        _execute_decrypt_implementation,
+        _execute_hash_implementation,
+        _execute_verify_hash_implementation,
+        _execute_sanitize_implementation,
+        _execute_generate_correlation_id_implementation,
+        _execute_validate_string_implementation,
+        _execute_validate_email_implementation,
+        _execute_validate_url_implementation,
+        get_security_stats
+    )
+    _SECURITY_AVAILABLE = True
+    _SECURITY_IMPORT_ERROR = None
+except ImportError as e:
+    _SECURITY_AVAILABLE = False
+    _SECURITY_IMPORT_ERROR = str(e)
+    _execute_validate_request_implementation = None
+    _execute_validate_token_implementation = None
+    _execute_encrypt_implementation = None
+    _execute_decrypt_implementation = None
+    _execute_hash_implementation = None
+    _execute_verify_hash_implementation = None
+    _execute_sanitize_implementation = None
+    _execute_generate_correlation_id_implementation = None
+    _execute_validate_string_implementation = None
+    _execute_validate_email_implementation = None
+    _execute_validate_url_implementation = None
+    get_security_stats = None
 
 
 _VALID_SECURITY_OPERATIONS = [
@@ -59,164 +83,109 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The security operation to execute
+        operation: Security operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from internal implementation
+        Operation result
         
     Raises:
-        ValueError: If operation is unknown or required parameters are missing/invalid
+        RuntimeError: If Security interface unavailable
+        ValueError: If operation is unknown or required parameters missing
     """
+    # Check Security availability
+    if not _SECURITY_AVAILABLE:
+        raise RuntimeError(
+            f"Security interface unavailable: {_SECURITY_IMPORT_ERROR}. "
+            "This may indicate missing security_core module or circular import."
+        )
+    
+    if operation not in _VALID_SECURITY_OPERATIONS:
+        raise ValueError(
+            f"Unknown security operation: '{operation}'. "
+            f"Valid operations: {', '.join(_VALID_SECURITY_OPERATIONS)}"
+        )
     
     if operation == 'validate_request':
-        _validate_request_param(kwargs, operation)
+        if 'request' not in kwargs:
+            raise ValueError("security.validate_request requires 'request' parameter")
         return _execute_validate_request_implementation(**kwargs)
     
     elif operation == 'validate_token':
-        _validate_token_param(kwargs, operation)
+        if 'token' not in kwargs:
+            raise ValueError("security.validate_token requires 'token' parameter")
+        if not isinstance(kwargs['token'], str):
+            raise TypeError(f"security.validate_token 'token' must be str, got {type(kwargs['token']).__name__}")
         return _execute_validate_token_implementation(**kwargs)
     
     elif operation == 'encrypt':
-        _validate_data_param(kwargs, operation)
+        if 'data' not in kwargs:
+            raise ValueError("security.encrypt requires 'data' parameter")
+        if not isinstance(kwargs['data'], str):
+            raise TypeError(f"security.encrypt 'data' must be str, got {type(kwargs['data']).__name__}")
         return _execute_encrypt_implementation(**kwargs)
     
     elif operation == 'decrypt':
-        _validate_data_param(kwargs, operation)
+        if 'data' not in kwargs:
+            raise ValueError("security.decrypt requires 'data' parameter")
+        if not isinstance(kwargs['data'], str):
+            raise TypeError(f"security.decrypt 'data' must be str, got {type(kwargs['data']).__name__}")
         return _execute_decrypt_implementation(**kwargs)
     
     elif operation == 'hash':
-        _validate_data_param(kwargs, operation)
+        if 'data' not in kwargs:
+            raise ValueError("security.hash requires 'data' parameter")
+        if not isinstance(kwargs['data'], str):
+            raise TypeError(f"security.hash 'data' must be str, got {type(kwargs['data']).__name__}")
         return _execute_hash_implementation(**kwargs)
     
     elif operation == 'verify_hash':
-        _validate_verify_hash_params(kwargs, operation)
+        if 'data' not in kwargs:
+            raise ValueError("security.verify_hash requires 'data' parameter")
+        if 'hash_value' not in kwargs:
+            raise ValueError("security.verify_hash requires 'hash_value' parameter")
+        if not isinstance(kwargs['data'], str):
+            raise TypeError(f"security.verify_hash 'data' must be str, got {type(kwargs['data']).__name__}")
+        if not isinstance(kwargs['hash_value'], str):
+            raise TypeError(f"security.verify_hash 'hash_value' must be str, got {type(kwargs['hash_value']).__name__}")
         return _execute_verify_hash_implementation(**kwargs)
     
-    elif operation == 'sanitize' or operation == 'sanitize_data':
-        _validate_data_param(kwargs, operation)
+    elif operation in ['sanitize', 'sanitize_data']:
+        if 'data' not in kwargs:
+            raise ValueError(f"security.{operation} requires 'data' parameter")
         return _execute_sanitize_implementation(**kwargs)
     
     elif operation == 'generate_correlation_id':
         return _execute_generate_correlation_id_implementation(**kwargs)
     
     elif operation == 'validate_string':
-        _validate_value_param(kwargs, operation)
+        if 'value' not in kwargs:
+            raise ValueError("security.validate_string requires 'value' parameter")
+        if not isinstance(kwargs['value'], str):
+            raise TypeError(f"security.validate_string 'value' must be str, got {type(kwargs['value']).__name__}")
         return _execute_validate_string_implementation(**kwargs)
     
     elif operation == 'validate_email':
-        _validate_email_param(kwargs, operation)
+        if 'value' not in kwargs:
+            raise ValueError("security.validate_email requires 'value' parameter")
+        if not isinstance(kwargs['value'], str):
+            raise TypeError(f"security.validate_email 'value' must be str, got {type(kwargs['value']).__name__}")
         return _execute_validate_email_implementation(**kwargs)
     
     elif operation == 'validate_url':
-        _validate_url_param(kwargs, operation)
+        if 'value' not in kwargs:
+            raise ValueError("security.validate_url requires 'value' parameter")
+        if not isinstance(kwargs['value'], str):
+            raise TypeError(f"security.validate_url 'value' must be str, got {type(kwargs['value']).__name__}")
         return _execute_validate_url_implementation(**kwargs)
     
     elif operation == 'get_stats':
-        return get_security_stats()
+        return get_security_stats(**kwargs)
     
     else:
-        raise ValueError(
-            f"Unknown security operation: '{operation}'. "
-            f"Valid operations: {', '.join(_VALID_SECURITY_OPERATIONS)}"
-        )
+        raise ValueError(f"Unhandled security operation: '{operation}'")
 
 
-def _validate_data_param(kwargs: dict, operation: str) -> None:
-    """Validate data parameter for security operations."""
-    if 'data' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'data'")
-    
-    data = kwargs.get('data')
-    if not isinstance(data, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'data' must be string, "
-            f"got {type(data).__name__}"
-        )
-
-
-def _validate_request_param(kwargs: dict, operation: str) -> None:
-    """Validate request parameter."""
-    if 'request' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'request'")
-    
-    request = kwargs.get('request')
-    if not isinstance(request, dict):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'request' must be dictionary, "
-            f"got {type(request).__name__}"
-        )
-
-
-def _validate_token_param(kwargs: dict, operation: str) -> None:
-    """Validate token parameter."""
-    if 'token' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'token'")
-    
-    token = kwargs.get('token')
-    if not isinstance(token, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'token' must be string, "
-            f"got {type(token).__name__}"
-        )
-
-
-def _validate_verify_hash_params(kwargs: dict, operation: str) -> None:
-    """Validate parameters for verify_hash operation."""
-    _validate_data_param(kwargs, operation)
-    
-    if 'hash_value' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'hash_value'")
-    
-    hash_value = kwargs.get('hash_value')
-    if not isinstance(hash_value, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'hash_value' must be string, "
-            f"got {type(hash_value).__name__}"
-        )
-
-
-def _validate_value_param(kwargs: dict, operation: str) -> None:
-    """Validate value parameter for validation operations."""
-    if 'value' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'value'")
-    
-    value = kwargs.get('value')
-    if not isinstance(value, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'value' must be string, "
-            f"got {type(value).__name__}"
-        )
-
-
-def _validate_email_param(kwargs: dict, operation: str) -> None:
-    """Validate email parameter."""
-    if 'email' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'email'")
-    
-    email = kwargs.get('email')
-    if not isinstance(email, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'email' must be string, "
-            f"got {type(email).__name__}"
-        )
-
-
-def _validate_url_param(kwargs: dict, operation: str) -> None:
-    """Validate url parameter."""
-    if 'url' not in kwargs:
-        raise ValueError(f"Security operation '{operation}' requires parameter 'url'")
-    
-    url = kwargs.get('url')
-    if not isinstance(url, str):
-        raise ValueError(
-            f"Security operation '{operation}' parameter 'url' must be string, "
-            f"got {type(url).__name__}"
-        )
-
-
-__all__ = [
-    'execute_security_operation'
-]
+__all__ = ['execute_security_operation']
 
 # EOF
