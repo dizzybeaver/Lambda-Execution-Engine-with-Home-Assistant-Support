@@ -1,20 +1,13 @@
 """
 lambda_function.py - AWS Lambda Entry Point
-Version: 2025.10.18.01
+Version: 2025.10.18.10
 Description: Main Lambda handler with SUGA-ISP gateway integration
 
 CHANGELOG:
+- 2025.10.18.10: Added Alexa.Authorization namespace routing to fix AcceptGrant
 - 2025.10.18.01: Added ha_connection_test mode for HA connection diagnostics
 - 2025.10.16.10: Added network connectivity test (ha_ping/network_test)
 - 2025.10.16.09: Added SKIP_HA_HEALTH_CHECK environment variable option
-- 2025.10.16.08: Added missing log_error import in diagnostic exception handler
-- 2025.10.16.07: Fixed all HA extension import names to match actual functions
-- 2025.10.16.06: Fixed import names - process_alexa_* → handle_alexa_*
-- 2025.10.16.05: Fixed context attribute - request_id → aws_request_id
-- 2025.10.16.04: Removed debug print statements, re-enabled validation
-- 2025.10.16.03: Added LAMBDA_MODE support (normal/failsafe/diagnostic/emergency)
-- 2025.10.16.02: Added lazy imports to fix timeouts
-- 2025.10.16.01: Fixed increment_counter imports
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -22,6 +15,8 @@ Licensed under Apache 2.0 (see LICENSE).
 
 import json
 import os
+import time
+import urllib3
 from typing import Dict, Any
 
 
@@ -48,28 +43,28 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             import lambda_failsafe
             return lambda_failsafe.lambda_handler(event, context)
         except ImportError:
-            lambda_mode = 'normal'  # Fallback to normal if file missing
+            lambda_mode = 'normal'
     
     elif lambda_mode == 'diagnostic':
         try:
             import lambda_diagnostic
             return lambda_diagnostic.lambda_handler(event, context)
         except ImportError:
-            lambda_mode = 'normal'  # Fallback to normal if file missing
+            lambda_mode = 'normal'
     
     elif lambda_mode == 'emergency':
         try:
             import lambda_emergency
             return lambda_emergency.lambda_handler(event, context)
         except ImportError:
-            lambda_mode = 'normal'  # Fallback to normal if file missing
+            lambda_mode = 'normal'
     
     elif lambda_mode == 'ha_connection_test':
         try:
             import lambda_ha_connection
             return lambda_ha_connection.lambda_handler(event, context)
         except ImportError:
-            lambda_mode = 'normal'  # Fallback to normal if file missing
+            lambda_mode = 'normal'
     
     # Normal mode - full LEE operation
     return lambda_handler_normal(event, context)
@@ -78,7 +73,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def lambda_handler_normal(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Normal Lambda handler with full LEE."""
     
-    # Lazy import gateway functions to avoid initialization issues
+    # Lazy import gateway functions
     from gateway import (
         log_info, log_error, log_debug,
         execute_operation, GatewayInterface,
@@ -144,6 +139,7 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     from homeassistant_extension import (
         handle_alexa_discovery,
         handle_alexa_control,
+        handle_alexa_authorization,
         is_ha_extension_enabled,
         get_ha_status
     )
@@ -156,12 +152,6 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         log_info(f"Alexa request: {namespace}.{name}")
         increment_counter(f"alexa_{namespace.lower()}")
-        
-        # Validate request (security check)
-        # Note: Alexa directives don't need validation as they come from Amazon
-        # But if you implement token-based auth, uncomment:
-        # if not validate_request(event):
-        #     return create_error_response("Invalid request", "INVALID_REQUEST")
         
         # Check HA availability
         if not is_ha_extension_enabled():
@@ -180,11 +170,13 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             ha_status = get_ha_status()
             if not ha_status.get('success', False):
                 log_warning("Home Assistant health check failed")
-                # Don't return error - let actual request try to connect
         
         # Route based on namespace
         if namespace == "Alexa.Discovery":
             return handle_alexa_discovery(event)
+        
+        elif namespace == "Alexa.Authorization":
+            return handle_alexa_authorization(event)
         
         elif namespace in ["Alexa.PowerController", "Alexa.BrightnessController", 
                           "Alexa.ColorController", "Alexa.ThermostatController"]:
@@ -257,22 +249,14 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
                 "HOME_ASSISTANT_TOKEN": "..." if os.getenv("HOME_ASSISTANT_TOKEN") else None,
                 "HOME_ASSISTANT_ENABLED": os.getenv("HOME_ASSISTANT_ENABLED", "false"),
                 "USE_PARAMETER_STORE": os.getenv("USE_PARAMETER_STORE", "false"),
-                "LAMBDA_MODE": os.getenv("LAMBDA_MODE", "normal"),
-                "SKIP_HA_HEALTH_CHECK": os.getenv("SKIP_HA_HEALTH_CHECK", "false")
+                "DEBUG_MODE": os.getenv("DEBUG_MODE", "false"),
+                "LAMBDA_MODE": os.getenv("LAMBDA_MODE", "normal")
             }
-        
-        # Add assistant name if available
-        if test_type == "full":
-            try:
-                from homeassistant_extension import get_assistant_name_status
-                response_data["assistant_name"] = get_assistant_name_status()
-            except Exception:
-                response_data["assistant_name"] = {}
         
         return format_response(200, response_data)
         
     except Exception as e:
-        log_error(f"Diagnostic request failed: {str(e)}", error=e)
+        log_error(f"Diagnostic failed: {str(e)}", error=e)
         return format_response(500, {
             "error": str(e),
             "error_type": type(e).__name__
@@ -281,59 +265,64 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
 
 def handle_network_test(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Test raw network connectivity to Home Assistant.
-    
-    This bypasses ALL LEE interfaces and directly tests HTTP connection.
-    Use test_type: 'network_test' or 'ha_ping'
+    Network connectivity test - bypasses all LEE systems.
+    Direct urllib3 testing to HA.
     """
-    import time
-    import urllib3
     
-    print(f"[NETWORK TEST] Starting network connectivity test")
+    print("[NETWORK TEST] Starting direct connectivity test")
     
+    # Get HA config from environment
     ha_url = os.getenv('HOME_ASSISTANT_URL')
     ha_token = os.getenv('HOME_ASSISTANT_TOKEN')
-    ha_enabled = os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true'
     
+    if not ha_url or not ha_token:
+        print("[NETWORK TEST] Missing HOME_ASSISTANT_URL or HOME_ASSISTANT_TOKEN")
+        return {
+            "statusCode": 400,
+            "body": {"error": "Missing HA configuration"},
+            "headers": {"Content-Type": "application/json"}
+        }
+    
+    print(f"[NETWORK TEST] Testing connection to: {ha_url}")
+    
+    # Initialize results
     results = {
-        "test_type": "network_connectivity",
-        "timestamp": time.time(),
-        "configuration": {
-            "ha_enabled": ha_enabled,
-            "ha_url": ha_url if ha_url else "NOT SET",
-            "ha_token_configured": bool(ha_token),
-            "ha_token_length": len(ha_token) if ha_token else 0
-        },
+        "test_name": "Network Connectivity Test",
+        "ha_url": ha_url,
         "tests": []
     }
     
-    # Test 1: Configuration check
-    config_test = {"name": "Configuration Check", "success": False, "details": {}}
-    if not ha_url:
-        config_test["error"] = "HOME_ASSISTANT_URL not set"
-        config_test["success"] = False
-        results["tests"].append(config_test)
-        return {"statusCode": 200, "body": results}
-    if not ha_token:
-        config_test["error"] = "HOME_ASSISTANT_TOKEN not set"
-        config_test["success"] = False
-        results["tests"].append(config_test)
-        return {"statusCode": 200, "body": results}
+    # Create HTTP client
+    http = urllib3.PoolManager(
+        cert_reqs='CERT_REQUIRED',
+        timeout=urllib3.Timeout(connect=5.0, read=10.0),
+        maxsize=5,
+        retries=False
+    )
     
-    config_test["success"] = True
-    config_test["details"] = {"url": ha_url, "token_present": True}
-    results["tests"].append(config_test)
-    print(f"[NETWORK TEST] ✓ Configuration check passed")
-    
-    # Test 2: Basic HTTP connection (no auth)
-    http_test = {"name": "HTTP Connection Test", "success": False, "details": {}}
+    # Test 1: DNS Resolution
+    dns_test = {"name": "DNS Resolution", "success": False, "details": {}}
     try:
-        print(f"[NETWORK TEST] Testing HTTP connection to {ha_url}")
-        http = urllib3.PoolManager(
-            cert_reqs='CERT_NONE',  # Don't verify SSL for testing
-            timeout=urllib3.Timeout(connect=5.0, read=10.0)
-        )
-        
+        print(f"[NETWORK TEST] Testing DNS resolution for {ha_url}")
+        import socket
+        from urllib.parse import urlparse
+        hostname = urlparse(ha_url).hostname
+        ip_addr = socket.gethostbyname(hostname)
+        dns_test["success"] = True
+        dns_test["details"] = {"hostname": hostname, "ip_address": ip_addr}
+        results["tests"].append(dns_test)
+        print(f"[NETWORK TEST] ✓ DNS resolved: {hostname} -> {ip_addr}")
+    except Exception as e:
+        dns_test["error"] = str(e)
+        dns_test["details"] = {"error_type": type(e).__name__}
+        results["tests"].append(dns_test)
+        print(f"[NETWORK TEST] ✗ DNS resolution failed: {str(e)}")
+        return {"statusCode": 200, "body": results}
+    
+    # Test 2: HTTP Connection
+    http_test = {"name": "HTTP Connection", "success": False, "details": {}}
+    try:
+        print(f"[NETWORK TEST] Testing HTTP connection")
         test_url = f"{ha_url}/api/"
         start_time = time.time()
         
@@ -450,7 +439,7 @@ def handle_network_test(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body = json.loads(response.data.decode('utf-8'))
             device_count = len(body.get('event', {}).get('payload', {}).get('endpoints', []))
         except:
-            body = response.data.decode('utf-8')[:200]  # First 200 chars
+            body = response.data.decode('utf-8')[:200]
             device_count = 0
         
         alexa_api_test["success"] = response.status == 200
