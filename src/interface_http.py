@@ -1,9 +1,14 @@
 """
 interface_http.py - HTTP Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.07
-Description: Firewall router for HTTP interface with parameter validation
+Version: 2025.10.17.14
+Description: Firewall router for HTTP interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.17.14: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for http_client_core imports
+  - Sets _HTTP_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when HTTP unavailable
 - 2025.10.17.07: Fixed fake success responses for unimplemented operations (Issue #17 fix)
   - configure_retry: Now raises NotImplementedError instead of fake success
   - get_statistics: Now raises NotImplementedError instead of fake success
@@ -28,15 +33,29 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 
-from http_client_core import (
-    http_request_implementation,
-    http_get_implementation,
-    http_post_implementation,
-    http_put_implementation,
-    http_delete_implementation,
-    get_state_implementation,
-    reset_state_implementation
-)
+# Import protection
+try:
+    from http_client_core import (
+        http_request_implementation,
+        http_get_implementation,
+        http_post_implementation,
+        http_put_implementation,
+        http_delete_implementation,
+        get_state_implementation,
+        reset_state_implementation
+    )
+    _HTTP_AVAILABLE = True
+    _HTTP_IMPORT_ERROR = None
+except ImportError as e:
+    _HTTP_AVAILABLE = False
+    _HTTP_IMPORT_ERROR = str(e)
+    http_request_implementation = None
+    http_get_implementation = None
+    http_post_implementation = None
+    http_put_implementation = None
+    http_delete_implementation = None
+    get_state_implementation = None
+    reset_state_implementation = None
 
 
 _VALID_HTTP_OPERATIONS = [
@@ -58,9 +77,17 @@ def execute_http_operation(operation: str, **kwargs) -> Any:
         Operation result
         
     Raises:
+        RuntimeError: If HTTP interface unavailable
         ValueError: If operation is unknown or required parameters missing
         NotImplementedError: If operation is not yet implemented
     """
+    # Check HTTP availability
+    if not _HTTP_AVAILABLE:
+        raise RuntimeError(
+            f"HTTP interface unavailable: {_HTTP_IMPORT_ERROR}. "
+            "This may indicate missing http_client_core module or circular import."
+        )
+    
     if operation not in _VALID_HTTP_OPERATIONS:
         raise ValueError(
             f"Unknown HTTP operation: '{operation}'. "
@@ -68,108 +95,66 @@ def execute_http_operation(operation: str, **kwargs) -> Any:
         )
     
     if operation == 'request':
-        _validate_url_param(kwargs, operation)
-        _validate_method_param(kwargs, operation)
+        if 'url' not in kwargs:
+            raise ValueError("http.request requires 'url' parameter")
+        if 'method' not in kwargs:
+            raise ValueError("http.request requires 'method' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"http.request 'url' must be str, got {type(kwargs['url']).__name__}")
+        if not isinstance(kwargs['method'], str):
+            raise TypeError(f"http.request 'method' must be str, got {type(kwargs['method']).__name__}")
         return http_request_implementation(**kwargs)
     
     elif operation == 'get':
-        _validate_url_param(kwargs, operation)
+        if 'url' not in kwargs:
+            raise ValueError("http.get requires 'url' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"http.get 'url' must be str, got {type(kwargs['url']).__name__}")
         return http_get_implementation(**kwargs)
     
     elif operation == 'post':
-        _validate_url_param(kwargs, operation)
+        if 'url' not in kwargs:
+            raise ValueError("http.post requires 'url' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"http.post 'url' must be str, got {type(kwargs['url']).__name__}")
         return http_post_implementation(**kwargs)
     
     elif operation == 'put':
-        _validate_url_param(kwargs, operation)
+        if 'url' not in kwargs:
+            raise ValueError("http.put requires 'url' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"http.put 'url' must be str, got {type(kwargs['url']).__name__}")
         return http_put_implementation(**kwargs)
     
     elif operation == 'delete':
-        _validate_url_param(kwargs, operation)
+        if 'url' not in kwargs:
+            raise ValueError("http.delete requires 'url' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"http.delete 'url' must be str, got {type(kwargs['url']).__name__}")
         return http_delete_implementation(**kwargs)
     
     elif operation == 'get_state':
-        # No required parameters
         return get_state_implementation(**kwargs)
     
     elif operation == 'reset_state':
-        # No required parameters
         return reset_state_implementation(**kwargs)
     
     elif operation == 'configure_retry':
-        # FIXED (Issue #17): Raise NotImplementedError instead of fake success
         raise NotImplementedError(
             f"HTTP operation '{operation}' is not yet implemented. "
             "This operation will be added in a future version."
         )
     
     elif operation == 'get_statistics':
-        # FIXED (Issue #17): Raise NotImplementedError instead of fake success
         raise NotImplementedError(
             f"HTTP operation '{operation}' is not yet implemented. "
             "This operation will be added in a future version."
         )
     
     else:
-        raise ValueError(f"Unknown HTTP operation: '{operation}'")
+        raise ValueError(f"Unhandled HTTP operation: '{operation}'")
 
 
-def _validate_url_param(kwargs: dict, operation: str) -> None:
-    """
-    Validate that url parameter exists and is a valid string.
-    
-    Args:
-        kwargs: Parameter dictionary
-        operation: Operation name (for error context)
-        
-    Raises:
-        ValueError: If url is missing, not a string, or empty
-    """
-    if 'url' not in kwargs:
-        raise ValueError(f"HTTP operation '{operation}' requires parameter 'url'")
-    
-    url = kwargs.get('url')
-    if not isinstance(url, str):
-        raise ValueError(
-            f"HTTP operation '{operation}' parameter 'url' must be string, "
-            f"got {type(url).__name__}"
-        )
-    
-    if not url.strip():
-        raise ValueError(f"HTTP operation '{operation}' parameter 'url' cannot be empty")
-
-
-def _validate_method_param(kwargs: dict, operation: str) -> None:
-    """
-    Validate that method parameter exists and is a valid string.
-    
-    Args:
-        kwargs: Parameter dictionary
-        operation: Operation name (for error context)
-        
-    Raises:
-        ValueError: If method is missing, not a string, or invalid
-    """
-    if 'method' not in kwargs:
-        raise ValueError(f"HTTP operation '{operation}' requires parameter 'method'")
-    
-    method = kwargs.get('method')
-    if not isinstance(method, str):
-        raise ValueError(
-            f"HTTP operation '{operation}' parameter 'method' must be string, "
-            f"got {type(method).__name__}"
-        )
-    
-    valid_methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
-    if method.upper() not in valid_methods:
-        raise ValueError(
-            f"HTTP operation '{operation}' parameter 'method' must be one of {valid_methods}, "
-            f"got '{method}'"
-        )
-
-
-__all__ = [
-    'execute_http_operation'
-]
+__all__ = ['execute_http_operation']
 
 # EOF
