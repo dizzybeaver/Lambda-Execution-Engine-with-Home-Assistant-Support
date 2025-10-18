@@ -1,9 +1,15 @@
 """
 ha_config.py - Configuration Management
-Version: 2025.10.18.02
-Description: Configuration loading with SSM Parameter Store support
+Version: 2025.10.18.03
+Description: Configuration loading with SSM Parameter Store support and type safety
 
 CHANGELOG:
+- 2025.10.18.03: FIXED Issue #29 - Added type safety for int conversion
+  - Added _safe_int() helper to handle type conversion safely
+  - Ensures all values are strings before int() conversion
+  - Handles edge cases where get_parameter returns unexpected types
+  - Fixes "'object' object is not subscriptable" error
+  - Fixes "int() argument must be ... not 'object'" error
 - 2025.10.18.02: FIXED Issue #28 - Added SSM Parameter Store support (CRITICAL)
   - Now reads from SSM when USE_PARAMETER_STORE=true
   - Uses gateway.execute_operation(CONFIG, 'get_parameter') for smart loading
@@ -29,6 +35,40 @@ HA_CONFIG_CACHE_KEY = 'ha_configuration'
 HA_CONFIG_TTL = 600
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    """
+    Safely convert value to int with type checking.
+    
+    Handles edge cases where value might be:
+    - Already an int
+    - A string that can be converted
+    - None or an unexpected type (returns default)
+    
+    Args:
+        value: Value to convert to int
+        default: Default value if conversion fails
+        
+    Returns:
+        Integer value or default
+    """
+    if value is None:
+        return default
+    
+    if isinstance(value, int):
+        return value
+    
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            log_warning(f"Cannot convert '{value}' to int, using default {default}")
+            return default
+    
+    # Unexpected type (e.g., object, dict, list)
+    log_warning(f"Unexpected type {type(value)} for int conversion, using default {default}")
+    return default
+
+
 def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
     """
     Get configuration value with SSM Parameter Store support.
@@ -44,7 +84,7 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
         default: Default value if not found
         
     Returns:
-        Configuration value
+        Configuration value (always a string or default type)
     """
     use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
     
@@ -60,8 +100,12 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
             )
             
             if value is not None:
-                log_debug(f"Loaded {key} from Parameter Store")
-                return value
+                # Ensure value is a string (not an object or response wrapper)
+                if not isinstance(value, (str, int, float, bool)):
+                    log_warning(f"SSM returned unexpected type {type(value)} for {key}, trying env")
+                else:
+                    log_debug(f"Loaded {key} from Parameter Store")
+                    return str(value) if not isinstance(value, bool) else value
                 
         except Exception as e:
             log_warning(f"Failed to load {key} from Parameter Store: {e}")
@@ -77,12 +121,17 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
 
 
 def _build_config_from_sources() -> Dict[str, Any]:
-    """Build configuration dict from SSM and environment variables."""
+    """
+    Build configuration dict from SSM and environment variables.
+    
+    Returns:
+        Configuration dictionary with validated types
+    """
     return {
         'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
         'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
         'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
-        'timeout': int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30')),
+        'timeout': _safe_int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
         'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
         'assistant_name': _get_config_value('homeassistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
     }
@@ -136,7 +185,7 @@ def load_ha_config() -> Dict[str, Any]:
         return config
         
     except Exception as e:
-        log_error(f"Failed to load HA config: {str(e)}")
+        log_error(f"Failed to load HA config: {str(e)}", error=e)
         # Emergency fallback - always return a valid dict
         return {
             'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
@@ -212,7 +261,7 @@ def load_ha_connection_config() -> Dict[str, Any]:
     return {
         'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
         'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
-        'timeout': int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30')),
+        'timeout': _safe_int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
         'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
     }
 
