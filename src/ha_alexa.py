@@ -1,9 +1,14 @@
 """
 ha_alexa.py - Alexa Smart Home Integration
-Version: 2025.10.16.01
+Version: 2025.10.18.05
 Description: Alexa Smart Home integration using Gateway services exclusively.
 
 CHANGELOG:
+- 2025.10.18.05: Added comprehensive debug logging for discovery troubleshooting
+  - Log response structure from get_ha_states
+  - Log data field type and content
+  - Log entity processing details
+  - Log why endpoints are/aren't added
 - 2025.10.16.01: Fixed import names - get_states → get_ha_states, call_service → call_ha_service
 
 Copyright 2025 Joseph Hersey
@@ -17,7 +22,6 @@ from gateway import (
     generate_correlation_id,
     create_success_response, create_error_response
 )
-# FIXED 2025.10.16.01: Corrected function names
 from ha_core import get_ha_states, call_ha_service, get_ha_config
 
 # Alexa capability mappings
@@ -72,31 +76,90 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
     try:
         log_info(f"[{correlation_id}] Processing Alexa discovery")
         
-        # FIXED 2025.10.16.01: Use get_ha_states instead of get_states
+        # Get states from HA
         response = get_ha_states()
         
+        # DEBUG: Log response structure
+        log_debug(f"[{correlation_id}] get_ha_states response type: {type(response)}")
+        log_debug(f"[{correlation_id}] get_ha_states response keys: {list(response.keys()) if isinstance(response, dict) else 'NOT_A_DICT'}")
+        
         if not response.get('success'):
+            log_error(f"[{correlation_id}] get_ha_states failed: {response.get('error', 'Unknown')}")
             return _create_error_response(
                 directive.get('header', {}),
                 'BRIDGE_UNREACHABLE',
                 'Cannot reach Home Assistant'
             )
         
+        # Get data field
         states = response.get('data', [])
+        
+        # DEBUG: Log data field details
+        log_info(f"[{correlation_id}] States data type: {type(states)}")
+        log_info(f"[{correlation_id}] States count: {len(states) if isinstance(states, list) else 'NOT_A_LIST'}")
+        
+        if isinstance(states, list) and len(states) > 0:
+            # Log first few entities
+            sample_count = min(3, len(states))
+            log_info(f"[{correlation_id}] First {sample_count} entities:")
+            for i in range(sample_count):
+                entity = states[i]
+                log_info(f"[{correlation_id}]   Entity {i}: {entity.get('entity_id', 'NO_ID')} (type: {type(entity)})")
+        elif isinstance(states, list):
+            log_warning(f"[{correlation_id}] States list is EMPTY")
+        else:
+            log_error(f"[{correlation_id}] States is not a list: {type(states)}")
         
         # Build Alexa endpoints
         endpoints = []
+        processed = 0
+        skipped_no_domain = 0
+        skipped_unsupported = 0
+        
         for state in states:
+            processed += 1
+            
+            if not isinstance(state, dict):
+                log_warning(f"[{correlation_id}] Skipping non-dict state: {type(state)}")
+                continue
+            
             entity_id = state.get('entity_id', '')
+            if not entity_id:
+                log_warning(f"[{correlation_id}] Skipping state with no entity_id")
+                skipped_no_domain += 1
+                continue
+            
             domain = entity_id.split('.')[0] if '.' in entity_id else ''
+            if not domain:
+                log_warning(f"[{correlation_id}] Skipping {entity_id}: no domain")
+                skipped_no_domain += 1
+                continue
             
             # Only expose controllable devices
             if domain in DEVICE_CAPABILITIES:
+                log_debug(f"[{correlation_id}] Building endpoint for {entity_id} (domain: {domain})")
                 endpoint = _build_endpoint(state, domain)
                 if endpoint:
                     endpoints.append(endpoint)
+                    log_debug(f"[{correlation_id}]   ✓ Added {entity_id}")
+                else:
+                    log_warning(f"[{correlation_id}]   ✗ Failed to build endpoint for {entity_id}")
+            else:
+                skipped_unsupported += 1
+                if processed <= 10:  # Only log first 10
+                    log_debug(f"[{correlation_id}] Skipping {entity_id}: unsupported domain '{domain}'")
         
-        log_info(f"[{correlation_id}] Discovered {len(endpoints)} endpoints")
+        # Summary
+        log_info(f"[{correlation_id}] Discovery summary:")
+        log_info(f"[{correlation_id}]   Processed: {processed}")
+        log_info(f"[{correlation_id}]   Skipped (no domain): {skipped_no_domain}")
+        log_info(f"[{correlation_id}]   Skipped (unsupported): {skipped_unsupported}")
+        log_info(f"[{correlation_id}]   Discovered endpoints: {len(endpoints)}")
+        
+        if len(endpoints) == 0:
+            log_warning(f"[{correlation_id}] No controllable devices found!")
+            log_warning(f"[{correlation_id}] Supported domains: {list(DEVICE_CAPABILITIES.keys())}")
+        
         increment_counter('alexa_discovery')
         
         return {
@@ -149,7 +212,6 @@ def handle_power_control(directive: Dict[str, Any]) -> Dict[str, Any]:
         log_info(f"[{correlation_id}] Power control: {service} on {entity_id}")
         
         domain = entity_id.split('.')[0] if '.' in entity_id else ''
-        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
         result = call_ha_service(domain, service, entity_id)
         
         if result.get('success'):
@@ -179,7 +241,6 @@ def handle_brightness_control(directive: Dict[str, Any]) -> Dict[str, Any]:
         log_info(f"[{correlation_id}] Brightness control: {brightness} on {entity_id}")
         
         service_data = {'brightness_pct': brightness}
-        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
         result = call_ha_service('light', 'turn_on', entity_id, service_data)
         
         if result.get('success'):
@@ -222,7 +283,6 @@ def handle_thermostat_control(directive: Dict[str, Any]) -> Dict[str, Any]:
             return _create_error_response(header, 'INVALID_DIRECTIVE',
                                          f'Unsupported thermostat: {name}')
         
-        # FIXED 2025.10.16.01: Use call_ha_service instead of call_service
         result = call_ha_service('climate', service, entity_id, service_data)
         
         if result.get('success'):
