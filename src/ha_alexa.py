@@ -1,14 +1,13 @@
 """
 ha_alexa.py - Alexa Smart Home Integration
-Version: 2025.10.18.07
+Version: 2025.10.18.08
 Description: Alexa Smart Home integration using Gateway services exclusively.
 
 CHANGELOG:
-- 2025.10.18.07: Added DEBUG_MODE-controlled debug logging at entry points
-  - Added _is_debug_mode() helper function
-  - Added [DEBUG] logging controlled by DEBUG_MODE environment variable
-  - Traces HA extension call path for troubleshooting
-- 2025.10.18.05: Added comprehensive debug logging for discovery troubleshooting
+- 2025.10.18.08: FIXED - Added proper error handling for missing ha_core imports
+  - Added try/except around ha_core imports with detailed error logging
+  - Added fallback error responses when imports fail
+  - This fixes the "error: NO_ERROR" issue
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -22,7 +21,27 @@ from gateway import (
     generate_correlation_id,
     create_success_response, create_error_response
 )
-from ha_core import get_ha_states, call_ha_service, get_ha_config
+
+# Try to import ha_core functions with error handling
+try:
+    from ha_core import get_ha_states, call_ha_service, get_ha_config
+    HA_CORE_AVAILABLE = True
+    log_info("[HA_ALEXA] Successfully imported ha_core functions")
+except Exception as e:
+    HA_CORE_AVAILABLE = False
+    log_error(f"[HA_ALEXA] CRITICAL: Failed to import ha_core: {type(e).__name__}: {str(e)}")
+    import traceback
+    log_error(f"[HA_ALEXA] Import traceback:\n{traceback.format_exc()}")
+    
+    # Create stub functions that return proper errors
+    def get_ha_states(*args, **kwargs):
+        return create_error_response(f'ha_core import failed: {str(e)}', 'HA_CORE_IMPORT_FAILED')
+    
+    def call_ha_service(*args, **kwargs):
+        return create_error_response(f'ha_core import failed: {str(e)}', 'HA_CORE_IMPORT_FAILED')
+    
+    def get_ha_config(*args, **kwargs):
+        return {}
 
 # Alexa capability mappings
 DEVICE_CAPABILITIES = {
@@ -87,7 +106,15 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if _is_debug_mode():
             log_info(f"[{correlation_id}] [DEBUG ENTRY] HA_ALEXA: handle_discovery called")
-            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: directive type: {type(directive)}")
+            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: HA_CORE_AVAILABLE={HA_CORE_AVAILABLE}")
+        
+        if not HA_CORE_AVAILABLE:
+            log_error(f"[{correlation_id}] ha_core not available - cannot process discovery")
+            return _create_error_response(
+                directive.get('header', {}),
+                'INTERNAL_ERROR',
+                'Home Assistant core module failed to load'
+            )
         
         log_info(f"[{correlation_id}] Processing Alexa discovery")
         
@@ -100,21 +127,34 @@ def handle_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         if _is_debug_mode():
             log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: get_ha_states returned")
             log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response type: {type(response)}")
-            log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response keys: {list(response.keys()) if isinstance(response, dict) else 'NOT_A_DICT'}")
+            if isinstance(response, dict):
+                log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: response keys: {list(response.keys())}")
+                log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: success: {response.get('success')}")
+                log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: error: {response.get('error', 'NO_ERROR_FIELD')}")
+                log_info(f"[{correlation_id}] [DEBUG] HA_ALEXA: error_code: {response.get('error_code', 'NO_CODE_FIELD')}")
+            else:
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: response is NOT A DICT")
         
         # DEBUG: Log response structure
         log_debug(f"[{correlation_id}] get_ha_states response type: {type(response)}")
         log_debug(f"[{correlation_id}] get_ha_states response keys: {list(response.keys()) if isinstance(response, dict) else 'NOT_A_DICT'}")
         
         if not response.get('success'):
+            error_msg = response.get('error', 'Unknown error from get_ha_states')
+            error_code = response.get('error_code', 'UNKNOWN_ERROR')
+            
             if _is_debug_mode():
                 log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: get_ha_states failed")
-                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: error: {response.get('error', 'NO_ERROR')}")
-            log_error(f"[{correlation_id}] get_ha_states failed: {response.get('error', 'Unknown')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: error: {error_msg}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: error_code: {error_code}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_ALEXA: Full response: {response}")
+            
+            log_error(f"[{correlation_id}] get_ha_states failed: {error_msg} (code: {error_code})")
+            
             return _create_error_response(
                 directive.get('header', {}),
                 'BRIDGE_UNREACHABLE',
-                'Cannot reach Home Assistant'
+                f'Cannot reach Home Assistant: {error_msg}'
             )
         
         # Get data field
