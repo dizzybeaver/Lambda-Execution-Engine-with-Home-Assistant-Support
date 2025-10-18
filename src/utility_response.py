@@ -1,6 +1,6 @@
 """
 utility_response.py - Response Formatting (Internal)
-Version: 2025.10.16.04
+Version: 2025.10.18.01 - RECURSION FIX
 Description: Response formatting methods for success/error responses and Lambda responses
 
 SUGA-ISP: Internal module - only accessed via interface_utility.py
@@ -34,6 +34,55 @@ logger = stdlib_logging.getLogger(__name__)
 _USE_TEMPLATES = os.environ.get('USE_JSON_TEMPLATES', 'true').lower() == 'true'
 
 
+# ===== HELPER FUNCTIONS =====
+
+def _sanitize_for_json(obj: Any, max_depth: int = 10) -> Any:
+    """
+    Sanitize object for JSON serialization.
+    Converts tuples to lists, removes non-JSON-serializable keys.
+    """
+    if max_depth <= 0:
+        return str(obj)[:100]  # Prevent infinite recursion
+    
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(item, max_depth - 1) for item in obj]
+    
+    if isinstance(obj, dict):
+        sanitized = {}
+        for key, value in obj.items():
+            # Convert tuple keys to strings
+            if isinstance(key, tuple):
+                key = str(key)
+            # Only allow JSON-safe key types
+            elif not isinstance(key, (str, int, float, bool)):
+                key = str(key)
+            
+            sanitized[key] = _sanitize_for_json(value, max_depth - 1)
+        return sanitized
+    
+    # For other types, convert to string
+    return str(obj)
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """Safely convert object to JSON string."""
+    try:
+        # First attempt normal JSON serialization
+        return json.dumps(obj)
+    except (TypeError, ValueError) as e:
+        # If that fails, sanitize and try again
+        try:
+            sanitized = _sanitize_for_json(obj)
+            return json.dumps(sanitized)
+        except Exception as inner_e:
+            # Last resort: return string representation
+            logger.error(f"JSON serialization failed even after sanitization: {inner_e}")
+            return json.dumps({"error": "Serialization failed", "details": str(obj)[:200]})
+
+
 # ===== RESPONSE FORMATTING =====
 
 class ResponseFormatter:
@@ -44,34 +93,61 @@ class ResponseFormatter:
                            headers: Optional[str] = None) -> Dict:
         """Fast Lambda response formatting using template."""
         try:
-            body_json = body if isinstance(body, str) else json.dumps(body)
+            # Use safe JSON dumps to handle problematic data
+            body_json = body if isinstance(body, str) else _safe_json_dumps(body)
             headers_json = headers or DEFAULT_HEADERS_JSON
             
             json_str = LAMBDA_RESPONSE % (status_code, body_json, headers_json)
             return json.loads(json_str)
         except Exception as e:
             logger.error(f"Fast response formatting error: {str(e)}")
-            return ResponseFormatter.format_response(status_code, body, None)
+            # CRITICAL FIX: Use _format_response_fallback instead of recursing
+            return ResponseFormatter._format_response_fallback(status_code, body)
+    
+    @staticmethod
+    def _format_response_fallback(status_code: int, body: Any) -> Dict:
+        """
+        Fallback response formatter that NEVER calls format_response_fast.
+        Breaks the recursion cycle.
+        """
+        try:
+            # Sanitize body for JSON
+            sanitized_body = _sanitize_for_json(body)
+            
+            return {
+                "statusCode": status_code,
+                "body": _safe_json_dumps(sanitized_body),
+                "headers": DEFAULT_HEADERS_DICT
+            }
+        except Exception as e:
+            logger.error(f"Fallback response formatting error: {str(e)}")
+            # Absolute last resort - hardcoded safe response
+            return {
+                "statusCode": 500,
+                "body": '{"error": "Response formatting failed completely"}',
+                "headers": DEFAULT_HEADERS_DICT
+            }
     
     @staticmethod
     def format_response(status_code: int, body: Any, headers: Optional[Dict] = None) -> Dict:
         """Format Lambda response (standard path)."""
+        # Use fast path only if headers are default/None AND templates enabled
         if _USE_TEMPLATES and (headers is None or headers == DEFAULT_HEADERS_DICT):
             return ResponseFormatter.format_response_fast(status_code, body)
         
         try:
+            # Sanitize body for JSON
+            sanitized_body = _sanitize_for_json(body)
+            
             return {
                 "statusCode": status_code,
-                "body": json.dumps(body) if not isinstance(body, str) else body,
+                "body": _safe_json_dumps(sanitized_body),
                 "headers": headers or DEFAULT_HEADERS_DICT
             }
         except Exception as e:
             logger.error(f"Response formatting error: {str(e)}")
-            return {
-                "statusCode": 500,
-                "body": json.dumps({"error": "Response formatting failed"}),
-                "headers": DEFAULT_HEADERS_DICT
-            }
+            # Use fallback instead of recursing
+            return ResponseFormatter._format_response_fallback(status_code, body)
     
     @staticmethod
     def create_success_response(message: str, data: Any = None, 
@@ -80,7 +156,9 @@ class ResponseFormatter:
         try:
             if _USE_TEMPLATES:
                 timestamp = int(time.time())
-                data_json = json.dumps(data) if data is not None else EMPTY_DATA
+                # Sanitize data before JSON conversion
+                sanitized_data = _sanitize_for_json(data) if data is not None else None
+                data_json = _safe_json_dumps(sanitized_data) if sanitized_data is not None else EMPTY_DATA
                 
                 if correlation_id:
                     json_str = SUCCESS_WITH_CORRELATION % (message, timestamp, data_json, correlation_id)
@@ -89,6 +167,7 @@ class ResponseFormatter:
                 
                 return json.loads(json_str)
             
+            # Standard path
             response = {
                 "success": True,
                 "message": message,
@@ -96,7 +175,7 @@ class ResponseFormatter:
             }
             
             if data is not None:
-                response["data"] = data
+                response["data"] = _sanitize_for_json(data)
             
             if correlation_id:
                 response["correlation_id"] = correlation_id
@@ -118,7 +197,9 @@ class ResponseFormatter:
         try:
             if _USE_TEMPLATES:
                 timestamp = int(time.time())
-                details_json = json.dumps(details) if details is not None else EMPTY_DATA
+                # Sanitize details before JSON conversion
+                sanitized_details = _sanitize_for_json(details) if details is not None else None
+                details_json = _safe_json_dumps(sanitized_details) if sanitized_details is not None else EMPTY_DATA
                 
                 if correlation_id:
                     json_str = ERROR_WITH_CORRELATION % (message, error_code, timestamp, details_json, correlation_id)
@@ -127,6 +208,7 @@ class ResponseFormatter:
                 
                 return json.loads(json_str)
             
+            # Standard path
             response = {
                 "success": False,
                 "error": message,
@@ -135,7 +217,7 @@ class ResponseFormatter:
             }
             
             if details is not None:
-                response["details"] = details
+                response["details"] = _sanitize_for_json(details)
             
             if correlation_id:
                 response["correlation_id"] = correlation_id
