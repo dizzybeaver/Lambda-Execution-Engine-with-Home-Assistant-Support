@@ -1,9 +1,15 @@
 """
 interface_config.py - Config Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
+Version: 2025.10.18.01
 Description: Router for Config interface with dispatch dictionary pattern
 
 CHANGELOG:
+- 2025.10.18.01: FIXED Issue #28 - Added 'get_parameter' and 'set_parameter' aliases
+  - Added 'get_parameter' as alias for 'get' (maps to _get_parameter_implementation)
+  - Added 'set_parameter' as alias for 'set' (maps to _set_parameter_implementation)
+  - Fixes diagnostic test failure in lambda_ha_connection.py
+  - Maintains consistency with config_core.py method names and gateway_wrappers.py
+  - Required by SSM Parameter Store integration
 - 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
   - Converted from elif chain (10 operations) to dispatch dictionary
   - O(1) operation lookup vs O(n) elif chain
@@ -113,7 +119,19 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _get_parameter_implementation(**kwargs)
         )[1],
         
+        # Alias: get_parameter → get (Issue #28)
+        'get_parameter': lambda **kwargs: (
+            _validate_key_param(kwargs, 'get_parameter'),
+            _get_parameter_implementation(**kwargs)
+        )[1],
+        
         'set': lambda **kwargs: (
+            _validate_set_params(kwargs),
+            _set_parameter_implementation(**kwargs)
+        )[1],
+        
+        # Alias: set_parameter → set (Issue #28)
+        'set_parameter': lambda **kwargs: (
             _validate_set_params(kwargs),
             _set_parameter_implementation(**kwargs)
         )[1],
@@ -149,6 +167,18 @@ _OPERATION_DISPATCH = _build_dispatch_dict() if _CONFIG_AVAILABLE else {}
 def execute_config_operation(operation: str, **kwargs) -> Any:
     """
     Route config operation requests using dispatch dictionary pattern.
+    
+    Operations:
+    - initialize: Initialize configuration system
+    - get/get_parameter: Get configuration parameter (aliases)
+    - set/set_parameter: Set configuration parameter (aliases)
+    - get_category: Get category configuration
+    - reload: Reload configuration from environment/Parameter Store
+    - switch_preset: Switch to predefined configuration preset
+    - get_state: Get current configuration state
+    - load_environment: Load configuration from environment variables
+    - load_file: Load configuration from file
+    - validate_all: Validate all configuration sections
     
     Args:
         operation: Config operation to execute
