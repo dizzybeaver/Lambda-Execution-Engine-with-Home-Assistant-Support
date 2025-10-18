@@ -1,16 +1,16 @@
 """
 interface_utility.py - Utility Interface Router (SUGA-ISP)
-Version: 2025.10.17.16
+Version: 2025.10.18.01
 Description: Router/Firewall for utility interface with dispatch dictionary pattern
+            FIXED: Method name mappings for SharedUtilityCore
 
 CHANGELOG:
+- 2025.10.18.01: FIXED method name mappings (Issue #16)
+  - cleanup_utility_cache → cleanup_cache
+  - get_utility_performance_stats → get_performance_stats
+  - optimize_utility_performance → optimize_performance
+  - configure_utility_caching → configure_caching
 - 2025.10.17.16: COMPLETED Issue #20 + Modernized with dispatch dictionary
-  - Added complete import protection for ALL utility modules
-  - Converted from elif chain to dispatch dictionary pattern
-  - Reduced code from ~400 lines to ~200 lines
-  - O(1) operation lookup vs O(n) elif chain
-  - Easier to maintain and extend
-  - Consistent with new architecture pattern
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -24,7 +24,6 @@ logger = stdlib_logging.getLogger(__name__)
 
 # ===== IMPORT PROTECTION =====
 
-# Types module
 try:
     from utility_types import UtilityOperation, DEFAULT_USE_GENERIC_OPERATIONS
     _TYPES_AVAILABLE = True
@@ -34,7 +33,6 @@ except ImportError as e:
     UtilityOperation = None
     DEFAULT_USE_GENERIC_OPERATIONS = None
 
-# Core utility module
 try:
     from utility_core import SharedUtilityCore
     _CORE_AVAILABLE = True
@@ -43,7 +41,6 @@ except ImportError as e:
     logger.error(f"Utility core unavailable: {e}")
     SharedUtilityCore = None
 
-# Response formatting
 try:
     from utility_response import (
         format_response_fast,
@@ -60,7 +57,6 @@ except ImportError as e:
     create_success_response = None
     create_error_response = None
 
-# Cross-interface utilities
 try:
     from utility_cross_interface import (
         cache_operation_result,
@@ -89,7 +85,6 @@ except ImportError as e:
     optimize_interface_memory = None
     validate_aws_free_tier_compliance = None
 
-# Validation modules
 try:
     from utility_validation_core import (
         ValidationError, RequiredFieldError, TypeValidationError, RangeValidationError,
@@ -120,33 +115,28 @@ else:
 # ===== OPERATION DISPATCH DICTIONARY =====
 
 def _build_dispatch_dict():
-    """Build operation dispatch dictionary. Only called if _UTILITY available."""
+    """Build operation dispatch dictionary."""
     if not _UTILITY:
         return {}
     
     return {
-        # Core operations
         'generate_uuid': _UTILITY.generate_uuid,
         'get_timestamp': _UTILITY.get_timestamp,
         'format_bytes': _UTILITY.format_bytes,
         'deep_merge': _UTILITY.deep_merge,
         'parse_json': _UTILITY.parse_json_safely,
         'safe_get': _UTILITY.safe_get,
-        
-        # Response formatting (delegates to utility_response functions)
         'format_response': lambda **kwargs: format_response(**kwargs) if _RESPONSE_AVAILABLE else None,
         'format_response_fast': lambda **kwargs: format_response_fast(**kwargs) if _RESPONSE_AVAILABLE else None,
         'create_success_response': lambda **kwargs: create_success_response(**kwargs) if _RESPONSE_AVAILABLE else None,
         'create_error_response': lambda **kwargs: create_error_response(**kwargs) if _RESPONSE_AVAILABLE else None,
-        
-        # Utility core methods
         'generate_correlation_id': _UTILITY.generate_correlation_id,
         'validate_data_structure': _UTILITY.validate_data_structure,
         'format_data_for_response': _UTILITY.format_data_for_response,
-        'cleanup_utility_cache': _UTILITY.cleanup_utility_cache,
-        'get_utility_performance_stats': _UTILITY.get_utility_performance_stats,
-        'optimize_utility_performance': _UTILITY.optimize_utility_performance,
-        'configure_utility_caching': _UTILITY.configure_utility_caching,
+        'cleanup_utility_cache': _UTILITY.cleanup_cache,
+        'get_utility_performance_stats': _UTILITY.get_performance_stats,
+        'optimize_utility_performance': _UTILITY.optimize_performance,
+        'configure_utility_caching': _UTILITY.configure_caching,
         'safe_string_conversion': _UTILITY.safe_string_conversion,
         'merge_dictionaries': _UTILITY.merge_dictionaries,
         'extract_error_details': _UTILITY.extract_error_details,
@@ -158,35 +148,13 @@ _OPERATION_DISPATCH = _build_dispatch_dict() if _CORE_AVAILABLE else {}
 # ===== MAIN ROUTER FUNCTION =====
 
 def execute_utility_operation(operation: str, **kwargs) -> Any:
-    """
-    Route utility operations using dispatch dictionary pattern.
-    
-    Args:
-        operation: Operation name to execute
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Operation result
-        
-    Raises:
-        RuntimeError: If utility core unavailable
-        ValueError: If operation unknown
-    """
-    # Check availability
+    """Route utility operations using dispatch dictionary pattern."""
     if not _CORE_AVAILABLE:
-        raise RuntimeError(
-            "Utility interface unavailable: core module import failed. "
-            "Cannot execute utility operations."
-        )
+        raise RuntimeError("Utility interface unavailable: core module import failed.")
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
-        raise ValueError(
-            f"Unknown utility operation: '{operation}'. "
-            f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
-        )
+        raise ValueError(f"Unknown utility operation: '{operation}'.")
     
-    # Parameter validation for operations that require it
     if operation == 'parse_json' and 'data' not in kwargs:
         raise ValueError("parse_json requires 'data' parameter")
     if operation == 'safe_get':
@@ -200,7 +168,6 @@ def execute_utility_operation(operation: str, **kwargs) -> Any:
         if 'dict1' not in kwargs or 'dict2' not in kwargs:
             raise ValueError("deep_merge requires 'dict1' and 'dict2' parameters")
     
-    # Dispatch to operation
     return _OPERATION_DISPATCH[operation](**kwargs)
 
 # ===== GATEWAY COMPATIBILITY LAYER =====
@@ -221,16 +188,12 @@ def _deep_merge_implementation(dict1: Dict, dict2: Dict):
     """Execute deep merge."""
     return execute_utility_operation('deep_merge', dict1=dict1, dict2=dict2)
 
-def _execute_format_response_implementation(status_code: int, body: Any, 
-                                          headers: Optional[Dict] = None, 
-                                          use_template: bool = True, **kwargs) -> Dict:
+def _execute_format_response_implementation(status_code: int, body: Any, headers: Optional[Dict] = None, use_template: bool = True, **kwargs) -> Dict:
     """Execute response formatting."""
     if use_template and not headers:
-        return execute_utility_operation('format_response_fast', 
-                                        status_code=status_code, body=body)
+        return execute_utility_operation('format_response_fast', status_code=status_code, body=body)
     else:
-        return execute_utility_operation('format_response', 
-                                        status_code=status_code, body=body, headers=headers)
+        return execute_utility_operation('format_response', status_code=status_code, body=body, headers=headers)
 
 def _execute_parse_json_implementation(data: str, **kwargs) -> Dict:
     """Execute JSON parsing."""
@@ -238,8 +201,7 @@ def _execute_parse_json_implementation(data: str, **kwargs) -> Dict:
 
 def _execute_safe_get_implementation(dictionary: Dict, key_path: str, default: Any = None, **kwargs) -> Any:
     """Execute safe get."""
-    return execute_utility_operation('safe_get', dictionary=dictionary, 
-                                    key_path=key_path, default=default)
+    return execute_utility_operation('safe_get', dictionary=dictionary, key_path=key_path, default=default)
 
 # ===== PUBLIC INTERFACE FUNCTIONS =====
 
@@ -251,32 +213,30 @@ def parse_json_safely(json_str: str, use_cache: bool = True) -> Optional[Dict[st
     """Parse JSON safely with optional caching."""
     return _UTILITY.parse_json_safely(json_str, use_cache) if _UTILITY else None
 
-def validate_data_structure(data: Any, expected_type: type,
-                           required_fields: Optional[List[str]] = None) -> bool:
+def validate_data_structure(data: Any, expected_type: type, required_fields: Optional[List[str]] = None) -> bool:
     """Validate data structure."""
     return _UTILITY.validate_data_structure(data, expected_type, required_fields) if _UTILITY else False
 
-def format_data_for_response(data: Any, format_type: str = "json",
-                            include_metadata: bool = True) -> Dict[str, Any]:
+def format_data_for_response(data: Any, format_type: str = "json", include_metadata: bool = True) -> Dict[str, Any]:
     """Format data for response."""
     return _UTILITY.format_data_for_response(data, format_type, include_metadata) if _UTILITY else {}
 
 def cleanup_utility_cache() -> int:
     """Cleanup utility cache."""
-    return _UTILITY.cleanup_utility_cache() if _UTILITY else 0
+    return _UTILITY.cleanup_cache() if _UTILITY else 0
 
 def get_utility_performance_stats() -> Dict[str, Any]:
     """Get utility performance stats."""
-    return _UTILITY.get_utility_performance_stats() if _UTILITY else {}
+    return _UTILITY.get_performance_stats() if _UTILITY else {}
 
 def optimize_utility_performance() -> Dict[str, Any]:
     """Optimize utility performance."""
-    return _UTILITY.optimize_utility_performance() if _UTILITY else {}
+    return _UTILITY.optimize_performance() if _UTILITY else {}
 
 def configure_utility_caching(enabled: bool, ttl: int = 300) -> None:
     """Configure utility caching."""
     if _UTILITY:
-        _UTILITY.configure_utility_caching(enabled, ttl)
+        _UTILITY.configure_caching(enabled, ttl)
 
 def safe_string_conversion(value: Any, max_length: Optional[int] = None) -> str:
     """Safe string conversion."""
@@ -290,9 +250,7 @@ def extract_error_details(error: Exception) -> Dict[str, Any]:
     """Extract error details."""
     return _UTILITY.extract_error_details(error) if _UTILITY else {}
 
-def validate_operation_parameters(required_params: List[str], 
-                                 optional_params: Optional[List[str]] = None,
-                                 **kwargs) -> Dict[str, Any]:
+def validate_operation_parameters(required_params: List[str], optional_params: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
     """Validate operation parameters."""
     return _UTILITY.validate_operation_parameters(required_params, optional_params, **kwargs) if _UTILITY else {}
 
@@ -321,27 +279,17 @@ __all__ = [
     'validate_operation_parameters',
 ]
 
-# Response formatting exports (if available)
 if _RESPONSE_AVAILABLE:
-    __all__.extend(['format_response_fast', 'format_response', 
-                    'create_success_response', 'create_error_response'])
+    __all__.extend(['format_response_fast', 'format_response', 'create_success_response', 'create_error_response'])
 
-# Cross-interface exports (if available)
 if _CROSS_INTERFACE_AVAILABLE:
-    __all__.extend(['cache_operation_result', 'record_operation_metrics', 
-                    'handle_operation_error', 'create_operation_context',
-                    'close_operation_context', 'batch_cache_operations',
-                    'parallel_operation_execution', 'aggregate_interface_metrics',
+    __all__.extend(['cache_operation_result', 'record_operation_metrics', 'handle_operation_error', 'create_operation_context',
+                    'close_operation_context', 'batch_cache_operations', 'parallel_operation_execution', 'aggregate_interface_metrics',
                     'optimize_interface_memory', 'validate_aws_free_tier_compliance'])
 
-# Validation exports (if available)
 if _VALIDATION_AVAILABLE:
-    __all__.extend(['ValidationError', 'RequiredFieldError', 'TypeValidationError',
-                    'RangeValidationError', 'validate_required', 'validate_type',
-                    'validate_range', 'validate_string_length', 'validate_one_of',
-                    'validate_required_fields', 'validate_dict_schema', 'validate_params',
-                    'validate_return_type', 'safe_validate', 'validate_all',
-                    'create_cache_key_validator', 'create_ttl_validator', 
-                    'create_metric_validator'])
+    __all__.extend(['ValidationError', 'RequiredFieldError', 'TypeValidationError', 'RangeValidationError', 'validate_required', 'validate_type',
+                    'validate_range', 'validate_string_length', 'validate_one_of', 'validate_required_fields', 'validate_dict_schema', 'validate_params',
+                    'validate_return_type', 'safe_validate', 'validate_all', 'create_cache_key_validator', 'create_ttl_validator', 'create_metric_validator'])
 
 # EOF
