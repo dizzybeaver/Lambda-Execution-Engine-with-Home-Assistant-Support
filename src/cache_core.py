@@ -1,65 +1,39 @@
 """
 cache_core.py - LUGS-Integrated Cache Core Implementation
-Version: 2025.10.17.04
-Description: Thread-safe cache with LUGS metadata tracking and memory monitoring
+Version: 2025.10.17.05
+Description: Cache with LUGS metadata tracking and memory monitoring
 
 CHANGELOG:
-- 2025.10.17.04: REMOVED threading locks for Lambda optimization (Issue #13 fix)
-  - Removed self._lock and all "with self._lock:" blocks
-  - Lambda is definitively single-threaded per container
-  - Removes ~0.001ms overhead per cache operation
+- 2025.10.17.05: REDUCED DEFAULT_CACHE_TTL for Lambda optimization (Issue #12 fix)
+  - Changed from 300s (5 minutes) to 60s (1 minute)
+  - Better fit for Lambda use case (typical invocations are seconds)
+  - Made configurable via CACHE_TTL environment variable
   - Updated design decisions documentation
+- 2025.10.17.04: REMOVED threading locks for Lambda optimization (Issue #13 fix)
 - 2025.10.17.02: Added memory tracking for Lambda 128MB constraint (Issue #9 fix)
-- 2025.10.17.01: Enhanced design decision documentation for threading.Lock() usage
-- 2025.10.16.05: Removed duplicate gateway functions, removed generic operation wrapper,
-                 simplified implementation wrappers to directly call cache instance
-- 2025.10.16.04: Bug fixes - added cache_exists() convenience function, parameter validation,
-                 TTL validation, key validation, improved None handling documentation
-- 2025.10.16.03: Bug fixes - added EXISTS enum, DEFAULT_CACHE_TTL constant, improved
-                 LUGS failure logging, added documentation for intentional behaviors
-- 2025.10.16.02: Fixed exists() implementation, TTL defaults, error handling, type hints
-- 2025.10.15.02: Added dispatcher timing integration
-- 2025.10.15.01: Initial LUGS-integrated cache implementation
 
 DESIGN DECISIONS DOCUMENTED:
 
 1. Threading Locks REMOVED (UPDATED 2025.10.17.04):
-   PREVIOUS: Used threading.Lock() for "future-proofing"
    DECISION: REMOVED for Lambda optimization (Issue #13)
    Reason: Lambda is definitively single-threaded per container
    Performance Gain: Eliminates ~0.001ms overhead per operation
-   Lambda Context: Single-threaded execution model is AWS Lambda architecture
-   NOT A REGRESSION: Lambda will never support multi-threading per container
-   Code Clarity: Explicit Lambda-specific implementation
    
 2. Memory Tracking Implementation (UPDATED 2025.10.17.02):
-   DESIGN DECISION: NOW tracks both item count AND memory bytes consumed
+   DECISION: Tracks both item count AND memory bytes consumed
    Reason: Lambda 128MB constraint requires byte-level memory visibility
-   Previous: Tracked count only (acceptable for general use)
-   Current: Tracks bytes using sys.getsizeof() for Lambda safety
    Trade-off: Small overhead on set/delete (~0.01ms) for critical safety feature
-   IMPROVEMENT: Prevents OOM crashes in 128MB Lambda environment
-
-3. 300 Second Default TTL:
-   DESIGN DECISION: DEFAULT_CACHE_TTL = 300 seconds (5 minutes)
-   Reason: Balances data freshness with cache hit rates
-   Lambda Context: Longer than typical Lambda invocation, but suitable for warm containers
-   Configurable: Can be overridden per cache_set() call or via environment variable
-   NOT A BUG: Conservative default for general-purpose caching
+   
+3. 60 Second Default TTL (UPDATED 2025.10.17.05):
+   PREVIOUS: DEFAULT_CACHE_TTL = 300 seconds (5 minutes)
+   DECISION: REDUCED to 60 seconds (1 minute) for Lambda (Issue #12)
+   Reason: Lambda invocations typically last seconds, not minutes
+   Lambda Use Case: Shorter TTL reduces stale data risk
+   Configurable: Can be overridden via CACHE_TTL environment variable or per cache_set() call
+   Performance: Better memory utilization, faster cache turnover
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 import os
@@ -72,7 +46,7 @@ from enum import Enum
 
 # ===== CACHE CONSTANTS =====
 
-DEFAULT_CACHE_TTL = 300  # seconds (5 minutes)
+DEFAULT_CACHE_TTL = int(os.environ.get('CACHE_TTL', '60'))  # 1 minute (configurable)
 MAX_CACHE_BYTES = 50 * 1024 * 1024  # 50MB limit for Lambda safety
 
 # Sentinel value for cache misses to distinguish from cached None
@@ -156,10 +130,10 @@ class LUGSIntegratedCache:
       registration fails (logged but not fatal)
     - None handling: Can cache None values safely (use exists() to check presence)
     - Memory tracking: Tracks BOTH item count AND bytes for Lambda 128MB safety
+    - TTL: Configurable via CACHE_TTL environment variable (default: 60s)
     """
     
     def __init__(self):
-        # REMOVED: self._lock = threading.Lock() (Issue #13 fix)
         self._cache: Dict[str, CacheEntry] = {}
         self.max_bytes = MAX_CACHE_BYTES
         self.current_bytes = 0
@@ -253,7 +227,7 @@ class LUGSIntegratedCache:
         Args:
             key: Cache key (non-empty string)
             value: Value to cache (any type including None)
-            ttl: Time-to-live in seconds (must be positive)
+            ttl: Time-to-live in seconds (default: 60s, configurable via CACHE_TTL env var)
             source_module: Optional module name for LUGS dependency tracking
             
         Raises:
@@ -460,6 +434,7 @@ class LUGSIntegratedCache:
             'max_bytes': self.max_bytes,
             'max_mb': self.max_bytes / (1024 * 1024),
             'memory_utilization_percent': (self.current_bytes / self.max_bytes) * 100 if self.max_bytes > 0 else 0,
+            'default_ttl_seconds': DEFAULT_CACHE_TTL,
             'total_sets': self._stats['total_sets'],
             'total_gets': self._stats['total_gets'],
             'cache_hits': self._stats['cache_hits'],
