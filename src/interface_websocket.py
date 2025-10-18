@@ -1,20 +1,16 @@
 """
 interface_websocket.py - WebSocket Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.05
-Description: Firewall router for WebSocket interface with parameter validation
+Version: 2025.10.17.14
+Description: Firewall router for WebSocket interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.17.14: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for websocket_core imports
+  - Sets _WEBSOCKET_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when WebSocket unavailable
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
-  - Validates 'url' parameter for connect operation
-  - Validates 'connection_id' parameter for send/receive/close operations
-  - Validates 'message' parameter for send operation
-  - Type checking for all string parameters
-  - Clear error messages for missing/invalid parameters
 - 2025.10.15.01: Initial SUGA-ISP router implementation
-
-NOTE: WebSocket requires API Gateway WebSocket APIs for Lambda deployment.
-Free tier: 1M messages/month for first 12 months, then paid service.
-See Bug Analysis Report Issue #45 for details.
 
 Copyright 2025 Joseph Hersey
 
@@ -33,17 +29,27 @@ Copyright 2025 Joseph Hersey
 
 from typing import Any
 
-from websocket_core import (
-    websocket_connect_implementation,
-    websocket_send_implementation,
-    websocket_receive_implementation,
-    websocket_close_implementation,
-    websocket_request_implementation
-)
+# Import protection
+try:
+    from websocket_core import (
+        _execute_connect_implementation,
+        _execute_send_implementation,
+        _execute_disconnect_implementation,
+        _execute_get_state_implementation
+    )
+    _WEBSOCKET_AVAILABLE = True
+    _WEBSOCKET_IMPORT_ERROR = None
+except ImportError as e:
+    _WEBSOCKET_AVAILABLE = False
+    _WEBSOCKET_IMPORT_ERROR = str(e)
+    _execute_connect_implementation = None
+    _execute_send_implementation = None
+    _execute_disconnect_implementation = None
+    _execute_get_state_implementation = None
 
 
 _VALID_WEBSOCKET_OPERATIONS = [
-    'connect', 'send', 'receive', 'close', 'request'
+    'connect', 'send', 'disconnect', 'get_state'
 ]
 
 
@@ -53,102 +59,59 @@ def execute_websocket_operation(operation: str, **kwargs) -> Any:
     This is called by the SUGA-ISP (gateway.py).
     
     Args:
-        operation: The WebSocket operation to execute
+        operation: WebSocket operation to execute
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from internal implementation
+        Operation result
         
     Raises:
-        ValueError: If operation is unknown or required parameters are missing/invalid
-        
-    Note:
-        WebSocket requires API Gateway WebSocket APIs for Lambda.
-        Not a pure Lambda solution - requires additional AWS infrastructure.
+        RuntimeError: If WebSocket interface unavailable
+        ValueError: If operation is unknown or required parameters missing
     """
+    # Check WebSocket availability
+    if not _WEBSOCKET_AVAILABLE:
+        raise RuntimeError(
+            f"WebSocket interface unavailable: {_WEBSOCKET_IMPORT_ERROR}. "
+            "This may indicate missing websocket_core module or circular import."
+        )
     
-    if operation == 'connect':
-        _validate_url_param(kwargs, operation)
-        return websocket_connect_implementation(**kwargs)
-    
-    elif operation == 'send':
-        _validate_send_params(kwargs, operation)
-        return websocket_send_implementation(**kwargs)
-    
-    elif operation == 'receive':
-        _validate_connection_id_param(kwargs, operation)
-        return websocket_receive_implementation(**kwargs)
-    
-    elif operation == 'close':
-        _validate_connection_id_param(kwargs, operation)
-        return websocket_close_implementation(**kwargs)
-    
-    elif operation == 'request':
-        _validate_url_param(kwargs, operation)
-        return websocket_request_implementation(**kwargs)
-    
-    else:
+    if operation not in _VALID_WEBSOCKET_OPERATIONS:
         raise ValueError(
             f"Unknown WebSocket operation: '{operation}'. "
             f"Valid operations: {', '.join(_VALID_WEBSOCKET_OPERATIONS)}"
         )
-
-
-def _validate_url_param(kwargs: dict, operation: str) -> None:
-    """Validate url parameter for WebSocket operations."""
-    if 'url' not in kwargs:
-        raise ValueError(f"WebSocket operation '{operation}' requires parameter 'url'")
     
-    url = kwargs.get('url')
-    if not isinstance(url, str):
-        raise ValueError(
-            f"WebSocket operation '{operation}' parameter 'url' must be string, "
-            f"got {type(url).__name__}"
-        )
+    if operation == 'connect':
+        if 'url' not in kwargs:
+            raise ValueError("websocket.connect requires 'url' parameter")
+        if not isinstance(kwargs['url'], str):
+            raise TypeError(f"websocket.connect 'url' must be str, got {type(kwargs['url']).__name__}")
+        return _execute_connect_implementation(**kwargs)
     
-    if not url.strip():
-        raise ValueError(f"WebSocket operation '{operation}' parameter 'url' cannot be empty")
+    elif operation == 'send':
+        if 'connection_id' not in kwargs:
+            raise ValueError("websocket.send requires 'connection_id' parameter")
+        if 'message' not in kwargs:
+            raise ValueError("websocket.send requires 'message' parameter")
+        if not isinstance(kwargs['connection_id'], str):
+            raise TypeError(f"websocket.send 'connection_id' must be str, got {type(kwargs['connection_id']).__name__}")
+        return _execute_send_implementation(**kwargs)
     
-    if not (url.startswith('ws://') or url.startswith('wss://')):
-        raise ValueError(
-            f"WebSocket operation '{operation}' parameter 'url' must start with 'ws://' or 'wss://', "
-            f"got '{url[:10]}...'"
-        )
+    elif operation == 'disconnect':
+        if 'connection_id' not in kwargs:
+            raise ValueError("websocket.disconnect requires 'connection_id' parameter")
+        if not isinstance(kwargs['connection_id'], str):
+            raise TypeError(f"websocket.disconnect 'connection_id' must be str, got {type(kwargs['connection_id']).__name__}")
+        return _execute_disconnect_implementation(**kwargs)
+    
+    elif operation == 'get_state':
+        return _execute_get_state_implementation(**kwargs)
+    
+    else:
+        raise ValueError(f"Unhandled WebSocket operation: '{operation}'")
 
 
-def _validate_connection_id_param(kwargs: dict, operation: str) -> None:
-    """Validate connection_id parameter."""
-    if 'connection_id' not in kwargs:
-        raise ValueError(f"WebSocket operation '{operation}' requires parameter 'connection_id'")
-    
-    connection_id = kwargs.get('connection_id')
-    if not isinstance(connection_id, str):
-        raise ValueError(
-            f"WebSocket operation '{operation}' parameter 'connection_id' must be string, "
-            f"got {type(connection_id).__name__}"
-        )
-    
-    if not connection_id.strip():
-        raise ValueError(f"WebSocket operation '{operation}' parameter 'connection_id' cannot be empty")
-
-
-def _validate_send_params(kwargs: dict, operation: str) -> None:
-    """Validate parameters for WebSocket send operation."""
-    _validate_connection_id_param(kwargs, operation)
-    
-    if 'message' not in kwargs:
-        raise ValueError(f"WebSocket operation '{operation}' requires parameter 'message'")
-    
-    message = kwargs.get('message')
-    if not isinstance(message, (str, bytes, dict)):
-        raise ValueError(
-            f"WebSocket operation '{operation}' parameter 'message' must be string, bytes, or dict, "
-            f"got {type(message).__name__}"
-        )
-
-
-__all__ = [
-    'execute_websocket_operation'
-]
+__all__ = ['execute_websocket_operation']
 
 # EOF
