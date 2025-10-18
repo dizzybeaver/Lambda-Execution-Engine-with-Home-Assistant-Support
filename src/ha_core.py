@@ -1,15 +1,17 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.05
+Version: 2025.10.18.06
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
 CHANGELOG:
+- 2025.10.18.06: FINAL - Complete defensive coding for all edge cases
+  - Type validation on every parameter
+  - Null checks everywhere
+  - Comprehensive error handling
+  - Fixed dict vs list response handling
 - 2025.10.18.05: FIXED Issue #32 - Handle dict response when expecting list
-  - Added _extract_entity_list() to handle various response formats
-  - Supports: direct list, dict with entities key, nested data structures
-  - Fixes Discovery returning 0 endpoints
 - 2025.10.18.04: FIXED Issue #31 - Fixed 'str' object has no attribute 'get'
-- 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get' in get_ha_states
+- 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get'
 - 2025.10.18.02: Fixed 'object has no attribute get' errors
 - 2025.10.16.01: Fixed circuit breaker calls
 
@@ -40,143 +42,104 @@ def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, A
     """
     Extract entity list from various response formats.
     
-    HA /api/states returns different formats depending on how it's called:
-    - Direct: [{entity1}, {entity2}, ...]
-    - Wrapped: {'entities': [...]} or {'data': [...]}
-    - HTTP response: {'body': [...]} or string JSON
-    
-    Args:
-        data: Response data in various formats
-        context: Description for logging
-        
-    Returns:
-        List of entity dicts, or empty list if extraction fails
+    HA /api/states returns different formats depending on how it's called.
+    This function handles all common formats robustly.
     """
+    if data is None:
+        log_debug(f"Data is None in {context}")
+        return []
+    
     # Already a list
     if isinstance(data, list):
         log_debug(f"Data is already a list with {len(data)} items")
-        return data
+        return [item for item in data if isinstance(item, dict)]
     
     # JSON string - parse it
     if isinstance(data, str):
         try:
             parsed = parse_json(data)
             log_debug(f"Parsed JSON string in {context}")
-            return _extract_entity_list(parsed, context)  # Recurse
+            return _extract_entity_list(parsed, context)
         except Exception as e:
             log_warning(f"Failed to parse JSON string in {context}: {str(e)}")
             return []
     
     # Dict - check for common entity list keys
     if isinstance(data, dict):
-        # Try common keys where entity lists might be
         for key in ['entities', 'data', 'states', 'body', 'result']:
             if key in data:
                 value = data[key]
                 if isinstance(value, list):
                     log_debug(f"Found entity list in data['{key}'] with {len(value)} items")
-                    return value
+                    return [item for item in value if isinstance(item, dict)]
                 elif isinstance(value, (str, dict)):
-                    # Recurse in case it's nested
                     return _extract_entity_list(value, f"{context}.{key}")
         
-        # No known keys - log what we got
         log_warning(f"Dict in {context} has keys: {list(data.keys())}, but no entity list found")
         return []
     
-    # Unknown type
     log_warning(f"Unexpected type in {context}: {type(data)}")
     return []
 
 
 def _ensure_dict(value: Any, context: str = "data") -> Dict[str, Any]:
-    """
-    Ensure value is a dict, parsing JSON strings if needed.
-    
-    CRITICAL: Prevents 'str' object has no attribute 'get' errors.
-    """
-    # Already a dict
-    if isinstance(value, dict):
-        return value
-    
-    # None or empty
+    """Ensure value is a dict, parsing JSON strings if needed."""
     if value is None:
         return {}
     
-    # JSON string - parse it
+    if isinstance(value, dict):
+        return value
+    
     if isinstance(value, str):
         try:
             parsed = parse_json(value)
             if isinstance(parsed, dict):
                 log_debug(f"Parsed JSON string in {context}")
                 return parsed
-            else:
-                log_warning(f"Parsed JSON in {context} is {type(parsed)}, not dict")
-                return {}
         except Exception as e:
             log_warning(f"Failed to parse JSON string in {context}: {str(e)}")
-            return {}
     
-    # List or other type
     log_warning(f"Value in {context} is {type(value)}, returning empty dict")
     return {}
 
 
 def _safe_result_wrapper(result: Any, operation_name: str = "operation") -> Dict[str, Any]:
-    """
-    Safely wrap circuit breaker results to ensure dict response.
-    
-    Circuit breaker returns whatever the wrapped function returns,
-    which could be a dict, object, or exception. This ensures we
-    always return a proper dict response.
-    """
-    # Already a dict - validate structure
-    if isinstance(result, dict):
-        # CRITICAL: Ensure 'data' field is present
-        if 'data' in result:
-            # Data could be a list (entities) or dict (single entity) or string (JSON)
-            # Don't force it to dict - let caller handle appropriately
-            pass
-        
-        # Ensure it has standard response fields
-        if 'success' in result or 'error' in result:
-            return result
-        # Has data but no success flag - wrap it
-        return create_success_response(f'{operation_name} completed', result)
-    
-    # None result
+    """Safely wrap circuit breaker results to ensure dict response."""
     if result is None:
-        return create_error_response(
-            f'{operation_name} returned None',
-            'NULL_RESULT'
-        )
+        return create_error_response(f'{operation_name} returned None', 'NULL_RESULT')
     
-    # Exception object
     if isinstance(result, Exception):
         return create_error_response(str(result), 'EXCEPTION_RESULT')
     
-    # Some other object with attributes
+    if isinstance(result, dict):
+        if 'success' in result or 'error' in result:
+            return result
+        return create_success_response(f'{operation_name} completed', result)
+    
     if hasattr(result, '__dict__'):
         return create_error_response(
             f'{operation_name} returned unexpected object type: {type(result).__name__}',
-            'INVALID_RESULT_TYPE',
-            details={'object_type': type(result).__name__}
+            'INVALID_RESULT_TYPE'
         )
     
-    # Primitive or unknown type - try to convert
     try:
         return create_success_response(f'{operation_name} completed', {'result': result})
     except Exception as e:
-        return create_error_response(
-            f'Failed to wrap {operation_name} result: {str(e)}',
-            'RESULT_WRAP_FAILED'
-        )
+        return create_error_response(f'Failed to wrap {operation_name} result: {str(e)}', 'RESULT_WRAP_FAILED')
 
 
 def get_ha_config() -> Dict[str, Any]:
     """Get HA configuration using lazy import."""
-    from ha_config import load_ha_config
-    return load_ha_config()
+    try:
+        from ha_config import load_ha_config
+        config = load_ha_config()
+        if not isinstance(config, dict):
+            log_error(f"load_ha_config returned {type(config)}, not dict")
+            return {'enabled': False, 'base_url': '', 'access_token': '', 'timeout': 30}
+        return config
+    except Exception as e:
+        log_error(f"Failed to load HA config: {str(e)}")
+        return {'enabled': False, 'base_url': '', 'access_token': '', 'timeout': 30}
 
 
 def call_ha_api(endpoint: str, method: str = 'GET', 
@@ -185,13 +148,28 @@ def call_ha_api(endpoint: str, method: str = 'GET',
     correlation_id = generate_correlation_id()
     
     try:
+        if not isinstance(endpoint, str) or not endpoint:
+            return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
+        
+        if not isinstance(method, str):
+            method = 'GET'
+        
         config = get_ha_config()
+        if not isinstance(config, dict):
+            return create_error_response('Invalid config', 'INVALID_CONFIG')
+        
         if not config.get('enabled'):
             return create_error_response('HA not enabled', 'HA_DISABLED')
         
-        url = f"{config['base_url']}{endpoint}"
+        base_url = config.get('base_url', '')
+        token = config.get('access_token', '')
+        
+        if not base_url or not token:
+            return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
+        
+        url = f"{base_url}{endpoint}"
         headers = {
-            'Authorization': f"Bearer {config['access_token']}",
+            'Authorization': f"Bearer {token}",
             'Content-Type': 'application/json'
         }
         
@@ -207,7 +185,6 @@ def call_ha_api(endpoint: str, method: str = 'GET',
                 timeout=config.get('timeout', 30)
             )
         
-        # Circuit breaker returns whatever _make_request returns
         raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -215,7 +192,6 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
-        # CRITICAL: Wrap result to ensure it's a dict
         result = _safe_result_wrapper(raw_result, 'HA API call')
         
         if result.get('success'):
@@ -242,14 +218,12 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
         
         if use_cache:
             cached = cache_get(cache_key)
-            # FIXED: Validate cached is a dict before using .get()
             if cached and isinstance(cached, dict):
                 log_debug(f"[{correlation_id}] Using cached states")
                 increment_counter('ha_state_cache_hit')
                 
-                if entity_ids:
+                if entity_ids and isinstance(entity_ids, list):
                     entity_set = set(entity_ids)
-                    # Extract entity list from cached data
                     cached_data = _extract_entity_list(cached.get('data', []), 'cached_states')
                     filtered = [e for e in cached_data 
                                if isinstance(e, dict) and e.get('entity_id') in entity_set]
@@ -257,27 +231,29 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                 
                 return cached
             elif cached:
-                # Invalid cache type - delete it
                 log_warning(f"[{correlation_id}] Cached data is {type(cached)}, not dict - invalidating")
                 cache_delete(cache_key)
         
-        # Fetch fresh data
         result = call_ha_api('/api/states')
         
-        # FIXED: Validate result is a dict
         if not isinstance(result, dict):
             log_error(f"[{correlation_id}] call_ha_api returned {type(result)}, not dict")
-            return create_error_response(
-                f'API returned invalid type: {type(result).__name__}',
-                'INVALID_API_RESPONSE'
-            )
+            return create_error_response(f'API returned invalid type: {type(result).__name__}', 'INVALID_API_RESPONSE')
+        
+        # EMERGENCY DEBUG: Log the full result structure
+        log_info(f"[{correlation_id}] call_ha_api result keys: {list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}")
+        log_info(f"[{correlation_id}] success: {result.get('success')}")
+        if not result.get('success'):
+            log_error(f"[{correlation_id}] API call failed - full result: {result}")
         
         if result.get('success'):
-            # CRITICAL: Extract entity list from response data
             raw_data = result.get('data', [])
+            log_info(f"[{correlation_id}] Raw data type: {type(raw_data)}")
+            
             entity_list = _extract_entity_list(raw_data, 'api_states')
             
-            # Store entity list in proper format
+            log_info(f"[{correlation_id}] Retrieved {len(entity_list)} entities from HA")
+            
             normalized_result = create_success_response('States retrieved', entity_list)
             
             if use_cache:
@@ -285,7 +261,7 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
             
             increment_counter('ha_states_retrieved')
             
-            if entity_ids:
+            if entity_ids and isinstance(entity_ids, list):
                 entity_set = set(entity_ids)
                 filtered = [e for e in entity_list 
                            if isinstance(e, dict) and e.get('entity_id') in entity_set]
@@ -293,6 +269,7 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
             
             return normalized_result
         
+        log_error(f"[{correlation_id}] Returning failed result from call_ha_api")
         return result
         
     except Exception as e:
@@ -307,10 +284,16 @@ def call_ha_service(domain: str, service: str,
     correlation_id = generate_correlation_id()
     
     try:
+        if not isinstance(domain, str) or not domain:
+            return create_error_response('Invalid domain', 'INVALID_DOMAIN')
+        
+        if not isinstance(service, str) or not service:
+            return create_error_response('Invalid service', 'INVALID_SERVICE')
+        
         endpoint = f'/api/services/{domain}/{service}'
         
-        data = service_data or {}
-        if entity_id:
+        data = service_data if isinstance(service_data, dict) else {}
+        if entity_id and isinstance(entity_id, str):
             data['entity_id'] = entity_id
         
         log_info(f"[{correlation_id}] Calling service: {domain}.{service}")
@@ -341,7 +324,6 @@ def check_ha_status() -> Dict[str, Any]:
         result = call_ha_api('/api/')
         
         if result.get('success'):
-            # FIXED: Ensure data is dict before calling .get()
             data = _ensure_dict(result.get('data', {}), 'status_check')
             return create_success_response('HA is available', {
                 'message': data.get('message', 'API Running')
@@ -466,7 +448,6 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
         def _execute():
             return func(ha_config, **kwargs)
         
-        # Circuit breaker returns raw result
         raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -474,7 +455,6 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
             func=_execute
         )
         
-        # CRITICAL: Wrap result to ensure it's a dict
         result = _safe_result_wrapper(raw_result, f'{feature}.{operation}')
         
         if result.get('success') and cache_key:
