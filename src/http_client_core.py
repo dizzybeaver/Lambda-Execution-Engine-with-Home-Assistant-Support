@@ -1,16 +1,22 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.18.01
-Description: Core HTTPClientCore class and gateway implementation functions.
+Version: 2025.10.18.02
+Description: Core HTTPClientCore class with SSL verification support
 
-CRITICAL FIX:
-- Remove 'url' from kwargs before passing to _make_http_request
-- Prevents "got multiple values for argument 'url'" error
+CHANGELOG:
+- 2025.10.18.02: FIXED Issue #27 - Added SSL verification support (CRITICAL)
+  - Reads HOME_ASSISTANT_VERIFY_SSL environment variable
+  - Defaults to cert_reqs='CERT_REQUIRED' (secure by default)
+  - Sets cert_reqs='CERT_NONE' when HOME_ASSISTANT_VERIFY_SSL=false
+  - Aligns with working Lambda's SSL configuration behavior
+  - Fixes Home Assistant connection failures with self-signed certificates
+- 2025.10.18.01: Remove 'url' from kwargs before passing to _make_http_request
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+import os
 import json
 import time
 import urllib3
@@ -22,23 +28,39 @@ class HTTPClientCore:
     """Core HTTP client with retry and circuit breaker support."""
     
     def __init__(self):
+        # Read SSL verification setting from environment
+        # Defaults to True (verify SSL) for security
+        verify_ssl_env = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
+        verify_ssl = verify_ssl_env != 'false'
+        
+        # Set cert_reqs based on verification setting
+        cert_reqs = 'CERT_REQUIRED' if verify_ssl else 'CERT_NONE'
+        
         self.http = urllib3.PoolManager(
+            cert_reqs=cert_reqs,
             timeout=urllib3.Timeout(connect=10.0, read=30.0),
             maxsize=10,
             retries=False
         )
+        
         self._stats = {
             'requests': 0,
             'successful': 0,
             'failed': 0,
             'retries': 0
         }
+        
         self._retry_config = {
             'max_attempts': 3,
             'backoff_base_ms': 100,
             'backoff_multiplier': 2.0,
             'retriable_status_codes': {408, 429, 500, 502, 503, 504}
         }
+        
+        # Log SSL configuration (debug only)
+        if os.getenv('DEBUG_MODE', 'false').lower() == 'true':
+            from gateway import log_debug
+            log_debug(f"HTTP client initialized: verify_ssl={verify_ssl}, cert_reqs={cert_reqs}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get client statistics."""
@@ -64,29 +86,21 @@ class HTTPClientCore:
     
     def _parse_response_data(self, response_data: bytes, content_type: str) -> Any:
         """Parse response data based on content type."""
-        if not response_data:
-            return {}
-        
         try:
+            if not response_data:
+                return None
+            
             decoded = response_data.decode('utf-8')
             
-            if 'application/json' in content_type.lower():
-                try:
-                    return json.loads(decoded)
-                except json.JSONDecodeError:
-                    from gateway import log_warning
-                    log_warning(f"Failed to parse JSON despite content-type: {content_type}")
-                    return decoded
-            
-            try:
+            if 'application/json' in content_type:
                 return json.loads(decoded)
-            except json.JSONDecodeError:
-                return decoded
-                
-        except UnicodeDecodeError as e:
-            from gateway import log_error
-            log_error(f"Failed to decode response data: {e}")
-            return response_data.hex()
+            
+            return decoded
+            
+        except json.JSONDecodeError:
+            return response_data.decode('utf-8')
+        except Exception:
+            return response_data.decode('utf-8', errors='replace')
     
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
         """Execute single HTTP request."""
@@ -136,6 +150,16 @@ class HTTPClientCore:
                     'data': error_data
                 }
                 
+        except urllib3.exceptions.SSLError as e:
+            from gateway import log_error
+            log_error(f"SSL error - check HOME_ASSISTANT_VERIFY_SSL setting: {str(e)}", error=e)
+            self._stats['failed'] += 1
+            return {
+                'success': False,
+                'error': f"SSL verification failed: {str(e)}",
+                'error_type': 'SSLError',
+                'hint': 'Set HOME_ASSISTANT_VERIFY_SSL=false to disable SSL verification'
+            }
         except urllib3.exceptions.HTTPError as e:
             from gateway import log_error
             log_error(f"HTTP request failed: {str(e)}", error=e)
