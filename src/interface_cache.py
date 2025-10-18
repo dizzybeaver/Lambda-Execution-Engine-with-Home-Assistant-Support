@@ -1,9 +1,13 @@
 """
 interface_cache.py - Cache Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
+Version: 2025.10.17.18
 Description: Router for Cache interface with dispatch dictionary pattern
 
 CHANGELOG:
+- 2025.10.17.18: Added get_metadata operation (Issue #25 fix)
+  - New fast path metadata retrieval operation
+  - Routes to cache_core.get_metadata() for O(1) access
+  - Validation ensures key parameter exists
 - 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
   - Converted from elif chain (7 operations) to dispatch dictionary
   - O(1) operation lookup vs O(n) elif chain
@@ -30,7 +34,8 @@ try:
         _execute_delete_implementation,
         _execute_clear_implementation,
         _execute_cleanup_expired_implementation,
-        _execute_get_stats_implementation
+        _execute_get_stats_implementation,
+        _execute_get_metadata_implementation
     )
     _CACHE_AVAILABLE = True
     _CACHE_IMPORT_ERROR = None
@@ -44,6 +49,7 @@ except ImportError as e:
     _execute_clear_implementation = None
     _execute_cleanup_expired_implementation = None
     _execute_get_stats_implementation = None
+    _execute_get_metadata_implementation = None
 
 
 # ===== VALIDATION HELPERS =====
@@ -90,6 +96,11 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _execute_delete_implementation(**kwargs)
         )[1],
         
+        'get_metadata': lambda **kwargs: (
+            _validate_key_param(kwargs, 'get_metadata'),
+            _execute_get_metadata_implementation(**kwargs)
+        )[1],
+        
         'clear': _execute_clear_implementation,
         'cleanup_expired': _execute_cleanup_expired_implementation,
         'get_stats': _execute_get_stats_implementation,
@@ -103,6 +114,16 @@ _OPERATION_DISPATCH = _build_dispatch_dict() if _CACHE_AVAILABLE else {}
 def execute_cache_operation(operation: str, **kwargs) -> Any:
     """
     Route cache operation requests using dispatch dictionary pattern.
+    
+    Operations:
+    - get: Get cached value by key
+    - set: Set cached value with optional TTL
+    - exists: Check if key exists
+    - delete: Delete cached value
+    - get_metadata: Get metadata for cache entry (fast path, Issue #25)
+    - clear: Clear all cache entries
+    - cleanup_expired: Remove expired entries
+    - get_stats: Get cache statistics
     
     Args:
         operation: Operation name to execute
@@ -126,7 +147,7 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown cache operation: '{operation}'. "
-            f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
+            f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
         )
     
     # Dispatch using dictionary lookup (O(1))
