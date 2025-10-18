@@ -1,15 +1,14 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.18.04
+Version: 2025.10.18.05
 Description: Core operations using Gateway services exclusively. No direct HTTP.
 
 CHANGELOG:
+- 2025.10.18.05: FIXED Issue #32 - Handle dict response when expecting list
+  - Added _extract_entity_list() to handle various response formats
+  - Supports: direct list, dict with entities key, nested data structures
+  - Fixes Discovery returning 0 endpoints
 - 2025.10.18.04: FIXED Issue #31 - Fixed 'str' object has no attribute 'get'
-  - Added JSON parsing for HTTP response data using gateway.parse_json
-  - Added type validation for response data field (string vs dict)
-  - Auto-parse JSON strings in response data
-  - Ensure all .get() calls are on dicts, never strings
-  - Comprehensive attribute error prevention
 - 2025.10.18.03: FIXED Issue #30 - Fixed 'object has no attribute get' in get_ha_states
 - 2025.10.18.02: Fixed 'object has no attribute get' errors
 - 2025.10.16.01: Fixed circuit breaker calls
@@ -35,6 +34,59 @@ HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
+
+
+def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
+    """
+    Extract entity list from various response formats.
+    
+    HA /api/states returns different formats depending on how it's called:
+    - Direct: [{entity1}, {entity2}, ...]
+    - Wrapped: {'entities': [...]} or {'data': [...]}
+    - HTTP response: {'body': [...]} or string JSON
+    
+    Args:
+        data: Response data in various formats
+        context: Description for logging
+        
+    Returns:
+        List of entity dicts, or empty list if extraction fails
+    """
+    # Already a list
+    if isinstance(data, list):
+        log_debug(f"Data is already a list with {len(data)} items")
+        return data
+    
+    # JSON string - parse it
+    if isinstance(data, str):
+        try:
+            parsed = parse_json(data)
+            log_debug(f"Parsed JSON string in {context}")
+            return _extract_entity_list(parsed, context)  # Recurse
+        except Exception as e:
+            log_warning(f"Failed to parse JSON string in {context}: {str(e)}")
+            return []
+    
+    # Dict - check for common entity list keys
+    if isinstance(data, dict):
+        # Try common keys where entity lists might be
+        for key in ['entities', 'data', 'states', 'body', 'result']:
+            if key in data:
+                value = data[key]
+                if isinstance(value, list):
+                    log_debug(f"Found entity list in data['{key}'] with {len(value)} items")
+                    return value
+                elif isinstance(value, (str, dict)):
+                    # Recurse in case it's nested
+                    return _extract_entity_list(value, f"{context}.{key}")
+        
+        # No known keys - log what we got
+        log_warning(f"Dict in {context} has keys: {list(data.keys())}, but no entity list found")
+        return []
+    
+    # Unknown type
+    log_warning(f"Unexpected type in {context}: {type(data)}")
+    return []
 
 
 def _ensure_dict(value: Any, context: str = "data") -> Dict[str, Any]:
@@ -80,9 +132,11 @@ def _safe_result_wrapper(result: Any, operation_name: str = "operation") -> Dict
     """
     # Already a dict - validate structure
     if isinstance(result, dict):
-        # CRITICAL: Ensure 'data' field is a dict, not a string
+        # CRITICAL: Ensure 'data' field is present
         if 'data' in result:
-            result['data'] = _ensure_dict(result['data'], f'{operation_name}.data')
+            # Data could be a list (entities) or dict (single entity) or string (JSON)
+            # Don't force it to dict - let caller handle appropriately
+            pass
         
         # Ensure it has standard response fields
         if 'success' in result or 'error' in result:
@@ -161,7 +215,7 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
-        # CRITICAL: Wrap result to ensure it's a dict with parsed data
+        # CRITICAL: Wrap result to ensure it's a dict
         result = _safe_result_wrapper(raw_result, 'HA API call')
         
         if result.get('success'):
@@ -195,15 +249,11 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
                 
                 if entity_ids:
                     entity_set = set(entity_ids)
-                    # Safely get data from cached dict
-                    cached_data = cached.get('data', [])
-                    # FIXED: Ensure data is a list, handle string/dict cases
-                    if isinstance(cached_data, str):
-                        cached_data = parse_json(cached_data)
-                    if isinstance(cached_data, list):
-                        filtered = [e for e in cached_data 
-                                   if isinstance(e, dict) and e.get('entity_id') in entity_set]
-                        return create_success_response('States retrieved from cache', filtered)
+                    # Extract entity list from cached data
+                    cached_data = _extract_entity_list(cached.get('data', []), 'cached_states')
+                    filtered = [e for e in cached_data 
+                               if isinstance(e, dict) and e.get('entity_id') in entity_set]
+                    return create_success_response('States retrieved from cache', filtered)
                 
                 return cached
             elif cached:
@@ -223,22 +273,25 @@ def get_ha_states(entity_ids: Optional[List[str]] = None,
             )
         
         if result.get('success'):
+            # CRITICAL: Extract entity list from response data
+            raw_data = result.get('data', [])
+            entity_list = _extract_entity_list(raw_data, 'api_states')
+            
+            # Store entity list in proper format
+            normalized_result = create_success_response('States retrieved', entity_list)
+            
             if use_cache:
-                cache_set(cache_key, result, ttl=HA_CACHE_TTL_STATE)
+                cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
             
             increment_counter('ha_states_retrieved')
             
             if entity_ids:
                 entity_set = set(entity_ids)
-                # Safely get data from result
-                result_data = result.get('data', [])
-                # FIXED: Ensure data is a list, handle string/dict cases
-                if isinstance(result_data, str):
-                    result_data = parse_json(result_data)
-                if isinstance(result_data, list):
-                    filtered = [e for e in result_data 
-                               if isinstance(e, dict) and e.get('entity_id') in entity_set]
-                    return create_success_response('States retrieved', filtered)
+                filtered = [e for e in entity_list 
+                           if isinstance(e, dict) and e.get('entity_id') in entity_set]
+                return create_success_response('States retrieved', filtered)
+            
+            return normalized_result
         
         return result
         
