@@ -1,9 +1,16 @@
 """
 singleton_core.py
-Version: 2025.10.16.01
-Description: Singleton management with generic operation dispatch pattern - CRITICAL BUGS FIXED
+Version: 2025.10.17.10
+Description: Singleton management with generic operation dispatch pattern
 
-CRITICAL FIXES:
+CHANGELOG:
+- 2025.10.17.10: Added purpose documentation (Issue #41 fix)
+  - Documented difference between SINGLETON and CACHE interfaces
+  - Added DESIGN DECISIONS section
+  - Clarified use cases and when to use which interface
+- 2025.10.16.01: Fixed thread safety, error handling, parameter validation
+
+CRITICAL FIXES (2025.10.16.01):
 - Fixed thread safety issues in get() method
 - Added error handling wrapper to execute_singleton_operation
 - Added parameter validation for required parameters
@@ -25,6 +32,63 @@ Copyright 2025 Joseph Hersey
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+
+# ===== DESIGN DECISIONS =====
+
+"""
+SINGLETON vs CACHE INTERFACE DISTINCTION (Issue #41):
+
+1. **SINGLETON Interface Purpose:**
+   - Manages **object instances** (classes, managers, services)
+   - Ensures **one instance per name** across application
+   - Factory pattern support for lazy initialization
+   - Examples: CacheManager, SecurityValidator, ConfigManager
+   - Access patterns: Named singletons with complex initialization
+   - Lifetime: Entire Lambda container lifecycle
+   - Thread-safe instance creation and access
+
+2. **CACHE Interface Purpose:**
+   - Manages **data values** (strings, dicts, primitives, serializable objects)
+   - Time-based expiration (TTL)
+   - LRU eviction when memory pressure detected
+   - Examples: API responses, computed values, temporary data
+   - Access patterns: Key-value storage with expiration
+   - Lifetime: Until TTL expires or memory pressure
+   - Optimized for high-frequency read/write
+
+3. **When to Use SINGLETON:**
+   âœ… Store object instances that should exist once (CacheManager)
+   âœ… Need factory function for lazy initialization
+   âœ… Object has complex initialization logic
+   âœ… No expiration needed (lives entire container lifecycle)
+   âœ… Access count tracking important
+   âœ… Examples:
+      - singleton_get('cache_manager', factory_func=create_cache)
+      - singleton_get('security_validator')
+      - singleton_get('circuit_breaker_manager')
+
+4. **When to Use CACHE:**
+   âœ… Store temporary data values
+   âœ… Need automatic expiration (TTL)
+   âœ… Want LRU eviction on memory pressure
+   âœ… High-frequency read/write of small data
+   âœ… Examples:
+      - cache_set('api_response', data, ttl=60)
+      - cache_set('user_session', session_data, ttl=300)
+      - cache_set('computed_value', result, ttl=120)
+
+5. **Key Architectural Difference:**
+   - SINGLETON: "Give me THE instance of this service"
+   - CACHE: "Store this data temporarily with expiration"
+
+DECISION RATIONALE:
+Having both interfaces allows proper separation of concerns:
+- SINGLETON manages application-level service instances
+- CACHE manages ephemeral data with lifecycle management
+- Different access patterns and guarantees for different use cases
+"""
+
+# ===== IMPORTS =====
 
 import os
 import sys
@@ -136,27 +200,19 @@ class SingletonCore:
         Returns:
             True if singleton exists, False otherwise
         """
-        if not name or not isinstance(name, str):
-            return False
         return name in self._instances
     
     def delete(self, name: str, **kwargs) -> bool:
         """
-        Delete specific singleton (gateway-aligned naming).
+        Delete singleton instance.
         
         Args:
             name: Singleton name
             **kwargs: Additional parameters (unused, for compatibility)
             
         Returns:
-            True if singleton was deleted, False if it didn't exist
-            
-        Note:
-            Returns False when singleton doesn't exist (not an error condition)
+            True if deleted, False if didn't exist
         """
-        if not name or not isinstance(name, str):
-            return False
-        
         with self._lock:
             if name in self._instances:
                 del self._instances[name]
@@ -167,13 +223,13 @@ class SingletonCore:
     
     def clear(self, **kwargs) -> int:
         """
-        Clear all singletons (gateway-aligned naming).
+        Clear all singleton instances.
         
         Args:
             **kwargs: Additional parameters (unused, for compatibility)
             
         Returns:
-            Count of singletons that were cleared
+            Count of singletons cleared
         """
         with self._lock:
             count = len(self._instances)
@@ -184,7 +240,7 @@ class SingletonCore:
     
     def get_stats(self, **kwargs) -> Dict[str, Any]:
         """
-        Get comprehensive singleton statistics (LMMS compliance).
+        Get statistics about managed singletons.
         
         Args:
             **kwargs: Additional parameters (unused, for compatibility)
@@ -260,55 +316,35 @@ def execute_singleton_operation(operation: SingletonOperation, **kwargs):
     Universal singleton operation executor with error handling.
     
     Single function that routes all singleton operations to the SingletonCore instance.
+    Uses generic operation dispatch pattern for consistency.
     
     Args:
         operation: SingletonOperation enum value
         **kwargs: Operation-specific parameters
         
     Returns:
-        Operation result from SingletonCore
+        Operation result (type varies by operation)
         
     Raises:
-        ValueError: If operation is unknown
+        ValueError: If operation is invalid or required parameters missing
         Exception: If operation execution fails
     """
+    if not isinstance(operation, SingletonOperation):
+        raise ValueError(f"Invalid operation type: {type(operation)}")
+    
+    if operation not in _OPERATION_MAP:
+        raise ValueError(f"Unknown singleton operation: {operation}")
+    
     try:
-        if _USE_GENERIC_OPERATIONS:
-            operation_func = _OPERATION_MAP.get(operation)
-            if operation_func is None:
-                raise ValueError(f"Unknown singleton operation: {operation}")
-            return operation_func(**kwargs)
-        else:
-            # Legacy direct dispatch
-            if operation == SingletonOperation.GET:
-                return _SINGLETON_MANAGER.get(**kwargs)
-            elif operation == SingletonOperation.SET:
-                return _SINGLETON_MANAGER.set(**kwargs)
-            elif operation == SingletonOperation.HAS:
-                return _SINGLETON_MANAGER.has(**kwargs)
-            elif operation == SingletonOperation.DELETE:
-                return _SINGLETON_MANAGER.delete(**kwargs)
-            elif operation == SingletonOperation.CLEAR:
-                return _SINGLETON_MANAGER.clear(**kwargs)
-            elif operation == SingletonOperation.GET_STATS:
-                return _SINGLETON_MANAGER.get_stats(**kwargs)
-            elif operation == SingletonOperation.RESET:
-                return _SINGLETON_MANAGER.reset(**kwargs)
-            elif operation == SingletonOperation.RESET_ALL:
-                return _SINGLETON_MANAGER.reset_all(**kwargs)
-            elif operation == SingletonOperation.EXISTS:
-                return _SINGLETON_MANAGER.exists(**kwargs)
-            else:
-                raise ValueError(f"Unknown singleton operation: {operation}")
+        operation_func = _OPERATION_MAP[operation]
+        return operation_func(**kwargs)
     except Exception as e:
-        # Re-raise with context
         raise Exception(f"Singleton operation '{operation.value}' failed: {e}") from e
 
 
-# ===== GATEWAY-ALIGNED IMPLEMENTATIONS =====
-# These functions are called by interface_singleton.py router
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
 
-def _execute_get_implementation(**kwargs) -> Any:
+def _execute_get_implementation(**kwargs):
     """
     Execute singleton get operation.
     
@@ -425,20 +461,19 @@ def _execute_exists_implementation(**kwargs) -> bool:
 # ===== EXPORTS =====
 
 __all__ = [
-    'SingletonOperation',
     'SingletonCore',
+    'SingletonOperation',
     'execute_singleton_operation',
-    # Gateway-aligned implementations
+    '_SINGLETON_MANAGER',
     '_execute_get_implementation',
     '_execute_set_implementation',
     '_execute_has_implementation',
     '_execute_delete_implementation',
     '_execute_clear_implementation',
     '_execute_get_stats_implementation',
-    # Legacy implementations
     '_execute_reset_implementation',
     '_execute_reset_all_implementation',
-    '_execute_exists_implementation',
+    '_execute_exists_implementation'
 ]
 
 # EOF
