@@ -148,43 +148,65 @@ def call_ha_api(endpoint: str, method: str = 'GET',
     correlation_id = generate_correlation_id()
     
     try:
+        log_info(f"[{correlation_id}] [DEBUG STEP 1] Starting call_ha_api for {endpoint}")
+        
         if not isinstance(endpoint, str) or not endpoint:
+            log_error(f"[{correlation_id}] [DEBUG] Invalid endpoint")
             return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
         
         if not isinstance(method, str):
             method = 'GET'
         
+        log_info(f"[{correlation_id}] [DEBUG STEP 2] Loading HA config")
         config = get_ha_config()
+        log_info(f"[{correlation_id}] [DEBUG] Config type: {type(config)}")
+        
         if not isinstance(config, dict):
+            log_error(f"[{correlation_id}] [DEBUG] Config is not dict")
             return create_error_response('Invalid config', 'INVALID_CONFIG')
         
-        if not config.get('enabled'):
+        log_info(f"[{correlation_id}] [DEBUG STEP 3] Checking if HA enabled")
+        enabled = config.get('enabled')
+        log_info(f"[{correlation_id}] [DEBUG] HA enabled: {enabled}")
+        
+        if not enabled:
+            log_error(f"[{correlation_id}] [DEBUG] HA not enabled")
             return create_error_response('HA not enabled', 'HA_DISABLED')
         
         base_url = config.get('base_url', '')
         token = config.get('access_token', '')
         
+        log_info(f"[{correlation_id}] [DEBUG STEP 4] Validating credentials")
+        log_info(f"[{correlation_id}] [DEBUG] Base URL present: {bool(base_url)}")
+        log_info(f"[{correlation_id}] [DEBUG] Token present: {bool(token)}")
+        
         if not base_url or not token:
+            log_error(f"[{correlation_id}] [DEBUG] Missing URL or token")
             return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
         
         url = f"{base_url}{endpoint}"
         headers = {
-            'Authorization': f"Bearer {token}",
+            'Authorization': f"Bearer {token[:10]}...",
             'Content-Type': 'application/json'
         }
         
-        log_debug(f"[{correlation_id}] HA API: {method} {endpoint}")
+        log_info(f"[{correlation_id}] [DEBUG STEP 5] Making HTTP request to: {url}")
         
         def _make_request():
-            return execute_operation(
+            log_info(f"[{correlation_id}] [DEBUG STEP 5a] Calling HTTP_CLIENT.{method.lower()}")
+            http_result = execute_operation(
                 GatewayInterface.HTTP_CLIENT,
                 method.lower(),
                 url=url,
-                headers=headers,
+                headers={'Authorization': f"Bearer {token}", 'Content-Type': 'application/json'},
                 json=data,
                 timeout=config.get('timeout', 30)
             )
+            log_info(f"[{correlation_id}] [DEBUG STEP 5b] HTTP_CLIENT returned type: {type(http_result)}")
+            log_info(f"[{correlation_id}] [DEBUG] HTTP result keys: {list(http_result.keys()) if isinstance(http_result, dict) else 'NOT_DICT'}")
+            return http_result
         
+        log_info(f"[{correlation_id}] [DEBUG STEP 6] Calling circuit breaker")
         raw_result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -192,18 +214,32 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
+        log_info(f"[{correlation_id}] [DEBUG STEP 7] Circuit breaker returned type: {type(raw_result)}")
+        log_info(f"[{correlation_id}] [DEBUG] Raw result: {raw_result if not isinstance(raw_result, dict) else list(raw_result.keys())}")
+        
+        log_info(f"[{correlation_id}] [DEBUG STEP 8] Wrapping result")
         result = _safe_result_wrapper(raw_result, 'HA API call')
         
+        log_info(f"[{correlation_id}] [DEBUG STEP 9] Wrapped result type: {type(result)}")
+        log_info(f"[{correlation_id}] [DEBUG] Wrapped result keys: {list(result.keys())}")
+        log_info(f"[{correlation_id}] [DEBUG] Success: {result.get('success')}")
+        
         if result.get('success'):
+            log_info(f"[{correlation_id}] [DEBUG STEP 10] SUCCESS - Data type: {type(result.get('data'))}")
             increment_counter('ha_api_success')
         else:
+            log_error(f"[{correlation_id}] [DEBUG STEP 10] FAILURE")
+            log_error(f"[{correlation_id}] [DEBUG] Error: {result.get('error', 'NO_ERROR_FIELD')}")
+            log_error(f"[{correlation_id}] [DEBUG] Error code: {result.get('error_code', 'NO_ERROR_CODE')}")
+            log_error(f"[{correlation_id}] [DEBUG] Full result: {result}")
             increment_counter('ha_api_failure')
-            log_warning(f"[{correlation_id}] HA API failed: {result.get('error', 'Unknown')}")
         
         return result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] HA API call failed: {str(e)}")
+        log_error(f"[{correlation_id}] [DEBUG EXCEPTION] {type(e).__name__}: {str(e)}")
+        import traceback
+        log_error(f"[{correlation_id}] [DEBUG TRACEBACK] {traceback.format_exc()}")
         increment_counter('ha_api_error')
         return create_error_response(str(e), 'API_CALL_FAILED')
 
