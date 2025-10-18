@@ -1,7 +1,8 @@
 """
 utility_validation_advanced.py - Advanced Validation (Internal)
-Version: 2025.10.16.04
+Version: 2025.10.18.01
 Description: Decorators and factory validators for complex validation scenarios
+            FIXED: Added safe_validate and validate_all re-exports
 
 SUGA-ISP: Internal module - only accessed via interface_utility.py
 
@@ -9,7 +10,7 @@ Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
 
-from typing import Callable
+from typing import Callable, List, Dict, Any
 import functools
 
 from utility_validation_core import (
@@ -18,8 +19,23 @@ from utility_validation_core import (
     validate_required_impl,
     validate_type_impl,
     validate_string_length_impl,
-    validate_range_impl
+    validate_range_impl,
+    safe_validate as safe_validate_core,  # Import from core
+    validate_all as validate_all_core  # Import from core
 )
+
+
+# ===== RE-EXPORT CORE FUNCTIONS =====
+# These are imported by interface_utility.py from this module
+
+def safe_validate(validator_func, *args, **kwargs) -> Dict[str, Any]:
+    """Run validator and return structured result."""
+    return safe_validate_core(validator_func, *args, **kwargs)
+
+
+def validate_all(validators: List) -> Dict[str, Any]:
+    """Run multiple validators and aggregate results."""
+    return validate_all_core(validators)
 
 
 # ===== FACTORY VALIDATORS =====
@@ -101,10 +117,10 @@ def validate_return_type(expected_type: type):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             result = func(*args, **kwargs)
-            if result is not None and not isinstance(result, expected_type):
+            if not isinstance(result, expected_type):
                 raise TypeValidationError(
-                    'return_value', 
-                    f"Expected {expected_type.__name__}, got {type(result).__name__}", 
+                    'return_value',
+                    f"Expected {expected_type.__name__}, got {type(result).__name__}",
                     result
                 )
             return result
@@ -115,9 +131,16 @@ def validate_return_type(expected_type: type):
 # ===== MODULE EXPORTS =====
 
 __all__ = [
+    # Re-exported from core
+    'safe_validate',
+    'validate_all',
+    
+    # Factory validators
     'create_cache_key_validator',
     'create_ttl_validator',
     'create_metric_validator',
+    
+    # Decorators
     'validate_params',
     'validate_return_type',
 ]
