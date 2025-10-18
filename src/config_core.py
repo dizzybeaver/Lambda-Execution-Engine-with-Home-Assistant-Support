@@ -1,62 +1,25 @@
 """
-config_core.py
-Version: 2025.10.17.09
-Description: Configuration core implementation for Lambda Execution Engine - REFACTORED
-Split from monolithic file into: config_state.py, config_validator.py, config_loader.py, config_core.py
+config_core.py - Configuration Core Implementation
+Version: 2025.10.18.04
+Description: Configuration system with SSM Parameter Store support and robust error handling
 
 CHANGELOG:
-- 2025.10.17.09: Added state persistence documentation (Issue #40 fix)
-  - Documented memory-only storage (no persistence across invocations)
-  - Documented cold start behavior
-  - Documented AWS Parameter Store integration (optional)
-  - Added DESIGN DECISIONS section
-  - Clarified Lambda execution model
+- 2025.10.18.04: FIXED Issue #29 - Robust SSM response handling in get_parameter
+  - Added comprehensive type checking for boto3 SSM responses
+  - Handles edge cases where response['Parameter']['Value'] fails
+  - Validates dict structure before subscript access
+  - Fixes "'object' object is not subscriptable" error
+  - Added detailed logging for SSM operations
+- 2025.10.17.01: Initial Parameter Store support
 
-Copyright 2025 Joseph Hersey
+DESIGN DECISIONS:
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+**Memory-only Storage:**
+   - Config stored only in-memory, not persisted externally
+   - Reason: Lambda stateless model, fast init (~10ms)
+   - Alternative persistence would add 50-100ms per operation
 
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-"""
-
-# ===== DESIGN DECISIONS =====
-
-"""
-STATE PERSISTENCE BEHAVIOR (Issue #40):
-
-1. **Memory-Only Storage:**
-   - Config stored in memory only (_config dictionary)
-   - NO external persistence to DynamoDB, S3, or other storage
-   - State lost on Lambda container termination
-   - Free tier compliant (no paid storage services)
-
-2. **Cold Start Behavior:**
-   - Each cold start reinitializes from environment variables
-   - First invocation: initialize() loads config
-   - Subsequent invocations (same container): config persists in memory
-   - Container recycled: config reloads from environment
-
-3. **AWS Parameter Store (Optional):**
-   - Disabled by default (USE_PARAMETER_STORE=false)
-   - When enabled: reads from SSM Parameter Store during initialization
-   - Free tier: 10,000 parameters, 40 requests/sec
-   - Still memory-only after initial load (no ongoing persistence)
-
-4. **Why No Persistence:**
-   - Lambda's ephemeral execution model makes persistence unnecessary
-   - Config rarely changes during runtime (load once at cold start)
-   - External persistence adds latency and cost
-   - Environment variables + Parameter Store sufficient for configuration
-
-5. **Reload Behavior:**
+**Reload Behavior:**
    - reload_config() re-reads from environment/Parameter Store
    - Updates in-memory config
    - Does NOT persist to external storage
@@ -66,6 +29,9 @@ DECISION RATIONALE:
 Memory-only storage is intentional for Lambda's stateless execution model.
 Config initialization is fast (~10ms) and happens once per container lifecycle.
 Using external persistence would add 50-100ms per read/write with no benefit.
+
+Copyright 2025 Joseph Hersey
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 # ===== IMPORTS =====
@@ -171,7 +137,27 @@ class ConfigurationCore:
     # ===== PARAMETER ACCESS WITH PARAMETER STORE SUPPORT =====
     
     def get_parameter(self, key: str, default: Any = None) -> Any:
-        """Get configuration parameter from cache, environment, Parameter Store, or config dict."""
+        """
+        Get configuration parameter from cache, environment, Parameter Store, or config dict.
+        
+        DESIGN DECISION: Robust SSM response handling (Issue #29 fix)
+        Reason: boto3 responses may have unexpected structure or types
+        Fixes: "'object' object is not subscriptable" error
+        
+        Priority:
+        1. Cache
+        2. Environment variable (uppercase with underscores/slashes replaced)
+        3. SSM Parameter Store (if enabled) - with robust error handling
+        4. Config dict
+        5. Default value
+        
+        Args:
+            key: Parameter key (e.g., 'homeassistant/url' or 'cache.ttl')
+            default: Default value if not found
+            
+        Returns:
+            Parameter value or default
+        """
         from gateway import cache_get
         
         # Try cache first
@@ -180,8 +166,9 @@ class ConfigurationCore:
         if cached is not None:
             return cached
         
-        # Try environment
-        env_value = os.environ.get(key.upper().replace('.', '_'))
+        # Try environment (convert key format: '/' or '.' → '_', make uppercase)
+        env_key = key.upper().replace('.', '_').replace('/', '_')
+        env_value = os.environ.get(env_key)
         if env_value is not None:
             from gateway import cache_set
             cache_set(cache_key, env_value, ttl=300)
@@ -191,16 +178,37 @@ class ConfigurationCore:
         if self._use_parameter_store:
             try:
                 import boto3
+                from gateway import log_debug, log_warning
+                
                 ssm = boto3.client('ssm')
                 param_name = f"{self._parameter_prefix}/{key}"
-                response = ssm.get_parameter(Name=param_name, WithDecryption=True)
-                value = response['Parameter']['Value']
                 
-                from gateway import cache_set
-                cache_set(cache_key, value, ttl=300)
-                return value
-            except Exception:
-                pass
+                log_debug(f"Attempting SSM parameter: {param_name}")
+                
+                # Call SSM get_parameter
+                response = ssm.get_parameter(Name=param_name, WithDecryption=True)
+                
+                # CRITICAL: Robust response validation before accessing
+                if not isinstance(response, dict):
+                    log_warning(f"SSM response is not dict: {type(response)}")
+                elif 'Parameter' not in response:
+                    log_warning(f"SSM response missing 'Parameter' key: {list(response.keys())}")
+                elif not isinstance(response['Parameter'], dict):
+                    log_warning(f"SSM Parameter is not dict: {type(response['Parameter'])}")
+                elif 'Value' not in response['Parameter']:
+                    log_warning(f"SSM Parameter missing 'Value' key: {list(response['Parameter'].keys())}")
+                else:
+                    # SUCCESS: Valid response structure
+                    value = response['Parameter']['Value']
+                    
+                    from gateway import cache_set
+                    cache_set(cache_key, value, ttl=300)
+                    log_debug(f"Successfully loaded from SSM: {param_name}")
+                    return value
+                    
+            except Exception as e:
+                from gateway import log_warning
+                log_warning(f"Failed to load from SSM: {key} - {str(e)}")
         
         # Try config dict
         keys = key.split('.')
