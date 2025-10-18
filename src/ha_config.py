@@ -79,7 +79,7 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
     3. Default value
     
     Args:
-        key: Parameter Store key (e.g., 'homeassistant/url')
+        key: Parameter Store key (e.g., 'home_assistant/url')
         env_var: Environment variable name (e.g., 'HOME_ASSISTANT_URL')
         default: Default value if not found
         
@@ -129,11 +129,11 @@ def _build_config_from_sources() -> Dict[str, Any]:
     """
     return {
         'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
-        'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
-        'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
-        'timeout': _safe_int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
-        'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
-        'assistant_name': _get_config_value('homeassistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
+        'base_url': _get_config_value('home_assistant/url', 'HOME_ASSISTANT_URL', ''),
+        'access_token': _get_config_value('home_assistant/token', 'HOME_ASSISTANT_TOKEN', ''),
+        'timeout': _safe_int(_get_config_value('home_assistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
+        'verify_ssl': _get_config_value('home_assistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
+        'assistant_name': _get_config_value('home_assistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
     }
 
 
@@ -259,10 +259,10 @@ def get_ha_preset(preset_name: str = 'default') -> Dict[str, Any]:
 def load_ha_connection_config() -> Dict[str, Any]:
     """Load connection-specific configuration."""
     return {
-        'base_url': _get_config_value('homeassistant/url', 'HOME_ASSISTANT_URL', ''),
-        'access_token': _get_config_value('homeassistant/token', 'HOME_ASSISTANT_TOKEN', ''),
-        'timeout': _safe_int(_get_config_value('homeassistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
-        'verify_ssl': _get_config_value('homeassistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
+        'base_url': _get_config_value('home_assistant/url', 'HOME_ASSISTANT_URL', ''),
+        'access_token': _get_config_value('home_assistant/token', 'HOME_ASSISTANT_TOKEN', ''),
+        'timeout': _safe_int(_get_config_value('home_assistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
+        'verify_ssl': _get_config_value('home_assistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
     }
 
 
