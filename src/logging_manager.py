@@ -115,13 +115,13 @@ class LoggingCore:
     
     # ===== ERROR TRACKING =====
     
-    def log_error(self, error: str, error_code: Optional[str] = None,
+    def log_error(self, message: str, error_code: Optional[str] = None,
                   correlation_id: Optional[str] = None, **kwargs) -> None:
         """Log error with tracking."""
         # No lock needed - Lambda is single-threaded
         entry = ErrorEntry(
             timestamp=time.time(),
-            error=str(error),
+            error=str(message),
             error_code=error_code or 'UNKNOWN_ERROR',
             correlation_id=correlation_id or str(uuid.uuid4())
         )
@@ -137,7 +137,7 @@ class LoggingCore:
             }
         )
     
-    def log_error_response(self, error: str, status_code: int = 500,
+    def log_error_response(self, message: str, status_code: int = 500,
                           error_code: Optional[str] = None,
                           correlation_id: Optional[str] = None,
                           level: ErrorLogLevel = ErrorLogLevel.HIGH,
@@ -153,7 +153,7 @@ class LoggingCore:
         # No lock needed - Lambda is single-threaded
         entry = ErrorLogEntry(
             timestamp=time.time(),
-            error=str(error),
+            error=str(message),
             status_code=status_code,
             error_code=error_code or 'INTERNAL_ERROR',
             correlation_id=correlation_id or str(uuid.uuid4()),
