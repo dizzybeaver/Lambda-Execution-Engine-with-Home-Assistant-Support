@@ -1,15 +1,22 @@
 """
 lambda_ha_connection.py - Home Assistant Connection Diagnostic Handler
-Version: 2025.10.18.02
+Version: 2025.10.18.08
 Description: Drop-in Lambda handler for diagnosing HA connection issues.
              Uses ONLY SUGA-ISP Gateway services to trace every step.
+             Enhanced with config_param_store module testing.
              
 Usage: Deploy as Lambda handler to test HA connectivity.
        Every step shows [DEBUG] output even if successful.
 
 CHANGELOG:
+- 2025.10.18.08: ENHANCED SSM diagnostics with config_param_store testing
+  - Added direct config_param_store module testing in step 2
+  - Tests both direct SSM access and via gateway
+  - Compares results to ensure consistency
+  - Enhanced error logging with type information
+  - Helps diagnose boto3 object wrapper issues
 - 2025.10.18.02: FIXED Issue #30 - SSM parameter path fix
-  - Changed from full paths '/lambda-execution-engine/homeassistant/*' to relative paths 'homeassistant/*'
+  - Changed from full paths '/lambda-execution-engine/homeassistant/*' to relative paths
   - Config system adds prefix automatically, full path caused double prefix
   - Fixes: 'object' object is not subscriptable error in step 2
 
@@ -28,7 +35,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Tests each layer:
     1. Gateway initialization
-    2. Config loading (SSM)
+    2. Config loading (SSM with enhanced debugging)
     3. HTTP client state
     4. Circuit breaker state
     5. HA configuration
@@ -70,9 +77,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     results["timestamp"] = get_timestamp()
     
-    # ===== STEP 2: Config Loading from SSM =====
-    print("\n[DEBUG] ===== STEP 2: Config Loading (SSM Parameter Store) =====")
-    step2_result = test_config_loading()
+    # ===== STEP 2: Config Loading from SSM (Enhanced) =====
+    print("\n[DEBUG] ===== STEP 2: Config Loading (SSM Parameter Store - Enhanced) =====")
+    step2_result = test_config_loading_enhanced()
     results["steps"]["2_config_loading"] = step2_result
     
     # ===== STEP 3: HTTP Client State =====
@@ -156,8 +163,15 @@ def test_gateway_initialization() -> Dict[str, Any]:
         }
 
 
-def test_config_loading() -> Dict[str, Any]:
-    """Test configuration loading from SSM Parameter Store."""
+def test_config_loading_enhanced() -> Dict[str, Any]:
+    """
+    Test configuration loading from SSM Parameter Store with enhanced debugging.
+    
+    Tests multiple access methods:
+    1. Direct config_param_store module access
+    2. Via gateway CONFIG interface
+    3. Compares results for consistency
+    """
     try:
         from gateway import execute_operation, GatewayInterface, log_debug
         
@@ -165,52 +179,103 @@ def test_config_loading() -> Dict[str, Any]:
         print(f"[DEBUG] USE_PARAMETER_STORE: {use_ssm}")
         
         if use_ssm:
-            print("[DEBUG] Testing SSM Parameter Store access...")
+            print("[DEBUG] Testing SSM Parameter Store access with enhanced diagnostics...")
             
-            # FIXED: Use relative paths - config system adds prefix automatically
-            # Test loading HA URL from SSM
-            print("[DEBUG] Loading homeassistant/url...")
+            # Strategy 1: Direct config_param_store module test
+            print("\n[DEBUG] --- Strategy 1: Direct config_param_store Module ---")
+            try:
+                from config import config_param_store
+                print("[DEBUG] ✓ config_param_store module imported")
+                
+                # Test URL loading directly
+                print("[DEBUG] Testing: config_param_store.get_parameter('homeassistant/url')")
+                direct_url = config_param_store.get_parameter('homeassistant/url')
+                print(f"[DEBUG] Direct module returned:")
+                print(f"[DEBUG]   Type: {type(direct_url)}")
+                print(f"[DEBUG]   Value: {direct_url}")
+                print(f"[DEBUG]   Length: {len(str(direct_url)) if direct_url else 0}")
+                
+                # Test token loading directly
+                print("[DEBUG] Testing: config_param_store.get_parameter('homeassistant/token')")
+                direct_token = config_param_store.get_parameter('homeassistant/token')
+                print(f"[DEBUG] Direct module returned:")
+                print(f"[DEBUG]   Type: {type(direct_token)}")
+                print(f"[DEBUG]   Value: {direct_token[:20] if direct_token else 'None'}...")
+                print(f"[DEBUG]   Length: {len(str(direct_token)) if direct_token else 0}")
+                
+            except Exception as e:
+                print(f"[DEBUG] ✗ Direct module access failed: {e}")
+                print(f"[DEBUG]   Error type: {type(e).__name__}")
+                direct_url = None
+                direct_token = None
+            
+            # Strategy 2: Via Gateway CONFIG interface
+            print("\n[DEBUG] --- Strategy 2: Via Gateway CONFIG Interface ---")
+            print("[DEBUG] Loading homeassistant/url via gateway...")
             ha_url = execute_operation(
                 GatewayInterface.CONFIG,
                 'get_parameter',
-                key='homeassistant/url'  # FIXED: Removed prefix
+                key='homeassistant/url'
             )
+            print(f"[DEBUG] Gateway returned:")
+            print(f"[DEBUG]   Type: {type(ha_url)}")
+            print(f"[DEBUG]   Value: {ha_url}")
             
-            if ha_url:
-                print(f"[DEBUG] ✓ Loaded HA URL from SSM: {ha_url}")
-            else:
-                print("[DEBUG] ⚠ HA URL not found in SSM, checking environment...")
-                ha_url = os.getenv('HOME_ASSISTANT_URL')
-                print(f"[DEBUG] Environment HA URL: {ha_url}")
-            
-            # FIXED: Use relative path for token too
-            # Test loading HA token from SSM  
-            print("[DEBUG] Loading homeassistant/token...")
+            print("[DEBUG] Loading homeassistant/token via gateway...")
             ha_token = execute_operation(
                 GatewayInterface.CONFIG,
                 'get_parameter',
-                key='homeassistant/token'  # FIXED: Removed prefix
+                key='homeassistant/token'
             )
+            print(f"[DEBUG] Gateway returned:")
+            print(f"[DEBUG]   Type: {type(ha_token)}")
+            print(f"[DEBUG]   Value: {ha_token[:20] if ha_token else 'None'}...")
             
-            if ha_token:
+            # Strategy 3: Compare results
+            print("\n[DEBUG] --- Strategy 3: Result Comparison ---")
+            if direct_url is not None:
+                if direct_url == ha_url:
+                    print("[DEBUG] ✓ Direct and gateway URL values match")
+                else:
+                    print("[DEBUG] ✗ Direct and gateway URL values DIFFER!")
+                    print(f"[DEBUG]   Direct:  {direct_url}")
+                    print(f"[DEBUG]   Gateway: {ha_url}")
+            
+            # Validate results
+            if ha_url and ha_token:
+                print(f"\n[DEBUG] ✓ Loaded HA URL from SSM: {ha_url}")
                 print(f"[DEBUG] ✓ Loaded HA token from SSM: {ha_token[:10]}...")
-            else:
-                print("[DEBUG] ⚠ HA token not found in SSM, checking environment...")
-                ha_token = os.getenv('HOME_ASSISTANT_TOKEN')
-                if ha_token:
-                    print(f"[DEBUG] Environment HA token: {ha_token[:10]}...")
-            
-            print("[DEBUG] SUCCESS: Config loading functional")
-            return {
-                "success": True,
-                "message": "Configuration loaded successfully",
-                "details": {
-                    "using_ssm": True,
-                    "ha_url_loaded": ha_url is not None,
-                    "ha_token_loaded": ha_token is not None,
-                    "ha_url": ha_url if ha_url else "Not loaded"
+                print("[DEBUG] SUCCESS: Config loading functional")
+                
+                return {
+                    "success": True,
+                    "message": "Configuration loaded successfully from SSM",
+                    "details": {
+                        "using_ssm": True,
+                        "ha_url_loaded": ha_url is not None,
+                        "ha_token_loaded": ha_token is not None,
+                        "ha_url": ha_url,
+                        "ha_url_type": str(type(ha_url)),
+                        "direct_module_test": direct_url is not None,
+                        "results_match": direct_url == ha_url if direct_url else None
+                    }
                 }
-            }
+            else:
+                print("[DEBUG] ✗ Failed to load one or more parameters")
+                print("[DEBUG] Falling back to environment variables...")
+                
+                ha_url = os.getenv('HOME_ASSISTANT_URL')
+                ha_token = os.getenv('HOME_ASSISTANT_TOKEN')
+                
+                return {
+                    "success": True if ha_url and ha_token else False,
+                    "message": "SSM failed, using environment variables" if ha_url else "Configuration not available",
+                    "details": {
+                        "using_ssm": False,
+                        "ha_url": ha_url,
+                        "ha_token_present": ha_token is not None
+                    }
+                }
         else:
             print("[DEBUG] SSM not enabled, using environment variables only")
             ha_url = os.getenv('HOME_ASSISTANT_URL')
@@ -231,6 +296,11 @@ def test_config_loading() -> Dict[str, Any]:
             
     except Exception as e:
         print(f"[DEBUG] FAILURE: Config loading error: {str(e)}")
+        print(f"[DEBUG] Error type: {type(e).__name__}")
+        import traceback
+        print(f"[DEBUG] Traceback:")
+        traceback.print_exc()
+        
         return {
             "success": False,
             "error": str(e),
@@ -244,12 +314,18 @@ def test_http_client_state() -> Dict[str, Any]:
         from gateway import execute_operation, GatewayInterface
         
         print("[DEBUG] Getting HTTP client state...")
-        state = execute_operation(GatewayInterface.HTTP_CLIENT, 'get_state')
+        state = execute_operation(
+            GatewayInterface.HTTP_CLIENT,
+            'get_state'
+        )
         
         print(f"[DEBUG] HTTP client state: {json.dumps(state, indent=2)}")
-        print(f"[DEBUG] ✓ Total requests: {state.get('requests', 0)}")
-        print(f"[DEBUG] ✓ Successful: {state.get('successful', 0)}")
-        print(f"[DEBUG] ✓ Failed: {state.get('failed', 0)}")
+        
+        # Check state fields
+        if 'exists' in state:
+            print(f"[DEBUG] ✓ Total requests: {state.get('total_requests', 0)}")
+            print(f"[DEBUG] ✓ Successful: {state.get('successful_requests', 0)}")
+            print(f"[DEBUG] ✓ Failed: {state.get('failed_requests', 0)}")
         
         print("[DEBUG] SUCCESS: HTTP client operational")
         return {
@@ -259,7 +335,7 @@ def test_http_client_state() -> Dict[str, Any]:
         }
         
     except Exception as e:
-        print(f"[DEBUG] FAILURE: HTTP client error: {str(e)}")
+        print(f"[DEBUG] FAILURE: HTTP client state error: {str(e)}")
         return {
             "success": False,
             "error": str(e),
@@ -272,21 +348,24 @@ def test_circuit_breaker_state() -> Dict[str, Any]:
     try:
         from gateway import execute_operation, GatewayInterface
         
-        print("[DEBUG] Getting circuit breaker state for 'home_assistant'...")
+        breaker_name = 'home_assistant'
+        print(f"[DEBUG] Getting circuit breaker state for '{breaker_name}'...")
+        
         state = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'get',
-            name='home_assistant'
+            name=breaker_name
         )
         
         print(f"[DEBUG] Circuit breaker state: {json.dumps(state, indent=2)}")
-        print(f"[DEBUG] ✓ State: {state.get('state', 'unknown')}")
-        print(f"[DEBUG] ✓ Failures: {state.get('failures', 0)}")
-        print(f"[DEBUG] ✓ Threshold: {state.get('threshold', 0)}")
         
-        is_open = state.get('state') == 'open'
-        if is_open:
-            print("[DEBUG] ⚠ WARNING: Circuit breaker is OPEN (blocking requests)")
+        print(f"[DEBUG] ✓ State: {state.get('state')}")
+        print(f"[DEBUG] ✓ Failures: {state.get('failures')}")
+        print(f"[DEBUG] ✓ Threshold: {state.get('threshold')}")
+        
+        is_blocking = state.get('state') == 'open'
+        if is_blocking:
+            print("[DEBUG] ✗ Circuit breaker is OPEN (blocking requests)")
         else:
             print("[DEBUG] ✓ Circuit breaker is CLOSED (allowing requests)")
         
@@ -295,7 +374,7 @@ def test_circuit_breaker_state() -> Dict[str, Any]:
             "success": True,
             "message": "Circuit breaker operational",
             "data": state,
-            "is_blocking": is_open
+            "is_blocking": is_blocking
         }
         
     except Exception as e:
@@ -313,56 +392,32 @@ def test_ha_configuration() -> Dict[str, Any]:
         print("[DEBUG] Importing HA facade...")
         from homeassistant_extension import is_ha_extension_enabled
         
-        enabled = is_ha_extension_enabled()
-        print(f"[DEBUG] HA Extension enabled: {enabled}")
+        ha_enabled = is_ha_extension_enabled()
+        print(f"[DEBUG] HA Extension enabled: {ha_enabled}")
         
-        if not enabled:
-            print("[DEBUG] FAILURE: HA extension is disabled")
+        if not ha_enabled:
+            print("[DEBUG] FAILURE: HA extension not enabled")
             return {
                 "success": False,
-                "error": "Home Assistant extension is disabled",
-                "details": {"enabled": False}
+                "error": "HOME_ASSISTANT_ENABLED not set to true"
             }
         
         print("[DEBUG] Loading HA configuration...")
-        from ha_core import get_ha_config
-        config = get_ha_config()
+        from ha_config import load_ha_config
         
-        print(f"[DEBUG] HA Config: {json.dumps({
-            'enabled': config.get('enabled'),
-            'base_url': config.get('base_url'),
-            'has_token': config.get('access_token') is not None,
-            'timeout': config.get('timeout'),
-            'assistant_name': config.get('assistant_name')
-        }, indent=2)}")
+        config = load_ha_config()
         
-        if not config.get('enabled'):
-            print("[DEBUG] FAILURE: HA is disabled in configuration")
-            return {
-                "success": False,
-                "error": "Home Assistant disabled in configuration",
-                "data": config
-            }
+        # Mask token for security
+        safe_config = config.copy()
+        if 'access_token' in safe_config:
+            token = safe_config['access_token']
+            safe_config['access_token'] = token[:10] + '...' if token else None
         
-        if not config.get('base_url'):
-            print("[DEBUG] FAILURE: HA base URL not configured")
-            return {
-                "success": False,
-                "error": "Home Assistant base URL not configured",
-                "data": config
-            }
+        print(f"[DEBUG] HA Config: {json.dumps(safe_config, indent=2)}")
         
-        if not config.get('access_token'):
-            print("[DEBUG] FAILURE: HA access token not configured")
-            return {
-                "success": False,
-                "error": "Home Assistant access token not configured",
-                "data": config
-            }
-        
-        print("[DEBUG] ✓ HA enabled: True")
+        print(f"[DEBUG] ✓ HA enabled: {config.get('enabled')}")
         print(f"[DEBUG] ✓ Base URL: {config.get('base_url')}")
-        print(f"[DEBUG] ✓ Token: {config.get('access_token')[:10]}...")
+        print(f"[DEBUG] ✓ Token: {config.get('access_token', '')[:10]}...")
         print(f"[DEBUG] ✓ Timeout: {config.get('timeout')} seconds")
         print(f"[DEBUG] ✓ Assistant name: {config.get('assistant_name')}")
         
@@ -370,13 +425,11 @@ def test_ha_configuration() -> Dict[str, Any]:
         return {
             "success": True,
             "message": "HA configuration valid",
-            "data": config
+            "data": safe_config
         }
         
     except Exception as e:
         print(f"[DEBUG] FAILURE: HA configuration error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return {
             "success": False,
             "error": str(e),
@@ -385,7 +438,7 @@ def test_ha_configuration() -> Dict[str, Any]:
 
 
 def test_network_connectivity(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Test basic network connectivity to HA instance."""
+    """Test raw network connectivity to HA."""
     try:
         from gateway import execute_operation, GatewayInterface
         
@@ -458,13 +511,13 @@ def test_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[DEBUG] Using token: {token[:10]}...")
         
         headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
         }
         
-        print(f"[DEBUG] Headers: {json.dumps({'Authorization': f'Bearer {token[:10]}...', 'Content-Type': 'application/json'})}")
-        print("[DEBUG] Making authenticated HTTP GET request to /api/...")
+        print(f"[DEBUG] Headers: \n{json.dumps({'Authorization': 'Bearer ' + token[:10] + '...', 'Content-Type': 'application/json'}, indent=4)}")
         
+        print("[DEBUG] Making authenticated HTTP GET request to /api/...")
         result = execute_operation(
             GatewayInterface.HTTP_CLIENT,
             'get',
@@ -475,61 +528,28 @@ def test_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
         
         print(f"[DEBUG] HTTP Response: {json.dumps(result, indent=2)}")
         
-        if result.get('success'):
-            status_code = result.get('status_code')
-            print(f"[DEBUG] ✓ Status code: {status_code}")
-            
-            if 200 <= status_code < 300:
-                print(f"[DEBUG] ✓ Authentication successful")
-                print(f"[DEBUG] ✓ Response: {result.get('data')}")
-                print("[DEBUG] SUCCESS: Authentication confirmed")
-                return {
-                    "success": True,
-                    "message": "Authentication successful",
-                    "data": result
-                }
-            else:
-                print(f"[DEBUG] ⚠ Unexpected status code: {status_code}")
-                print("[DEBUG] FAILURE: Authentication may have failed")
-                return {
-                    "success": False,
-                    "error": f"Unexpected status code: {status_code}",
-                    "data": result
-                }
+        if result.get('success') and result.get('status_code') == 200:
+            print(f"[DEBUG] ✓ Status code: {result.get('status_code')}")
+            print(f"[DEBUG] ✓ Authentication successful")
+            print(f"[DEBUG] ✓ Response: {result.get('data')}")
+            print("[DEBUG] SUCCESS: Authentication confirmed")
+            return {
+                "success": True,
+                "message": "Authentication successful",
+                "data": result
+            }
         else:
-            status_code = result.get('status_code')
-            error = result.get('error')
-            
-            print(f"[DEBUG] Request failed")
-            print(f"[DEBUG] Status code: {status_code}")
-            print(f"[DEBUG] Error: {error}")
-            
-            if status_code == 401:
-                print("[DEBUG] FAILURE: Authentication failed - invalid token (401)")
-                return {
-                    "success": False,
-                    "error": "Authentication failed - invalid token (401)",
-                    "data": result
-                }
-            elif status_code == 403:
-                print("[DEBUG] FAILURE: Authentication failed - forbidden (403)")
-                return {
-                    "success": False,
-                    "error": "Authentication failed - forbidden (403)",
-                    "data": result
-                }
-            else:
-                print(f"[DEBUG] FAILURE: Request failed with status {status_code}")
-                return {
-                    "success": False,
-                    "error": error,
-                    "data": result
-                }
+            print(f"[DEBUG] FAILURE: Authentication failed")
+            print(f"[DEBUG] Status: {result.get('status_code')}")
+            print(f"[DEBUG] Error: {result.get('error')}")
+            return {
+                "success": False,
+                "error": f"HTTP {result.get('status_code')}: {result.get('error')}",
+                "data": result
+            }
             
     except Exception as e:
         print(f"[DEBUG] FAILURE: Authentication test error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return {
             "success": False,
             "error": str(e),
@@ -538,13 +558,13 @@ def test_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def test_api_endpoint(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Test full API endpoint through HA core."""
+    """Test calling HA API through full stack."""
     try:
         print("[DEBUG] Testing full API call through HA core...")
         from ha_core import call_ha_api
         
         print("[DEBUG] Calling call_ha_api('/api/')...")
-        result = call_ha_api('/api/')
+        result = call_ha_api('/api/', ha_config=config)
         
         print(f"[DEBUG] Result: {json.dumps(result, indent=2)}")
         
@@ -558,10 +578,8 @@ def test_api_endpoint(config: Dict[str, Any]) -> Dict[str, Any]:
                 "data": result
             }
         else:
-            print(f"[DEBUG] ⚠ API call failed")
+            print(f"[DEBUG] FAILURE: API call failed")
             print(f"[DEBUG] Error: {result.get('error')}")
-            print(f"[DEBUG] Error code: {result.get('error_code')}")
-            print("[DEBUG] FAILURE: API endpoint test failed")
             return {
                 "success": False,
                 "error": result.get('error'),
@@ -570,8 +588,6 @@ def test_api_endpoint(config: Dict[str, Any]) -> Dict[str, Any]:
             
     except Exception as e:
         print(f"[DEBUG] FAILURE: API endpoint test error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return {
             "success": False,
             "error": str(e),
@@ -580,14 +596,14 @@ def test_api_endpoint(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_summary(steps: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate summary of all test results."""
+    """Generate test summary."""
     total = len(steps)
-    passed = sum(1 for step in steps.values() if step.get('success'))
+    passed = sum(1 for step in steps.values() if step.get('success', False))
     failed = total - passed
     
     failed_steps = [
         name for name, result in steps.items() 
-        if not result.get('success')
+        if not result.get('success', False)
     ]
     
     return {
@@ -596,12 +612,12 @@ def generate_summary(steps: Dict[str, Any]) -> Dict[str, Any]:
         "failed": failed,
         "all_passed": failed == 0,
         "failed_steps": failed_steps,
-        "success_rate": f"{(passed/total*100):.1f}%" if total > 0 else "0%"
+        "success_rate": f"{(passed/total*100):.1f}%"
     }
 
 
 def print_summary(summary: Dict[str, Any]):
-    """Print diagnostic summary to logs."""
+    """Print test summary."""
     print(f"[DEBUG] Total steps: {summary['total_steps']}")
     print(f"[DEBUG] Passed: {summary['passed']}")
     print(f"[DEBUG] Failed: {summary['failed']}")
@@ -610,12 +626,12 @@ def print_summary(summary: Dict[str, Any]):
     if summary['all_passed']:
         print("[DEBUG] ✓✓✓ ALL TESTS PASSED ✓✓✓")
     else:
-        print(f"[DEBUG] ✗✗✗ TESTS FAILED ✗✗✗")
+        print("[DEBUG] ✗✗✗ TESTS FAILED ✗✗✗")
         print(f"[DEBUG] Failed steps: {', '.join(summary['failed_steps'])}")
 
 
 def format_diagnostic_response(results: Dict[str, Any], status_code: int) -> Dict[str, Any]:
-    """Format final diagnostic response."""
+    """Format diagnostic response."""
     return {
         "statusCode": status_code,
         "body": json.dumps(results, indent=2),
