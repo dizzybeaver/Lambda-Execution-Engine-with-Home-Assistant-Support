@@ -1,16 +1,19 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.16.01
-Description: Core operations using Gateway services exclusively. No direct HTTP.
+Version: 2025.10.18.01
+Description: Core HA operations using Gateway exclusively. NO direct HTTP.
 
-CHANGELOG:
-- 2025.10.16.01: Fixed circuit breaker calls - changed 'execute' to 'call', 
-                 'get_state' to 'get', and breaker_name to name parameter
+SUGA-ISP COMPLIANT:
+- All infrastructure via gateway.py
+- All HTTP via Gateway HTTP_CLIENT interface
+- No direct urllib3/requests imports
+- Circuit breaker protection via Gateway CIRCUIT_BREAKER interface
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+import os
 from typing import Dict, Any, Optional, List, Callable
 from gateway import (
     log_info, log_error, log_debug, log_warning,
@@ -27,15 +30,12 @@ HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
 
-# ===== CONFIGURATION =====
 
 def get_ha_config() -> Dict[str, Any]:
     """Get HA configuration using lazy import."""
     from ha_config import load_ha_config
     return load_ha_config()
 
-
-# ===== CORE API OPERATIONS =====
 
 def call_ha_api(endpoint: str, method: str = 'GET', 
                 data: Optional[Dict] = None) -> Dict[str, Any]:
@@ -55,7 +55,6 @@ def call_ha_api(endpoint: str, method: str = 'GET',
         
         log_debug(f"[{correlation_id}] HA API: {method} {endpoint}")
         
-        # Use Gateway HTTP_CLIENT through circuit breaker
         def _make_request():
             return execute_operation(
                 GatewayInterface.HTTP_CLIENT,
@@ -66,7 +65,6 @@ def call_ha_api(endpoint: str, method: str = 'GET',
                 timeout=config.get('timeout', 30)
             )
         
-        # FIXED: Changed 'execute' to 'call' and breaker_name to name
         result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -74,7 +72,7 @@ def call_ha_api(endpoint: str, method: str = 'GET',
             func=_make_request
         )
         
-        if result.get('success'):
+        if isinstance(result, dict) and result.get('success'):
             increment_counter('ha_api_success')
         else:
             increment_counter('ha_api_failure')
@@ -87,10 +85,8 @@ def call_ha_api(endpoint: str, method: str = 'GET',
         return create_error_response(str(e), 'API_CALL_FAILED')
 
 
-# ===== STATE OPERATIONS =====
-
-def get_states(entity_ids: Optional[List[str]] = None, 
-               use_cache: bool = True) -> Dict[str, Any]:
+def get_ha_states(entity_ids: Optional[List[str]] = None, 
+                  use_cache: bool = True) -> Dict[str, Any]:
     """Get entity states using Gateway services."""
     correlation_id = generate_correlation_id()
     
@@ -150,7 +146,6 @@ def call_ha_service(domain: str, service: str,
         result = call_ha_api(endpoint, method='POST', data=data)
         
         if result.get('success'):
-            # Invalidate cache for affected entity
             if entity_id:
                 cache_delete(f"ha_state_{entity_id}")
             
@@ -167,8 +162,6 @@ def call_ha_service(domain: str, service: str,
         log_error(f"[{correlation_id}] Service call failed: {str(e)}")
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
 
-
-# ===== STATUS & DIAGNOSTICS =====
 
 def check_ha_status() -> Dict[str, Any]:
     """Check HA connection status using Gateway services."""
@@ -193,7 +186,6 @@ def get_diagnostic_info() -> Dict[str, Any]:
         config = get_ha_config()
         status = check_ha_status()
         
-        # FIXED: Changed 'get_state' to 'get' and breaker_name to name
         breaker_state = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'get',
@@ -217,7 +209,22 @@ def get_diagnostic_info() -> Dict[str, Any]:
         return create_error_response(str(e), 'DIAGNOSTIC_FAILED')
 
 
-# ===== WEBSOCKET OPERATIONS =====
+def get_assistant_name_info() -> Dict[str, Any]:
+    """Get assistant name configuration status."""
+    try:
+        config = get_ha_config()
+        assistant_name = config.get('assistant_name', 'Not configured')
+        
+        return create_success_response('Assistant name info retrieved', {
+            'assistant_name': assistant_name,
+            'configured': bool(assistant_name and assistant_name != 'Not configured'),
+            'source': 'environment' if os.getenv('HA_ASSISTANT_NAME') else 'parameter_store'
+        })
+        
+    except Exception as e:
+        log_error(f"Assistant name check failed: {str(e)}")
+        return create_error_response(str(e), 'ASSISTANT_NAME_CHECK_FAILED')
+
 
 def get_ha_entity_registry(use_cache: bool = True) -> Dict[str, Any]:
     """Get entity registry via WebSocket if enabled, fallback to REST."""
@@ -233,14 +240,12 @@ def get_ha_entity_registry(use_cache: bool = True) -> Dict[str, Any]:
             else:
                 log_warning("WebSocket registry fetch failed, falling back to REST")
         
-        # Fallback to getting all states
         log_debug("Using REST API for entity list")
-        return get_states(use_cache=use_cache)
+        return get_ha_states(use_cache=use_cache)
         
     except Exception as e:
         log_error(f"Entity registry fetch failed: {str(e)}")
-        # Fallback to REST
-        return get_states(use_cache=use_cache)
+        return get_ha_states(use_cache=use_cache)
 
 
 def filter_exposed_entities_wrapper(entities: Optional[List[Dict]] = None) -> Dict[str, Any]:
@@ -249,7 +254,6 @@ def filter_exposed_entities_wrapper(entities: Optional[List[Dict]] = None) -> Di
         from ha_websocket import is_websocket_enabled, filter_exposed_entities
         
         if entities is None:
-            # Get entities first
             result = get_ha_entity_registry(use_cache=True)
             if not result.get('success'):
                 return result
@@ -259,15 +263,12 @@ def filter_exposed_entities_wrapper(entities: Optional[List[Dict]] = None) -> Di
             filtered = filter_exposed_entities(entities)
             return create_success_response('Entities filtered', filtered)
         
-        # Fallback: return all entities
         return create_success_response('All entities returned (WebSocket disabled)', entities)
         
     except Exception as e:
         log_error(f"Filter exposed entities failed: {str(e)}")
         return create_error_response(str(e), 'FILTER_ENTITIES_FAILED')
 
-
-# ===== WRAPPER PATTERN =====
 
 def ha_operation_wrapper(feature: str, operation: str, func: Callable,
                         config: Optional[Dict] = None, cache_key: Optional[str] = None,
@@ -279,7 +280,6 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
         log_debug(f"[{correlation_id}] HA operation: {feature}.{operation}")
         record_metric(f'ha_{feature}_{operation}_started', 1.0)
         
-        # Check cache first
         if cache_key:
             cached = cache_get(cache_key)
             if cached:
@@ -287,14 +287,11 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
                 increment_counter(f'ha_{feature}_cache_hit')
                 return cached
         
-        # Get config
         ha_config = config or get_ha_config()
         
-        # Execute through circuit breaker
         def _execute():
             return func(ha_config, **kwargs)
         
-        # FIXED: Changed 'execute' to 'call' and breaker_name to name
         result = execute_operation(
             GatewayInterface.CIRCUIT_BREAKER,
             'call',
@@ -302,7 +299,6 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
             func=_execute
         )
         
-        # Cache successful results
         if result.get('success') and cache_key:
             cache_set(cache_key, result, ttl=cache_ttl)
         
@@ -319,15 +315,14 @@ def ha_operation_wrapper(feature: str, operation: str, func: Callable,
         return create_error_response(str(e), 'OPERATION_FAILED')
 
 
-# ===== EXPORTS =====
-
 __all__ = [
     'get_ha_config',
     'call_ha_api',
-    'get_states',
+    'get_ha_states',
     'call_ha_service',
     'check_ha_status',
     'get_diagnostic_info',
+    'get_assistant_name_info',
     'get_ha_entity_registry',
     'filter_exposed_entities_wrapper',
     'ha_operation_wrapper',
