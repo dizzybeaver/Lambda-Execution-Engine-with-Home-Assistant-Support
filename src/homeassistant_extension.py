@@ -1,10 +1,14 @@
 """
 homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.18.07
+Version: 2025.10.18.10
 Description: Pure facade for Home Assistant extension - delegates all operations
              to internal modules. This is the ONLY file lambda_function.py imports.
 
 CHANGELOG:
+- 2025.10.18.10: Added handle_alexa_authorization() for Alexa.Authorization namespace
+  - Routes Alexa.Authorization/AcceptGrant directives to ha_alexa
+  - Enables OAuth skill linking flow
+  - Fixes "Unknown Alexa namespace: Alexa.Authorization" error
 - 2025.10.18.07: Added DEBUG_MODE-controlled debug logging at entry points
   - Added _is_debug_mode() helper function
   - Added [DEBUG] logging controlled by DEBUG_MODE environment variable
@@ -179,6 +183,25 @@ def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
 
 
+def handle_alexa_authorization(directive: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle Alexa authorization (AcceptGrant) - delegates to ha_alexa."""
+    correlation_id = generate_correlation_id()
+    
+    if _is_debug_mode():
+        log_info(f"[{correlation_id}] [DEBUG ENTRY] HOMEASSISTANT_EXTENSION: handle_alexa_authorization called")
+    
+    if not is_ha_extension_enabled():
+        return _create_alexa_error_response(directive, 'BRIDGE_UNREACHABLE',
+                                           'Home Assistant extension disabled')
+    
+    try:
+        from ha_alexa import handle_accept_grant
+        return handle_accept_grant(directive)
+    except Exception as e:
+        log_error(f"[{correlation_id}] Alexa authorization failed: {str(e)}")
+        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
+
+
 def handle_alexa_control(directive: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa control directive - delegates to ha_alexa."""
     if _is_debug_mode():
@@ -209,39 +232,33 @@ def call_ha_service(domain: str, service: str,
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import call_ha_service as _call_ha_service
-        return _call_ha_service(domain, service, entity_id, service_data)
+        from ha_core import call_ha_service as _call_service
+        return _call_service(domain, service, entity_id, service_data)
     except Exception as e:
         log_error(f"Service call failed: {str(e)}")
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
 
 
-def get_ha_states(entity_ids: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Get Home Assistant entity states - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info(f"[DEBUG] HOMEASSISTANT_EXTENSION: get_ha_states called with entity_ids={entity_ids}")
-    
+def get_ha_states(domain: Optional[str] = None) -> Dict[str, Any]:
+    """Get Home Assistant states - delegates to ha_core."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import get_ha_states as _get_ha_states
-        return _get_ha_states(entity_ids)
+        from ha_core import get_ha_states as _get_states
+        return _get_states(domain)
     except Exception as e:
         log_error(f"Get states failed: {str(e)}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
 def get_ha_entity_state(entity_id: str) -> Dict[str, Any]:
-    """Get single entity state - delegates to ha_common."""
-    if _is_debug_mode():
-        log_info(f"[DEBUG] HOMEASSISTANT_EXTENSION: get_ha_entity_state called for {entity_id}")
-    
+    """Get single entity state - delegates to ha_core."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_common import get_entity_state
+        from ha_core import get_entity_state
         return get_entity_state(entity_id)
     except Exception as e:
         log_error(f"Get entity state failed: {str(e)}")
@@ -263,14 +280,14 @@ def list_automations() -> Dict[str, Any]:
         return create_error_response(str(e), 'LIST_AUTOMATIONS_FAILED')
 
 
-def trigger_automation(automation_id: str, skip_condition: bool = False) -> Dict[str, Any]:
+def trigger_automation(automation_id: str) -> Dict[str, Any]:
     """Trigger automation - delegates to ha_features."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_features import trigger_automation as _trigger_automation
-        return _trigger_automation(automation_id, skip_condition)
+        return _trigger_automation(automation_id)
     except Exception as e:
         log_error(f"Trigger automation failed: {str(e)}")
         return create_error_response(str(e), 'TRIGGER_AUTOMATION_FAILED')
@@ -319,7 +336,7 @@ def process_conversation(text: str, conversation_id: Optional[str] = None) -> Di
         return create_error_response(str(e), 'CONVERSATION_FAILED')
 
 
-def send_notification(message: str, title: Optional[str] = None,
+def send_notification(message: str, title: Optional[str] = None, 
                      target: Optional[str] = None) -> Dict[str, Any]:
     """Send notification - delegates to ha_features."""
     if not is_ha_extension_enabled():
@@ -441,6 +458,7 @@ __all__ = [
     # Alexa
     'process_alexa_ha_request',
     'handle_alexa_discovery',
+    'handle_alexa_authorization',
     'handle_alexa_control',
     
     # Services
