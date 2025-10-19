@@ -1,20 +1,18 @@
 """
-http_client_core.py - HTTP Client Core Implementation (SELECTIVE IMPORTS)
-Version: 2025.10.19.SELECTIVE
-Description: Uses PRELOADED urllib3 classes from lambda_preload module
+http_client_core.py - HTTP Client Core Implementation (JSON FIX)
+Version: 2025.10.19.JSON_FIX
+Description: CRITICAL FIX - Handle 'json' kwarg correctly (was ignoring it!)
 
-CRITICAL CHANGE: Removed `import urllib3` (was ~1,700ms!)
-NOW: Uses preloaded PoolManager and Timeout from lambda_preload.py (~0ms!)
-
-Performance Impact:
-- BEFORE: import urllib3 = 1,700ms during first request
-- AFTER: Uses preloaded classes = 0ms (already loaded!)
+BUG FIX:
+- BEFORE: Only looked for 'body' kwarg, ignored 'json' kwarg
+- AFTER: Properly handles 'json' kwarg by encoding it to JSON bytes
+- IMPACT: Home Assistant API calls were sending NO BODY DATA!
 
 CHANGELOG:
+- 2025.10.19.JSON_FIX: Fix json kwarg handling in _execute_request
 - 2025.10.19.SELECTIVE: Use preloaded urllib3 from lambda_preload
 - 2025.10.18.03: Encode JSON body to bytes (matches working Lambda)
 - 2025.10.18.02: Added SSL verification support (CRITICAL)
-- 2025.10.18.01: Remove 'url' from kwargs before passing to _make_http_request
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -97,15 +95,19 @@ class HTTPClientCore:
             elif not isinstance(headers, dict):
                 headers = get_standard_headers()
             
-            # Handle JSON body encoding (CRITICAL FIX 2025.10.18.03)
-            body = kwargs.get('body')
-            if body and kwargs.get('json'):
-                # JSON mode - encode to bytes
-                body = json.dumps(body).encode('utf-8')
+            # Handle JSON body encoding (CRITICAL FIX 2025.10.19.JSON_FIX)
+            body = None
+            
+            if kwargs.get('json'):
+                # JSON mode - encode 'json' kwarg to bytes
+                json_data = kwargs.get('json')
+                body = json.dumps(json_data).encode('utf-8')
                 headers.setdefault('Content-Type', 'application/json')
-            elif body and isinstance(body, str):
-                # String body - encode to bytes
-                body = body.encode('utf-8')
+            elif kwargs.get('body'):
+                # Body mode - use 'body' kwarg directly
+                body = kwargs.get('body')
+                if isinstance(body, str):
+                    body = body.encode('utf-8')
             
             # Execute request
             response = self.http.request(
