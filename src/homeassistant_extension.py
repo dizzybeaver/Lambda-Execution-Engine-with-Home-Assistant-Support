@@ -1,9 +1,10 @@
 """
 homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.19.03
-Description: Pure facade for Home Assistant extension
+Version: 2025.10.19.TIMING
+Description: Pure facade with comprehensive DEBUG_MODE timing diagnostics
 
 CHANGELOG:
+- 2025.10.19.TIMING: Added comprehensive timing traces gated by DEBUG_MODE
 - 2025.10.19.03: Removed debug logging statements
 - 2025.10.19.02: Added extensive DEBUG logging
 - 2025.10.19.01: Initial version with SUGA-ISP compliance
@@ -13,6 +14,7 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
+import time
 from typing import Dict, Any, Optional, List
 
 from gateway import (
@@ -27,6 +29,12 @@ from gateway import (
 def _is_debug_mode() -> bool:
     """Check if DEBUG_MODE is enabled."""
     return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+
+def _print_timing(msg: str):
+    """Print timing message only if DEBUG_MODE=true."""
+    if _is_debug_mode():
+        print(f"[HA_EXT_TIMING] {msg}")
 
 
 # ===== EXTENSION CONTROL =====
@@ -124,48 +132,115 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def handle_alexa_discovery(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa discovery."""
+    start_time = time.time()
+    _print_timing("===== HANDLE_ALEXA_DISCOVERY START =====")
+    
     correlation_id = generate_correlation_id()
     
     if not is_ha_extension_enabled():
+        _print_timing(f"Extension disabled, returning error (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
+        _print_timing(f"Importing ha_alexa module... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        import_start = time.time()
         from ha_alexa import handle_discovery
-        return handle_discovery(event)
+        import_ms = (time.time() - import_start) * 1000
+        _print_timing(f"ha_alexa imported: {import_ms:.2f}ms")
+        
+        _print_timing(f"Calling handle_discovery()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        call_start = time.time()
+        result = handle_discovery(event)
+        call_ms = (time.time() - call_start) * 1000
+        _print_timing(f"handle_discovery() completed: {call_ms:.2f}ms")
+        
+        total_ms = (time.time() - start_time) * 1000
+        _print_timing(f"===== HANDLE_ALEXA_DISCOVERY COMPLETE: {total_ms:.2f}ms =====")
+        return result
+        
     except Exception as e:
+        error_ms = (time.time() - start_time) * 1000
+        _print_timing(f"!!! DISCOVERY ERROR after {error_ms:.2f}ms: {str(e)}")
         log_error(f"[{correlation_id}] Alexa discovery failed: {str(e)}")
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def handle_alexa_authorization(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa authorization (AcceptGrant)."""
+    start_time = time.time()
+    _print_timing("===== HANDLE_ALEXA_AUTHORIZATION START =====")
+    
     correlation_id = generate_correlation_id()
     
     if not is_ha_extension_enabled():
+        _print_timing(f"Extension disabled (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
+        _print_timing(f"Importing ha_alexa... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        import_start = time.time()
         from ha_alexa import handle_accept_grant
-        return handle_accept_grant(event)
+        import_ms = (time.time() - import_start) * 1000
+        _print_timing(f"ha_alexa imported: {import_ms:.2f}ms")
+        
+        _print_timing(f"Calling handle_accept_grant()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        call_start = time.time()
+        result = handle_accept_grant(event)
+        call_ms = (time.time() - call_start) * 1000
+        _print_timing(f"handle_accept_grant() completed: {call_ms:.2f}ms")
+        
+        total_ms = (time.time() - start_time) * 1000
+        _print_timing(f"===== HANDLE_ALEXA_AUTHORIZATION COMPLETE: {total_ms:.2f}ms =====")
+        return result
+        
     except Exception as e:
+        error_ms = (time.time() - start_time) * 1000
+        _print_timing(f"!!! AUTHORIZATION ERROR after {error_ms:.2f}ms: {str(e)}")
         log_error(f"[{correlation_id}] Alexa authorization failed: {str(e)}")
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def handle_alexa_control(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa control directive."""
+    start_time = time.time()
+    _print_timing("===== HANDLE_ALEXA_CONTROL START =====")
+    
     correlation_id = generate_correlation_id()
     
+    # Extract directive info for logging
+    directive = event.get('directive', {})
+    header = directive.get('header', {})
+    namespace = header.get('namespace', 'Unknown')
+    name = header.get('name', 'Unknown')
+    _print_timing(f"Processing: {namespace}.{name}")
+    
     if not is_ha_extension_enabled():
+        _print_timing(f"Extension disabled (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'ENDPOINT_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
+        _print_timing(f"Importing ha_alexa module... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        import_start = time.time()
         from ha_alexa import handle_control
-        return handle_control(event)
+        import_ms = (time.time() - import_start) * 1000
+        _print_timing(f"ha_alexa module imported: {import_ms:.2f}ms")
+        
+        _print_timing(f"Calling handle_control()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
+        call_start = time.time()
+        result = handle_control(event)
+        call_ms = (time.time() - call_start) * 1000
+        _print_timing(f"*** handle_control() completed: {call_ms:.2f}ms ***")
+        
+        total_ms = (time.time() - start_time) * 1000
+        _print_timing(f"===== HANDLE_ALEXA_CONTROL COMPLETE: {total_ms:.2f}ms =====")
+        return result
+        
     except Exception as e:
+        error_ms = (time.time() - start_time) * 1000
+        _print_timing(f"!!! CONTROL ERROR after {error_ms:.2f}ms: {type(e).__name__}: {str(e)}")
         log_error(f"[{correlation_id}] Alexa control failed: {str(e)}")
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
