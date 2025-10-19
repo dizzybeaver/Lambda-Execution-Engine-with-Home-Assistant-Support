@@ -1,19 +1,21 @@
 """
-ha_config.py - Configuration Management  
-Version: 2025.10.19.07
-Description: SSM-first configuration with proper sentinel handling
+ha_config.py - Configuration Management (With Timing Diagnostics)
+Version: 2025.10.19.TIMING
+Description: SSM-first configuration with comprehensive timing traces
 
 CHANGELOG:
-- 2025.10.19.07: FINAL VERSION - Works with sentinel-aware config_param_store
-  - Proper SSM priority when USE_PARAMETER_STORE=true
-  - Environment fallback when SSM fails
-  - Compatible with fixed config_param_store.py
+- 2025.10.19.TIMING: Added comprehensive timing diagnostics gated by DEBUG_MODE
+  - Times each _get_config_value call
+  - Times cache operations
+  - Times SSM vs environment lookups
+  - Zero overhead when DEBUG_MODE=false
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
+import time
 from typing import Dict, Any, Optional
 from gateway import (
     log_info, log_error, log_debug, log_warning,
@@ -23,6 +25,17 @@ from gateway import (
 
 HA_CONFIG_CACHE_KEY = 'ha_configuration'
 HA_CONFIG_TTL = 600
+
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+
+def _print_timing(msg: str):
+    """Print timing message only if DEBUG_MODE=true."""
+    if _is_debug_mode():
+        print(f"[HA_CONFIG_TIMING] {msg}")
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -52,60 +65,147 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
     1. Environment variable ONLY
     2. Default value
     """
+    start_time = time.time()
+    _print_timing(f"  _get_config_value START: key={key}, env_var={env_var}")
+    
     use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+    _print_timing(f"    USE_PARAMETER_STORE={use_ssm}")
     
     if use_ssm:
+        _print_timing(f"    Attempting SSM lookup for {key}...")
+        ssm_start = time.time()
         try:
             from config_param_store import get_parameter as ssm_get_parameter
+            import_ms = (time.time() - ssm_start) * 1000
+            _print_timing(f"    config_param_store imported: {import_ms:.2f}ms")
             
+            lookup_start = time.time()
             value = ssm_get_parameter(key, default=None)
+            lookup_ms = (time.time() - lookup_start) * 1000
+            _print_timing(f"    *** SSM lookup completed: {lookup_ms:.2f}ms ***")
             
             if value is not None and value != '':
+                total_ms = (time.time() - start_time) * 1000
+                _print_timing(f"  [SSM SUCCESS] {key}: {total_ms:.2f}ms")
                 log_info(f"[SSM SUCCESS] {key}")
                 return str(value) if not isinstance(value, bool) else value
             else:
+                _print_timing(f"    SSM returned None/empty, trying environment")
                 log_warning(f"[SSM MISS] {key}, trying environment")
                 
         except Exception as e:
+            error_ms = (time.time() - ssm_start) * 1000
+            _print_timing(f"    !!! SSM ERROR after {error_ms:.2f}ms: {str(e)}")
             log_error(f"[SSM ERROR] {key}: {e}, trying environment")
     
     # Environment fallback (or primary if SSM disabled)
+    _print_timing(f"    Checking environment variable {env_var}...")
+    env_start = time.time()
     value = os.getenv(env_var)
+    env_ms = (time.time() - env_start) * 1000
+    _print_timing(f"    Environment lookup: {env_ms:.2f}ms")
     
     if value is not None and value != '':
+        total_ms = (time.time() - start_time) * 1000
+        _print_timing(f"  [ENV SUCCESS] {key}: {total_ms:.2f}ms")
         log_info(f"[ENV SUCCESS] {key}")
         return value
     
     # Default
+    total_ms = (time.time() - start_time) * 1000
+    _print_timing(f"  [DEFAULT] {key}: {total_ms:.2f}ms")
     log_debug(f"[DEFAULT] {key}")
     return default
 
 
 def _build_config_from_sources() -> Dict[str, Any]:
     """Build configuration from SSM/environment."""
-    return {
-        'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
-        'base_url': _get_config_value('home_assistant/url', 'HOME_ASSISTANT_URL', ''),
-        'access_token': _get_config_value('home_assistant/token', 'HOME_ASSISTANT_TOKEN', ''),
-        'timeout': _safe_int(_get_config_value('home_assistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30),
-        'verify_ssl': _get_config_value('home_assistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true',
-        'assistant_name': _get_config_value('home_assistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
+    build_start = time.time()
+    _print_timing("===== _build_config_from_sources START =====")
+    
+    _print_timing("Getting enabled status...")
+    enabled_start = time.time()
+    enabled = os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true'
+    enabled_ms = (time.time() - enabled_start) * 1000
+    _print_timing(f"Enabled check: {enabled_ms:.2f}ms, enabled={enabled}")
+    
+    _print_timing("Getting base_url...")
+    url_start = time.time()
+    base_url = _get_config_value('home_assistant/url', 'HOME_ASSISTANT_URL', '')
+    url_ms = (time.time() - url_start) * 1000
+    _print_timing(f"*** base_url retrieved: {url_ms:.2f}ms ***")
+    
+    _print_timing("Getting access_token...")
+    token_start = time.time()
+    access_token = _get_config_value('home_assistant/token', 'HOME_ASSISTANT_TOKEN', '')
+    token_ms = (time.time() - token_start) * 1000
+    _print_timing(f"*** access_token retrieved: {token_ms:.2f}ms ***")
+    
+    _print_timing("Getting timeout...")
+    timeout_start = time.time()
+    timeout = _safe_int(_get_config_value('home_assistant/timeout', 'HOME_ASSISTANT_TIMEOUT', '30'), 30)
+    timeout_ms = (time.time() - timeout_start) * 1000
+    _print_timing(f"timeout retrieved: {timeout_ms:.2f}ms")
+    
+    _print_timing("Getting verify_ssl...")
+    ssl_start = time.time()
+    verify_ssl = _get_config_value('home_assistant/verify_ssl', 'HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
+    ssl_ms = (time.time() - ssl_start) * 1000
+    _print_timing(f"verify_ssl retrieved: {ssl_ms:.2f}ms")
+    
+    _print_timing("Getting assistant_name...")
+    name_start = time.time()
+    assistant_name = _get_config_value('home_assistant/assistant_name', 'HA_ASSISTANT_NAME', 'Jarvis')
+    name_ms = (time.time() - name_start) * 1000
+    _print_timing(f"assistant_name retrieved: {name_ms:.2f}ms")
+    
+    config = {
+        'enabled': enabled,
+        'base_url': base_url,
+        'access_token': access_token,
+        'timeout': timeout,
+        'verify_ssl': verify_ssl,
+        'assistant_name': assistant_name
     }
+    
+    total_ms = (time.time() - build_start) * 1000
+    _print_timing(f"===== _build_config_from_sources COMPLETE: {total_ms:.2f}ms =====")
+    return config
 
 
 def load_ha_config() -> Dict[str, Any]:
     """Load HA configuration with caching."""
+    load_start = time.time()
+    _print_timing("===== LOAD_HA_CONFIG START =====")
+    
     # Check cache
+    _print_timing("Checking cache...")
+    cache_start = time.time()
     cached_config = cache_get(HA_CONFIG_CACHE_KEY)
+    cache_ms = (time.time() - cache_start) * 1000
+    _print_timing(f"Cache check: {cache_ms:.2f}ms, found={cached_config is not None}")
+    
     if cached_config and isinstance(cached_config, dict):
+        total_ms = (time.time() - load_start) * 1000
+        _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (cached): {total_ms:.2f}ms =====")
         return cached_config
     
     # Build fresh config
+    _print_timing("Building fresh config...")
+    build_start = time.time()
     config = _build_config_from_sources()
+    build_ms = (time.time() - build_start) * 1000
+    _print_timing(f"*** Config built: {build_ms:.2f}ms ***")
     
     # Cache it
+    _print_timing("Caching config...")
+    cache_set_start = time.time()
     cache_set(HA_CONFIG_CACHE_KEY, config, ttl=HA_CONFIG_TTL)
+    cache_set_ms = (time.time() - cache_set_start) * 1000
+    _print_timing(f"Config cached: {cache_set_ms:.2f}ms")
     
+    total_ms = (time.time() - load_start) * 1000
+    _print_timing(f"===== LOAD_HA_CONFIG COMPLETE: {total_ms:.2f}ms =====")
     return config
 
 
