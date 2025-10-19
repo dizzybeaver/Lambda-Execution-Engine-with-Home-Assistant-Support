@@ -1,21 +1,18 @@
 """
 ha_config.py - Configuration Management
-Version: 2025.10.18.03
-Description: Configuration loading with SSM Parameter Store support and type safety
+Version: 2025.10.19.04
+Description: Configuration loading with correct SSM Parameter Store priority
 
 CHANGELOG:
+- 2025.10.19.04: PERFORMANCE + PRIORITY FIX - Corrected configuration lookup sequence
+  - FIXED: Now tries SSM FIRST when USE_PARAMETER_STORE=true, then env fallback
+  - FIXED: Skips boto3/SSM loading completely when USE_PARAMETER_STORE=false
+  - Added comprehensive logging for each lookup step (SSM success/failure/fallback)
+  - Performance: Conditional boto3 import only when needed
+  - Maintains backward compatibility with environment-only configuration
+  - Resolves issue where env vars take precedence over SSM parameters
 - 2025.10.18.03: FIXED Issue #29 - Added type safety for int conversion
-  - Added _safe_int() helper to handle type conversion safely
-  - Ensures all values are strings before int() conversion
-  - Handles edge cases where get_parameter returns unexpected types
-  - Fixes "'object' object is not subscriptable" error
-  - Fixes "int() argument must be ... not 'object'" error
 - 2025.10.18.02: FIXED Issue #28 - Added SSM Parameter Store support (CRITICAL)
-  - Now reads from SSM when USE_PARAMETER_STORE=true
-  - Uses gateway.execute_operation(CONFIG, 'get_parameter') for smart loading
-  - Falls back to environment variables if SSM unavailable
-  - Maintains backward compatibility with env-only configuration
-  - Fixes connection failure when token in SSM Parameter Store
 - 2025.10.18.01: Fixed cache validation, type checking
 
 Copyright 2025 Joseph Hersey
@@ -26,7 +23,7 @@ import os
 from typing import Dict, Any, Optional
 from gateway import (
     log_info, log_error, log_debug, log_warning,
-    cache_get, cache_set, execute_operation, GatewayInterface,
+    cache_get, cache_set,
     create_success_response, create_error_response
 )
 
@@ -71,12 +68,18 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
     """
-    Get configuration value with SSM Parameter Store support.
+    Get configuration value with CORRECT priority sequence.
     
-    Priority:
-    1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
-    2. Environment variable
-    3. Default value
+    PERFORMANCE OPTIMIZATION: Conditional loading based on USE_PARAMETER_STORE.
+    
+    Priority when USE_PARAMETER_STORE=true:
+    1. SSM Parameter Store (FIRST - primary source)
+    2. Environment variable (FALLBACK only)
+    3. Default value (last resort)
+    
+    Priority when USE_PARAMETER_STORE=false:
+    1. Environment variable (skip SSM completely)
+    2. Default value
     
     Args:
         key: Parameter Store key (e.g., 'home_assistant/url')
@@ -88,41 +91,50 @@ def _get_config_value(key: str, env_var: str, default: Any = '') -> Any:
     """
     use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
     
+    # === CONDITIONAL IMPORT: Only load SSM client if needed ===
     if use_ssm:
         try:
-            # Try to get from SSM via config interface
-            # Config interface checks SSM first, then env, then defaults
-            value = execute_operation(
-                GatewayInterface.CONFIG,
-                'get_parameter',
-                key=key,
-                default=None
-            )
+            # Import SSM parameter getter (only when USE_PARAMETER_STORE=true)
+            from config_param_store import get_parameter as ssm_get_parameter
             
-            if value is not None:
-                # Ensure value is a string (not an object or response wrapper)
-                if not isinstance(value, (str, int, float, bool)):
-                    log_warning(f"SSM returned unexpected type {type(value)} for {key}, trying env")
-                else:
-                    log_debug(f"Loaded {key} from Parameter Store")
-                    return str(value) if not isinstance(value, bool) else value
+            log_debug(f"[PRIORITY 1] Attempting SSM lookup for: {key}")
+            
+            # Try SSM Parameter Store FIRST
+            value = ssm_get_parameter(key, default=None)
+            
+            if value is not None and value != '':
+                # SUCCESS: Found in SSM
+                log_info(f"[SSM SUCCESS] Loaded {key} from Parameter Store")
+                return str(value) if not isinstance(value, bool) else value
+            else:
+                # NOT FOUND in SSM, will fallback to environment
+                log_warning(f"[SSM MISS] Parameter {key} not found in SSM, falling back to environment variable {env_var}")
                 
+        except ImportError as e:
+            log_error(f"[SSM ERROR] Cannot import config_param_store: {e}. Falling back to environment.")
         except Exception as e:
-            log_warning(f"Failed to load {key} from Parameter Store: {e}")
-    
-    # Fallback to environment variable
-    value = os.getenv(env_var, default)
-    if value != default:
-        log_debug(f"Loaded {key} from environment variable {env_var}")
+            log_warning(f"[SSM ERROR] Failed to load {key} from Parameter Store: {e}. Falling back to environment.")
     else:
-        log_debug(f"Using default value for {key}")
+        log_debug(f"[SSM SKIPPED] USE_PARAMETER_STORE=false, skipping SSM lookup for {key}")
     
-    return value
+    # === PRIORITY 2: Environment Variable Fallback ===
+    value = os.getenv(env_var)
+    
+    if value is not None and value != '':
+        log_info(f"[ENV SUCCESS] Loaded {key} from environment variable {env_var}")
+        return value
+    
+    # === PRIORITY 3: Default Value ===
+    log_debug(f"[DEFAULT] Using default value for {key}: {default}")
+    return default
 
 
 def _build_config_from_sources() -> Dict[str, Any]:
     """
     Build configuration dict from SSM and environment variables.
+    
+    PERFORMANCE NOTE: This function respects USE_PARAMETER_STORE flag.
+    If false, SSM lookups are skipped entirely (no boto3 import).
     
     Returns:
         Configuration dictionary with validated types
@@ -144,61 +156,51 @@ def load_ha_config() -> Dict[str, Any]:
     CRITICAL: Always returns a dict, never a response object.
     Cache stores raw config dict, not wrapped responses.
     
-    Configuration priority:
+    Configuration priority (when USE_PARAMETER_STORE=true):
     1. Cache (if valid)
-    2. SSM Parameter Store (if USE_PARAMETER_STORE=true)
-    3. Environment variables
-    4. Emergency fallback dict
+    2. SSM Parameter Store (PRIMARY SOURCE)
+    3. Environment variables (FALLBACK)
+    4. Default values
+    
+    When USE_PARAMETER_STORE=false:
+    1. Cache (if valid)
+    2. Environment variables (ONLY SOURCE)
+    3. Default values
+    
+    Returns:
+        Configuration dictionary
     """
-    try:
-        # Try cache first
-        cached = cache_get(HA_CONFIG_CACHE_KEY)
-        
-        # CRITICAL: Validate cached value is actually a dict
-        if cached is not None:
-            if isinstance(cached, dict):
-                # Verify it has expected structure (not a response wrapper)
-                if 'enabled' in cached and 'base_url' in cached:
-                    log_debug("Using cached HA configuration")
-                    return cached
-                else:
-                    log_warning(f"Cached config has wrong structure: {list(cached.keys())}")
-            else:
-                log_warning(f"Cached config is {type(cached)}, not dict - rebuilding")
-        
-        # Build fresh config from SSM/environment
-        config = _build_config_from_sources()
-        
-        # Validate we got actual values
-        if config['enabled']:
-            if not config.get('base_url'):
-                log_error("HOME_ASSISTANT_URL not configured")
-            if not config.get('access_token'):
-                log_error("HOME_ASSISTANT_TOKEN not configured")
-        
-        # Cache the raw dict (NOT a response wrapper)
-        cache_set(HA_CONFIG_CACHE_KEY, config, ttl=HA_CONFIG_TTL)
-        
-        use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
-        log_info(f"HA configuration loaded (SSM: {use_ssm})")
-        
-        return config
-        
-    except Exception as e:
-        log_error(f"Failed to load HA config: {str(e)}", error=e)
-        # Emergency fallback - always return a valid dict
-        return {
-            'enabled': os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true',
-            'base_url': os.getenv('HOME_ASSISTANT_URL', ''),
-            'access_token': os.getenv('HOME_ASSISTANT_TOKEN', ''),
-            'timeout': 30,
-            'verify_ssl': True,
-            'assistant_name': 'Jarvis'
-        }
+    # Check cache first
+    cached_config = cache_get(HA_CONFIG_CACHE_KEY)
+    if cached_config and isinstance(cached_config, dict):
+        log_debug("Using cached HA configuration")
+        return cached_config
+    
+    log_info("Loading HA configuration from sources (cache miss)")
+    
+    # Build fresh config from sources (respects USE_PARAMETER_STORE)
+    config = _build_config_from_sources()
+    
+    # Cache the config
+    cache_set(HA_CONFIG_CACHE_KEY, config, ttl=HA_CONFIG_TTL)
+    
+    log_info(f"HA configuration loaded: enabled={config['enabled']}, "
+            f"base_url_present={bool(config['base_url'])}, "
+            f"token_present={bool(config['access_token'])}")
+    
+    return config
 
 
 def validate_ha_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Validate HA configuration."""
+    """
+    Validate Home Assistant configuration.
+    
+    Args:
+        config: Configuration dict to validate (loads if None)
+        
+    Returns:
+        Validation response dictionary
+    """
     if config is None:
         config = load_ha_config()
     
