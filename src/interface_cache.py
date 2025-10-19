@@ -1,9 +1,16 @@
 """
 interface_cache.py - Cache Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.19.20
-Description: Router for Cache interface with SENTINEL SANITIZATION
+Version: 2025.10.19.21
+Description: Router for Cache interface with SENTINEL SANITIZATION on GET
 
 CHANGELOG:
+- 2025.10.19.21: CRITICAL FIX - Sanitize sentinel on cache_get returns
+  - Modified 'get' dispatch to sanitize return value from cache_core
+  - Converts _CACHE_MISS sentinel to None before returning to caller
+  - Prevents sentinel leak that causes ~535ms cold start penalty
+  - Callers can now safely check `if cached is not None`
+  - Maintains existing sanitization on cache_set
+  - SUGA-compliant: Infrastructure logic in gateway layer
 - 2025.10.19.20: CRITICAL FIX - Added deep recursive sentinel sanitization
   - New _is_sentinel_object() - Detects object() sentinels
   - New _sanitize_value_deep() - Deep recursive sanitization
@@ -57,7 +64,7 @@ def _is_sentinel_object(value: Any) -> bool:
     Detect if value is object() sentinel.
     
     Sentinels are used by cache_core as _CACHE_MISS markers.
-    They must NEVER be stored in cache.
+    They must NEVER be stored in cache OR returned to callers.
     
     Args:
         value: Value to check
@@ -143,7 +150,7 @@ def _validate_set_params(kwargs: Dict[str, Any]) -> None:
     """
     Validate and SANITIZE set operation parameters.
     
-    CRITICAL: This is where sentinel sanitization happens.
+    CRITICAL: This is where sentinel sanitization happens on cache_set.
     ALL cache_set operations go through this validation.
     """
     _validate_key_param(kwargs, 'set')
@@ -165,7 +172,11 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
     return {
         'get': lambda **kwargs: (
             _validate_key_param(kwargs, 'get'),
-            _execute_get_implementation(**kwargs)
+            # CRITICAL FIX: Sanitize return value to convert sentinel to None
+            _sanitize_value_deep(
+                _execute_get_implementation(**kwargs),
+                f"cache[{kwargs['key']}]"
+            )
         )[1],
         
         'set': lambda **kwargs: (
@@ -203,7 +214,7 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     Route cache operation requests using dispatch dictionary pattern.
     
     Operations:
-    - get: Get cached value by key
+    - get: Get cached value by key (AUTOMATICALLY SANITIZES SENTINEL TO NONE)
     - set: Set cached value with optional TTL (AUTOMATICALLY SANITIZED)
     - exists: Check if key exists
     - delete: Delete cached value
@@ -218,6 +229,11 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
         
     Returns:
         Operation result (type varies by operation)
+        - get: Returns cached value or None (sentinel converted to None)
+        - set: Returns None
+        - exists: Returns bool
+        - delete: Returns bool
+        - Others: Varies by operation
         
     Raises:
         RuntimeError: If cache interface unavailable
