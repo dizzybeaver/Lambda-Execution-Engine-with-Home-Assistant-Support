@@ -1,22 +1,32 @@
 """
 config_param_store.py - AWS Systems Manager Parameter Store Client
-Version: 2025.10.19.TIMING
-Description: TIMING DIAGNOSTICS - Shows exactly where SSM import overhead occurs
+Version: 2025.10.19.TIMING_FIXED
+Description: TIMING DIAGNOSTICS + LAZY IMPORT REMOVAL - boto3 guaranteed preloaded at module level
 
 CHANGELOG:
+- 2025.10.19.TIMING_FIXED: LAZY IMPORT REMOVAL
+  - Removed fallback lazy import in _get_ssm_client() 
+  - boto3 is ALWAYS preloaded at module level (no on-demand loading)
+  - If module-level init fails, SSM is completely disabled (fail-fast)
+  - This ensures 7.7s boto3 import happens during Lambda INIT (257ms), not first request
+  - DESIGN DECISION: No lazy loading fallback - rely on module-level init only
+  - Reason: Lazy loading defeats performance optimization and causes 7.7s first-request penalty
+  - All timing diagnostics preserved for future debugging
 - 2025.10.19.TIMING: COMPREHENSIVE TIMING DIAGNOSTICS
   - Added timing for module-level boto3 import (THE 7.7 SECOND CULPRIT!)
   - Times boto3.client('ssm') initialization separately
   - Times each SSM GetParameter API call
   - Shows cache operations timing
-  - All timing gated by DEBUG_MODE=true (zero overhead when false)
-  - Maintains all existing functionality
 - 2025.10.19.08: FINAL FIX - Handles _CACHE_MISS sentinel from cache_core.py
-  - Added detection for _CACHE_MISS sentinel (object() instance from cache)
-  - Converts sentinel to None before processing
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
+
+Design Decisions:
+- No lazy loading fallback: Module-level init is the ONLY way boto3 gets loaded
+  Reason: Lazy loading causes 7.7s penalty on first request, defeats optimization
+- Module-level init failure disables SSM completely: Fail-fast approach
+  Reason: Better to fall back to environment variables than surprise 7.7s delay
 """
 
 from typing import Any, Optional, Dict, List
@@ -174,7 +184,15 @@ class ParameterStoreClient:
         self._cache_ttl = 300
     
     def _get_ssm_client(self):
-        """Get SSM client with safety checks."""
+        """
+        Get SSM client - NO LAZY LOADING!
+        
+        DESIGN DECISION: Removed lazy import fallback
+        Reason: Lazy loading causes 7.7s penalty on first request, defeating optimization.
+        
+        boto3 is ALWAYS preloaded at module level. If that fails, SSM is disabled.
+        This function just returns the pre-initialized client.
+        """
         if not _USE_PARAMETER_STORE:
             return None
         
@@ -182,13 +200,9 @@ class ParameterStoreClient:
             if _BOTO3_SSM_CLIENT is not None:
                 self._ssm_client = _BOTO3_SSM_CLIENT
             else:
-                try:
-                    _print_timing("  Lazy loading boto3 (shouldn't happen - module-level init failed?)")
-                    import boto3
-                    self._ssm_client = boto3.client('ssm')
-                except Exception as e:
-                    log_error(f"Failed to initialize SSM client: {e}")
-                    return None
+                # Module-level initialization failed - SSM is unavailable
+                log_error("SSM client unavailable - module-level initialization failed!")
+                return None
         
         return self._ssm_client
     
