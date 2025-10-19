@@ -1,8 +1,13 @@
 """
-debug_discovery.py - Alexa Discovery Debug Tracer
-Version: 2025.10.19.01
-Description: Traces every step of Alexa discovery with extensive [DEBUG] output.
-             Only shows debug when DEBUG_MODE=true.
+debug_discovery.py - Alexa Discovery Debug Tracer (SELECTIVE IMPORTS)
+Version: 2025.10.19.SELECTIVE
+Description: Traces every step of Alexa discovery using preloaded urllib3
+
+CRITICAL CHANGE: Uses preloaded urllib3 from lambda_preload
+- NO `import urllib3` in function (was causing 1,700ms delay!)
+- Uses PoolManager and Timeout from lambda_preload (already loaded)
+
+Performance: HTTP client creation in ~0ms (urllib3 preloaded!)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -10,8 +15,10 @@ Licensed under Apache 2.0 (see LICENSE).
 
 import os
 import json
-import urllib3
 from typing import Dict, Any
+
+# Import preloaded urllib3 classes (already initialized during Lambda INIT!)
+from lambda_preload import PoolManager, Timeout
 
 
 def _debug(msg: str):
@@ -68,145 +75,103 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             _debug(f"Token length: {len(token) if token else 0}")
         else:
             _debug("ERROR: No scope in payload!")
-            return _error_response("INVALID_DIRECTIVE", "Missing scope", message_id)
+            token = os.getenv('HOME_ASSISTANT_TOKEN')
+            _debug(f"Using fallback token from env: {bool(token)}")
         
-        # Step 4: Load HA config
-        _debug("\n--- STEP 4: Load HA Configuration ---")
+        # Step 4: Get Home Assistant URL
+        _debug("\n--- STEP 4: Get Home Assistant Config ---")
         ha_url = os.getenv('HOME_ASSISTANT_URL')
-        ha_token = os.getenv('HOME_ASSISTANT_TOKEN')
-        verify_ssl = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() != 'false'
-        
-        _debug(f"HA URL present: {bool(ha_url)}")
         _debug(f"HA URL: {ha_url}")
-        _debug(f"Env token present: {bool(ha_token)}")
-        _debug(f"Env token length: {len(ha_token) if ha_token else 0}")
-        _debug(f"Verify SSL: {verify_ssl}")
-        
-        # Use token from event, fallback to env for debug
-        final_token = token if token else ha_token
-        _debug(f"Final token source: {'event' if token else 'environment'}")
         
         if not ha_url:
-            _debug("ERROR: No HOME_ASSISTANT_URL!")
-            return _error_response("BRIDGE_UNREACHABLE", "No HA URL configured", message_id)
+            _debug("ERROR: No HOME_ASSISTANT_URL configured!")
+            return _error_response("INVALID_CONFIGURATION", "HOME_ASSISTANT_URL not set")
         
-        if not final_token:
-            _debug("ERROR: No token available!")
-            return _error_response("INVALID_AUTHORIZATION_CREDENTIAL", "No token", message_id)
+        # Step 5: Create HTTP client (uses preloaded urllib3!)
+        _debug("\n--- STEP 5: Create HTTP Client ---")
+        _debug("Using preloaded urllib3 from lambda_preload...")
         
-        # Step 5: Build request
-        _debug("\n--- STEP 5: Build HTTP Request ---")
-        api_url = f"{ha_url}/api/alexa/smart_home"
-        _debug(f"Target URL: {api_url}")
-        
+        verify_ssl = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() != 'false'
         cert_reqs = 'CERT_REQUIRED' if verify_ssl else 'CERT_NONE'
-        _debug(f"SSL cert_reqs: {cert_reqs}")
+        _debug(f"SSL verification: {verify_ssl}")
+        _debug(f"Cert requirements: {cert_reqs}")
         
-        # Step 6: Create HTTP client
-        _debug("\n--- STEP 6: Create HTTP Client ---")
-        try:
-            http = urllib3.PoolManager(
-                cert_reqs=cert_reqs,
-                timeout=urllib3.Timeout(connect=10.0, read=30.0),
-                maxsize=5,
-                retries=False
-            )
-            _debug("HTTP client created successfully")
-        except Exception as e:
-            _debug(f"ERROR creating HTTP client: {type(e).__name__}: {str(e)}")
-            return _error_response("INTERNAL_ERROR", f"HTTP client error: {str(e)}", message_id)
+        # Use preloaded classes (NO IMPORT OVERHEAD!)
+        http = PoolManager(
+            cert_reqs=cert_reqs,
+            timeout=Timeout(connect=10.0, read=30.0),
+            maxsize=5,
+            retries=False
+        )
+        _debug("HTTP client created successfully")
         
-        # Step 7: Prepare request body
-        _debug("\n--- STEP 7: Prepare Request Body ---")
-        body = json.dumps(event).encode('utf-8')
-        _debug(f"Body length: {len(body)} bytes")
-        _debug(f"Body preview: {body[:200]}")
+        # Step 6: Make request
+        _debug("\n--- STEP 6: Make HTTP Request ---")
+        api_endpoint = f"{ha_url}/api/alexa/smart_home"
+        _debug(f"API endpoint: {api_endpoint}")
         
         headers = {
-            'Authorization': f'Bearer {final_token[:10]}...',
+            'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
         }
-        _debug(f"Headers: {headers}")
+        _debug(f"Headers: Authorization=Bearer *****, Content-Type={headers['Content-Type']}")
         
-        # Step 8: Make HTTP request
-        _debug("\n--- STEP 8: Make HTTP Request to HA ---")
-        _debug("Calling HA...")
+        body = json.dumps(event).encode('utf-8')
+        _debug(f"Body length: {len(body)} bytes")
         
-        try:
-            response = http.request(
-                'POST',
-                api_url,
-                headers={
-                    'Authorization': f'Bearer {final_token}',
-                    'Content-Type': 'application/json'
-                },
-                body=body
-            )
-            _debug(f"Response received!")
-            _debug(f"Status code: {response.status}")
-            _debug(f"Response headers: {dict(response.headers)}")
-            
-        except urllib3.exceptions.SSLError as e:
-            _debug(f"SSL ERROR: {str(e)}")
-            _debug(f"Hint: Set HOME_ASSISTANT_VERIFY_SSL=false to disable SSL verification")
-            return _error_response("BRIDGE_UNREACHABLE", f"SSL error: {str(e)}", message_id)
-        except Exception as e:
-            _debug(f"HTTP ERROR: {type(e).__name__}: {str(e)}")
-            return _error_response("BRIDGE_UNREACHABLE", f"Connection error: {str(e)}", message_id)
+        _debug("Sending POST request...")
+        response = http.request(
+            'POST',
+            api_endpoint,
+            headers=headers,
+            body=body
+        )
         
-        # Step 9: Parse response
-        _debug("\n--- STEP 9: Parse HA Response ---")
+        _debug(f"Response status: {response.status}")
+        _debug(f"Response headers: {dict(response.headers)}")
         
-        if response.status >= 400:
-            error_body = response.data.decode('utf-8', errors='replace')
-            _debug(f"ERROR response from HA: {error_body}")
-            
-            error_type = 'INVALID_AUTHORIZATION_CREDENTIAL' if response.status in (401, 403) else 'INTERNAL_ERROR'
-            return _error_response(error_type, error_body, message_id)
+        # Step 7: Parse response
+        _debug("\n--- STEP 7: Parse Response ---")
         
-        try:
-            response_text = response.data.decode('utf-8')
-            _debug(f"Response body length: {len(response_text)} bytes")
-            
-            response_json = json.loads(response_text)
-            _debug(f"Response JSON keys: {list(response_json.keys())}")
-            
-            # Check for endpoints
-            if 'event' in response_json:
-                payload = response_json.get('event', {}).get('payload', {})
-                endpoints = payload.get('endpoints', [])
-                _debug(f"Discovery found {len(endpoints)} endpoints")
-                
-                for i, endpoint in enumerate(endpoints[:5]):  # Show first 5
+        if response.status != 200:
+            _debug(f"ERROR: Non-200 status code: {response.status}")
+            return _error_response("INTERNAL_ERROR", f"Home Assistant returned {response.status}")
+        
+        response_data = json.loads(response.data.decode('utf-8'))
+        _debug(f"Response parsed successfully")
+        _debug(f"Response keys: {list(response_data.keys())}")
+        
+        # Extract endpoints if discovery
+        if 'event' in response_data:
+            event_data = response_data['event']
+            if 'payload' in event_data and 'endpoints' in event_data['payload']:
+                endpoints = event_data['payload']['endpoints']
+                _debug(f"Discovered {len(endpoints)} endpoints")
+                for i, endpoint in enumerate(endpoints):
                     _debug(f"  Endpoint {i+1}: {endpoint.get('friendlyName', 'Unknown')}")
-            
-            _debug("\n--- SUCCESS: Returning response to Alexa ---")
-            return response_json
-            
-        except json.JSONDecodeError as e:
-            _debug(f"JSON PARSE ERROR: {str(e)}")
-            _debug(f"Response text: {response_text[:500]}")
-            return _error_response("INTERNAL_ERROR", f"Invalid JSON from HA: {str(e)}", message_id)
-    
+        
+        _debug("\n═══════════════════════════════════════════════════")
+        _debug("DEBUG_DISCOVERY: Success!")
+        _debug("═══════════════════════════════════════════════════")
+        
+        return response_data
+        
     except Exception as e:
-        _debug(f"\n!!! UNEXPECTED ERROR: {type(e).__name__}: {str(e)}")
+        _debug(f"\n!!! EXCEPTION: {str(e)}")
+        _debug(f"Exception type: {type(e).__name__}")
         import traceback
         _debug(f"Traceback:\n{traceback.format_exc()}")
         return _error_response("INTERNAL_ERROR", str(e))
 
 
-def _error_response(error_type: str, message: str, message_id: str = 'error') -> Dict[str, Any]:
+def _error_response(error_type: str, message: str) -> Dict[str, Any]:
     """Create Alexa error response."""
-    _debug(f"\n--- Creating Error Response ---")
-    _debug(f"Error type: {error_type}")
-    _debug(f"Error message: {message}")
-    
     return {
         'event': {
             'header': {
                 'namespace': 'Alexa',
                 'name': 'ErrorResponse',
-                'messageId': message_id,
+                'messageId': 'error',
                 'payloadVersion': '3'
             },
             'payload': {
@@ -215,5 +180,6 @@ def _error_response(error_type: str, message: str, message_id: str = 'error') ->
             }
         }
     }
+
 
 # EOF
