@@ -1,19 +1,15 @@
 """
-homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.18.10
-Description: Pure facade for Home Assistant extension - delegates all operations
-             to internal modules. This is the ONLY file lambda_function.py imports.
+homeassistant_extension.py - Home Assistant Extension Public API
+Version: 2025.10.18.11
+Description: Public-facing API for Home Assistant integration.
+             Pure delegation facade following SUGA-ISP pattern.
 
 CHANGELOG:
-- 2025.10.18.10: Added handle_alexa_authorization() for Alexa.Authorization namespace
-  - Routes Alexa.Authorization/AcceptGrant directives to ha_alexa
-  - Enables OAuth skill linking flow
-  - Fixes "Unknown Alexa namespace: Alexa.Authorization" error
-- 2025.10.18.07: Added DEBUG_MODE-controlled debug logging at entry points
-  - Added _is_debug_mode() helper function
-  - Added [DEBUG] logging controlled by DEBUG_MODE environment variable
-  - Traces HA extension call path for troubleshooting
-- 2025.10.16.01: Fixed all import names to match actual ha_core.py functions
+- 2025.10.18.11: CRITICAL FIX - Discovery event structure (Alexa device discovery bug)
+  - handle_alexa_discovery now wraps directive in {'directive': directive} before passing to ha_alexa
+  - Home Assistant expects full event structure, not just directive
+  - Fixes: Alexa discovery returns 0 devices even though HA has devices
+  - Root cause: Was sending bare directive object instead of wrapped event
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -21,84 +17,71 @@ Licensed under Apache 2.0 (see LICENSE).
 
 import os
 from typing import Dict, Any, Optional, List
-
-# Only import from Gateway and lazy import internals
 from gateway import (
-    log_info, log_error, log_debug, log_warning,
-    cache_get, cache_set, cache_delete,
-    increment_counter, record_metric,
-    create_success_response, create_error_response,
-    generate_correlation_id, get_timestamp
+    log_info, log_error, log_debug,
+    generate_correlation_id,
+    increment_counter,
+    create_success_response,
+    create_error_response
 )
 
-# ===== DEBUG HELPER =====
 
 def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled."""
+    """Check if DEBUG_MODE environment variable is set."""
     return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 
-# ===== EXTENSION CONTROL =====
+# ===== CONTROL FUNCTIONS =====
 
 def is_ha_extension_enabled() -> bool:
     """Check if Home Assistant extension is enabled."""
-    enabled = os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower() == 'true'
-    if _is_debug_mode():
-        log_info(f"[DEBUG] HOMEASSISTANT_EXTENSION: is_ha_extension_enabled called, result={enabled}")
-    return enabled
+    enabled_env = os.getenv('HOME_ASSISTANT_ENABLED', 'false').lower()
+    return enabled_env == 'true'
 
 
-def initialize_ha_extension(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def initialize_ha_extension() -> Dict[str, Any]:
     """Initialize Home Assistant extension - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: initialize_ha_extension called")
-    
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_core import initialize_ha_system
-        log_info("Initializing Home Assistant extension")
-        return initialize_ha_system(config)
+        return initialize_ha_system()
     except Exception as e:
-        log_error(f"Extension initialization failed: {str(e)}")
-        return create_error_response(str(e), 'INIT_FAILED')
+        log_error(f"HA initialization failed: {str(e)}")
+        return create_error_response(str(e), 'INITIALIZATION_FAILED')
 
 
 def cleanup_ha_extension() -> Dict[str, Any]:
-    """Cleanup Home Assistant extension resources - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: cleanup_ha_extension called")
+    """Cleanup Home Assistant extension - delegates to ha_core."""
+    if not is_ha_extension_enabled():
+        return create_success_response('Extension not enabled', {})
     
     try:
         from ha_core import cleanup_ha_system
-        log_info("Cleaning up Home Assistant extension")
         return cleanup_ha_system()
     except Exception as e:
-        log_error(f"Extension cleanup failed: {str(e)}")
+        log_error(f"HA cleanup failed: {str(e)}")
         return create_error_response(str(e), 'CLEANUP_FAILED')
 
 
 def get_ha_status() -> Dict[str, Any]:
-    """Get Home Assistant connection status - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: get_ha_status called")
-    
+    """Get Home Assistant status - delegates to ha_core."""
     if not is_ha_extension_enabled():
-        return create_success_response("Extension disabled", {'enabled': False})
+        return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_core import check_ha_status
         return check_ha_status()
     except Exception as e:
-        log_error(f"Status check failed: {str(e)}")
+        log_error(f"HA status check failed: {str(e)}")
         return create_error_response(str(e), 'STATUS_CHECK_FAILED')
 
 
 def get_ha_diagnostic_info() -> Dict[str, Any]:
     """Get diagnostic information - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: get_ha_diagnostic_info called")
+    if not is_ha_extension_enabled():
+        return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_core import get_diagnostic_info
@@ -109,33 +92,27 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
 
 
 def get_assistant_name_status() -> Dict[str, Any]:
-    """Get assistant name configuration status - delegates to ha_core."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: get_assistant_name_status called")
+    """Get assistant name status - delegates to ha_core."""
+    if not is_ha_extension_enabled():
+        return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_core import get_assistant_name_info
         return get_assistant_name_info()
     except Exception as e:
         log_error(f"Assistant name check failed: {str(e)}")
-        return create_error_response(str(e), 'ASSISTANT_NAME_CHECK_FAILED')
+        return create_error_response(str(e), 'ASSISTANT_NAME_FAILED')
 
 
-# ===== ALEXA OPERATIONS =====
+# ===== ALEXA INTEGRATION =====
 
 def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Process Alexa Smart Home directive - delegates to ha_alexa."""
-    if _is_debug_mode():
-        log_info("[DEBUG] HOMEASSISTANT_EXTENSION: process_alexa_ha_request called")
-        log_info(f"[DEBUG] HOMEASSISTANT_EXTENSION: event keys: {list(event.keys())}")
-    
+    """Process Alexa request for Home Assistant - delegates to ha_alexa."""
     if not is_ha_extension_enabled():
-        return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE', 
+        return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
-        if _is_debug_mode():
-            log_info("[DEBUG] HOMEASSISTANT_EXTENSION: Importing ha_alexa.process_alexa_directive")
         from ha_alexa import process_alexa_directive
         return process_alexa_directive(event)
     except Exception as e:
@@ -144,7 +121,13 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle Alexa discovery - delegates to ha_alexa."""
+    """
+    Handle Alexa discovery directive - delegates to ha_alexa.
+    
+    CRITICAL FIX (2025.10.18.11): Wraps directive in full event structure.
+    Home Assistant's /api/alexa/smart_home expects: {'directive': {...}}
+    Not just the bare directive object.
+    """
     correlation_id = generate_correlation_id()
     
     if _is_debug_mode():
@@ -163,10 +146,14 @@ def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         
         from ha_alexa import handle_discovery
         
-        if _is_debug_mode():
-            log_info(f"[{correlation_id}] [DEBUG] HOMEASSISTANT_EXTENSION: Calling ha_alexa.handle_discovery")
+        # CRITICAL: Wrap directive in full event structure
+        # Home Assistant expects {'directive': {...}}, not just the directive
+        event = {'directive': directive}
         
-        result = handle_discovery(directive)
+        if _is_debug_mode():
+            log_info(f"[{correlation_id}] [DEBUG] HOMEASSISTANT_EXTENSION: Calling ha_alexa.handle_discovery with wrapped event")
+        
+        result = handle_discovery(event)
         
         if _is_debug_mode():
             log_info(f"[{correlation_id}] [DEBUG] HOMEASSISTANT_EXTENSION: ha_alexa.handle_discovery returned")
@@ -183,25 +170,6 @@ def handle_alexa_discovery(directive: Dict[str, Any]) -> Dict[str, Any]:
         return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
 
 
-def handle_alexa_authorization(directive: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle Alexa authorization (AcceptGrant) - delegates to ha_alexa."""
-    correlation_id = generate_correlation_id()
-    
-    if _is_debug_mode():
-        log_info(f"[{correlation_id}] [DEBUG ENTRY] HOMEASSISTANT_EXTENSION: handle_alexa_authorization called")
-    
-    if not is_ha_extension_enabled():
-        return _create_alexa_error_response(directive, 'BRIDGE_UNREACHABLE',
-                                           'Home Assistant extension disabled')
-    
-    try:
-        from ha_alexa import handle_accept_grant
-        return handle_accept_grant(directive)
-    except Exception as e:
-        log_error(f"[{correlation_id}] Alexa authorization failed: {str(e)}")
-        return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
-
-
 def handle_alexa_control(directive: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa control directive - delegates to ha_alexa."""
     if _is_debug_mode():
@@ -213,7 +181,10 @@ def handle_alexa_control(directive: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         from ha_alexa import handle_control
-        return handle_control(directive)
+        
+        # Wrap directive in event structure for consistency
+        event = {'directive': directive}
+        return handle_control(event)
     except Exception as e:
         log_error(f"Alexa control failed: {str(e)}")
         return _create_alexa_error_response(directive, 'INTERNAL_ERROR', str(e))
@@ -232,34 +203,35 @@ def call_ha_service(domain: str, service: str,
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import call_ha_service as _call_service
-        return _call_service(domain, service, entity_id, service_data)
+        from ha_core import call_ha_service as _call_ha_service
+        return _call_ha_service(domain, service, entity_id, service_data)
     except Exception as e:
         log_error(f"Service call failed: {str(e)}")
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
 
 
-def get_ha_states(domain: Optional[str] = None) -> Dict[str, Any]:
+def get_ha_states(entity_ids: Optional[List[str]] = None,
+                 use_cache: bool = True) -> Dict[str, Any]:
     """Get Home Assistant states - delegates to ha_core."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import get_ha_states as _get_states
-        return _get_states(domain)
+        from ha_core import get_states
+        return get_states(entity_ids, use_cache)
     except Exception as e:
         log_error(f"Get states failed: {str(e)}")
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
-def get_ha_entity_state(entity_id: str) -> Dict[str, Any]:
-    """Get single entity state - delegates to ha_core."""
+def get_ha_entity_state(entity_id: str, use_cache: bool = True) -> Dict[str, Any]:
+    """Get single entity state - delegates to ha_common."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_core import get_entity_state
-        return get_entity_state(entity_id)
+        from ha_common import get_entity_state
+        return get_entity_state(entity_id, use_cache=use_cache)
     except Exception as e:
         log_error(f"Get entity state failed: {str(e)}")
         return create_error_response(str(e), 'GET_ENTITY_STATE_FAILED')
@@ -268,26 +240,26 @@ def get_ha_entity_state(entity_id: str) -> Dict[str, Any]:
 # ===== AUTOMATION OPERATIONS =====
 
 def list_automations() -> Dict[str, Any]:
-    """List automations - delegates to ha_features."""
+    """List automations - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import list_automations as _list_automations
+        from ha_managers import list_automations as _list_automations
         return _list_automations()
     except Exception as e:
         log_error(f"List automations failed: {str(e)}")
         return create_error_response(str(e), 'LIST_AUTOMATIONS_FAILED')
 
 
-def trigger_automation(automation_id: str) -> Dict[str, Any]:
-    """Trigger automation - delegates to ha_features."""
+def trigger_automation(automation_name: str) -> Dict[str, Any]:
+    """Trigger automation - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import trigger_automation as _trigger_automation
-        return _trigger_automation(automation_id)
+        from ha_managers import trigger_automation as _trigger_automation
+        return _trigger_automation(automation_name)
     except Exception as e:
         log_error(f"Trigger automation failed: {str(e)}")
         return create_error_response(str(e), 'TRIGGER_AUTOMATION_FAILED')
@@ -296,26 +268,26 @@ def trigger_automation(automation_id: str) -> Dict[str, Any]:
 # ===== SCRIPT OPERATIONS =====
 
 def list_scripts() -> Dict[str, Any]:
-    """List scripts - delegates to ha_features."""
+    """List scripts - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import list_scripts as _list_scripts
+        from ha_managers import list_scripts as _list_scripts
         return _list_scripts()
     except Exception as e:
         log_error(f"List scripts failed: {str(e)}")
         return create_error_response(str(e), 'LIST_SCRIPTS_FAILED')
 
 
-def run_script(script_id: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
-    """Run script - delegates to ha_features."""
+def run_script(script_name: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
+    """Run script - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import run_script as _run_script
-        return _run_script(script_id, variables)
+        from ha_managers import run_script as _run_script
+        return _run_script(script_name, variables)
     except Exception as e:
         log_error(f"Run script failed: {str(e)}")
         return create_error_response(str(e), 'RUN_SCRIPT_FAILED')
@@ -323,59 +295,59 @@ def run_script(script_id: str, variables: Optional[Dict] = None) -> Dict[str, An
 
 # ===== COMMUNICATION OPERATIONS =====
 
-def process_conversation(text: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
+def process_conversation(text: str, language: Optional[str] = None) -> Dict[str, Any]:
     """Process conversation - delegates to ha_features."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_features import process_conversation as _process_conversation
-        return _process_conversation(text, conversation_id)
+        return _process_conversation(text, language)
     except Exception as e:
         log_error(f"Process conversation failed: {str(e)}")
-        return create_error_response(str(e), 'CONVERSATION_FAILED')
+        return create_error_response(str(e), 'PROCESS_CONVERSATION_FAILED')
 
 
-def send_notification(message: str, title: Optional[str] = None, 
-                     target: Optional[str] = None) -> Dict[str, Any]:
+def send_notification(message: str, target: Optional[str] = None,
+                     title: Optional[str] = None) -> Dict[str, Any]:
     """Send notification - delegates to ha_features."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
         from ha_features import send_notification as _send_notification
-        return _send_notification(message, title, target)
+        return _send_notification(message, target, title)
     except Exception as e:
         log_error(f"Send notification failed: {str(e)}")
-        return create_error_response(str(e), 'NOTIFICATION_FAILED')
+        return create_error_response(str(e), 'SEND_NOTIFICATION_FAILED')
 
 
 # ===== INPUT HELPER OPERATIONS =====
 
 def list_input_helpers(helper_type: Optional[str] = None) -> Dict[str, Any]:
-    """List input helpers - delegates to ha_features."""
+    """List input helpers - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import list_input_helpers as _list_input_helpers
+        from ha_managers import list_input_helpers as _list_input_helpers
         return _list_input_helpers(helper_type)
     except Exception as e:
         log_error(f"List input helpers failed: {str(e)}")
-        return create_error_response(str(e), 'LIST_HELPERS_FAILED')
+        return create_error_response(str(e), 'LIST_INPUT_HELPERS_FAILED')
 
 
-def set_input_helper(helper_id: str, value: Any) -> Dict[str, Any]:
-    """Set input helper value - delegates to ha_features."""
+def set_input_helper(entity_id: str, value: Any) -> Dict[str, Any]:
+    """Set input helper value - delegates to ha_managers."""
     if not is_ha_extension_enabled():
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_features import set_input_helper as _set_input_helper
-        return _set_input_helper(helper_id, value)
+        from ha_managers import set_input_helper as _set_input_helper
+        return _set_input_helper(entity_id, value)
     except Exception as e:
         log_error(f"Set input helper failed: {str(e)}")
-        return create_error_response(str(e), 'SET_HELPER_FAILED')
+        return create_error_response(str(e), 'SET_INPUT_HELPER_FAILED')
 
 
 # ===== ENTITY MANAGEMENT =====
@@ -386,8 +358,8 @@ def list_entities_by_domain(domain: str, filters: Optional[Dict] = None) -> Dict
         return create_error_response('Extension not enabled', 'HA_DISABLED')
     
     try:
-        from ha_managers import list_entities_by_domain as _list_entities
-        return _list_entities(domain, filters)
+        from ha_managers import list_entities_by_domain as _list_entities_by_domain
+        return _list_entities_by_domain(domain, filters)
     except Exception as e:
         log_error(f"List entities failed: {str(e)}")
         return create_error_response(str(e), 'LIST_ENTITIES_FAILED')
@@ -458,7 +430,6 @@ __all__ = [
     # Alexa
     'process_alexa_ha_request',
     'handle_alexa_discovery',
-    'handle_alexa_authorization',
     'handle_alexa_control',
     
     # Services
