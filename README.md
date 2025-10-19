@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Free Tier](https://img.shields.io/badge/AWS-Free%20Tier-green.svg)](https://aws.amazon.com/free/)
 
-**A revolutionary AWS Lambda-based execution engine with native Home Assistant integration and Alexa voice control support.**
+**An AWS Lambda-based execution engine with native Home Assistant integration and Alexa voice control support.**
 
 ---
 
@@ -55,7 +55,7 @@ The Home Assistant extension enables voice control through Alexa, automation man
 
 ---
 
-## The Three Revolutionary Architectures
+## The Three Architectures of the Lambda Execution Engine
 
 ### 1. SUGA - Single Universal Gateway Architecture
 
