@@ -1,9 +1,13 @@
 """
 http_client_core.py - HTTP Client Core Implementation
-Version: 2025.10.18.02
+Version: 2025.10.18.03
 Description: Core HTTPClientCore class with SSL verification support
 
 CHANGELOG:
+- 2025.10.18.03: CRITICAL FIX - Encode JSON body to bytes (matches working Lambda)
+  - Changed: body = json.dumps(body) → body = json.dumps(body).encode('utf-8')
+  - Matches other_working_lambda.py exactly: body=json.dumps(event).encode('utf-8')
+  - Fixes Alexa device discovery issue - urllib3 expects bytes, not string
 - 2025.10.18.02: FIXED Issue #27 - Added SSL verification support (CRITICAL)
   - Reads HOME_ASSISTANT_VERIFY_SSL environment variable
   - Defaults to cert_reqs='CERT_REQUIRED' (secure by default)
@@ -118,7 +122,9 @@ class HTTPClientCore:
             
             body = kwargs.get('json')
             if body:
-                body = json.dumps(body)
+                # CRITICAL FIX: Encode to bytes - matches working Lambda
+                # Working Lambda: body=json.dumps(event).encode('utf-8')
+                body = json.dumps(body).encode('utf-8')
                 headers['Content-Type'] = 'application/json'
             
             timeout = self._validate_timeout(kwargs.get('timeout', 30.0))
