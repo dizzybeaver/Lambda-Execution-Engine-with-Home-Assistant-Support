@@ -1,64 +1,41 @@
 """
-config_param_store.py - AWS Systems Manager Parameter Store Client
-Version: 2025.10.19.BULLETPROOF
-Description: BULLETPROOF - Validates at every boundary, handles all edge cases
+config_param_store.py - AWS SSM Parameter Store Client (SELECTIVE IMPORTS)
+Version: 2025.10.19.SELECTIVE
+Description: Uses PRELOADED boto3 SSM client from lambda_preload module
 
-CHANGELOG:
-- 2025.10.19.BULLETPROOF: COMPLETE DEFENSIVE REWRITE
-  - Validates EVERY input and output at EVERY boundary
-  - Handles cached object() sentinels gracefully
-  - Handles SSM returning wrong types
-  - Handles cache returning wrong types
-  - Type enforcement: ALWAYS returns string or None
-  - Clear error messages for every failure mode
-  - Comprehensive timing diagnostics (DEBUG_MODE gated)
-  - Documents all edge cases and how they're handled
+CRITICAL CHANGE: Removed module-level `import boto3` (was 8,500ms!)
+NOW: Uses preloaded SSM client from lambda_preload.py (already initialized ~300ms during INIT)
+
+Performance Impact:
+- BEFORE: import boto3 at module level = 8,500ms during first request
+- AFTER: Uses _BOTO3_SSM_CLIENT from lambda_preload = 0ms (already loaded!)
+
+Design Decision: No lazy loading fallback
+Reason: Lazy loading defeats optimization. If preload fails, SSM is unavailable.
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
-
-Design Decisions:
-- Defensive programming: Validate at EVERY boundary (cache, SSM, defaults)
-  Reason: Real-world systems have messy data - validate everything
-- Type enforcement: ALWAYS return string or None, never object()
-  Reason: Predictable return types prevent downstream bugs
-- Cache validation: Check cached values before returning
-  Reason: Cache can contain stale/invalid data from previous bugs
-- Fail gracefully: Return None on errors, log clearly
-  Reason: Better to fallback to env vars than crash
-
-Edge Cases Handled:
-1. Cache returns object() sentinel → Invalidate and retry
-2. Cache returns wrong type → Invalidate and retry
-3. SSM returns object wrapper → Extract or return None
-4. SSM returns wrong type → Convert or return None
-5. boto3 import fails → Disable SSM, log error
-6. SSM API call fails → Log error, return None
-7. Network timeout → Log error, return None
-8. Invalid parameter path → Log error, return None
-9. Default is object() → Convert to empty string
-10. Default is wrong type → Convert to string or None
 """
 
-from typing import Any, Optional, Dict, List
+# ===== IMPORTS =====
+
 import os
 import time
+from typing import Dict, Any, Optional, List
+
+# Import preloaded SSM client (already initialized during Lambda INIT!)
+from lambda_preload import _BOTO3_SSM_CLIENT, _USE_PARAMETER_STORE
 
 from gateway import (
-    cache_get,
-    cache_set, 
-    cache_delete,
-    log_debug,
-    log_info,
-    log_warning,
-    log_error
+    cache_get, cache_set, cache_delete,
+    log_debug, log_info, log_warning, log_error
 )
 
 
 # ===== TIMING HELPERS =====
 
 def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled for timing output."""
+    """Check if DEBUG_MODE is enabled."""
     return os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
 
 
@@ -68,227 +45,81 @@ def _print_timing(message: str):
         print(f"[PARAM_STORE_TIMING] {message}")
 
 
-# ===== TYPE VALIDATION =====
+# ===== CACHE SENTINEL DETECTION =====
 
-def _is_valid_primitive(value: Any) -> bool:
-    """Check if value is a valid primitive type (not object())."""
-    if value is None:
-        return True
-    
-    # Check for object() sentinel
-    if type(value).__name__ == 'object' and str(value).startswith('<object object'):
-        return False
-    
-    # Check for valid primitive types
-    return isinstance(value, (str, int, float, bool, list, dict, tuple, set, type(None)))
-
-
-def _sanitize_to_string(value: Any, context: str) -> Optional[str]:
+def _is_cache_sentinel(value: Any) -> bool:
     """
-    Convert any value to string or None with full validation.
+    Check if value is the _CACHE_MISS sentinel from cache_core.py.
     
-    This is the CORE validation function - everything goes through here.
-    
-    Args:
-        value: Value to sanitize
-        context: Context for logging (e.g., "cache", "ssm", "default")
-        
-    Returns:
-        Valid string or None
+    The cache module uses object() as a sentinel to distinguish
+    "no cache entry" from "cached None value". We need to detect
+    and handle this properly.
     """
-    # None is valid
+    return type(value).__name__ == 'object' and str(value).startswith('<object object')
+
+
+def _sanitize_default(default: Any, key: str) -> Any:
+    """
+    NUCLEAR SAFETY: Ensure default is NEVER an object() instance.
+    
+    Handles both:
+    - Actual bugs (shouldn't happen)
+    - _CACHE_MISS sentinel from cache_core.py (expected)
+    """
+    if default is None:
+        return ''
+    
+    # Check if it's the cache sentinel or any object() instance
+    if _is_cache_sentinel(default):
+        log_debug(f"[SANITIZE] {key}: Detected cache sentinel, converting to empty string")
+        return ''
+    
+    # Validate it's a primitive type
+    if not isinstance(default, (str, int, float, bool, list, dict, tuple, set, type(None))):
+        log_warning(f"[SANITIZE] {key}: Non-primitive default type {type(default).__name__}, converting to empty string")
+        return ''
+    
+    return default
+
+
+def _extract_string_from_value(value: Any, key: str) -> Optional[str]:
+    """BULLETPROOF string extraction from any value type."""
     if value is None:
         return None
     
-    # Check for object() sentinel
-    if type(value).__name__ == 'object' and str(value).startswith('<object object'):
-        log_warning(f"[SANITIZE] {context}: Detected object() sentinel, converting to None")
+    # Check for object reference
+    if _is_cache_sentinel(value):
+        log_error(f"[EXTRACT] {key}: Detected cache sentinel in SSM response!")
         return None
     
-    # String - validate and return
+    # Handle string
     if isinstance(value, str):
         if not value or value.isspace():
             return None
-        return value.strip()
+        return value
     
-    # Boolean - convert to lowercase string
+    # Handle boolean
     if isinstance(value, bool):
         return str(value).lower()
     
-    # Numbers - convert to string
+    # Handle numbers
     if isinstance(value, (int, float)):
         return str(value)
     
-    # List/Dict - JSON serialize (for complex configs)
-    if isinstance(value, (list, dict, tuple, set)):
-        try:
-            import json
-            return json.dumps(value)
-        except Exception as e:
-            log_error(f"[SANITIZE] {context}: Failed to serialize {type(value).__name__}: {e}")
-            return None
-    
-    # Unknown type - try to convert
+    # Unexpected type
     try:
         result = str(value)
-        if result.startswith('<') and result.endswith('>'):
-            # Looks like an object representation
-            log_error(f"[SANITIZE] {context}: Invalid type {type(value).__name__}, looks like object repr: {result}")
-            return None
-        
         if not result or result.isspace():
             return None
-        
-        log_warning(f"[SANITIZE] {context}: Converted {type(value).__name__} to string")
-        return result.strip()
-        
-    except Exception as e:
-        log_error(f"[SANITIZE] {context}: Cannot convert {type(value).__name__} to string: {e}")
+        return result
+    except:
         return None
-
-
-# ===== CACHE VALIDATION =====
-
-def _validate_cached_value(cached: Any, key: str) -> Optional[str]:
-    """
-    Validate and sanitize cached value.
-    
-    Cache can contain:
-    - Valid string values
-    - object() sentinels from cache_core.py
-    - Invalid types from previous bugs
-    - Stale data
-    
-    Args:
-        cached: Value from cache
-        key: Parameter key for logging
-        
-    Returns:
-        Valid string or None (which signals to invalidate cache and retry)
-    """
-    if cached is None:
-        return None
-    
-    # Validate it's a primitive type
-    if not _is_valid_primitive(cached):
-        log_warning(f"[CACHE VALIDATE] {key}: Invalid cached type, invalidating")
-        return None
-    
-    # Sanitize to string
-    result = _sanitize_to_string(cached, f"cache:{key}")
-    
-    if result is None:
-        log_warning(f"[CACHE VALIDATE] {key}: Cached value sanitized to None, invalidating")
-    
-    return result
-
-
-# ===== SSM RESPONSE VALIDATION =====
-
-def _extract_value_from_ssm_response(response: Any, key: str) -> Optional[str]:
-    """
-    Extract and validate value from SSM GetParameter response.
-    
-    SSM can return:
-    - Valid response dict with Parameter.Value
-    - Invalid response structure
-    - Object wrappers (from bugs)
-    - Wrong types
-    
-    Args:
-        response: Response from SSM API
-        key: Parameter key for logging
-        
-    Returns:
-        Valid string or None
-    """
-    # Validate response is dict
-    if not isinstance(response, dict):
-        log_error(f"[SSM VALIDATE] {key}: Response is not dict, got {type(response).__name__}")
-        return None
-    
-    # Validate Parameter key exists
-    if 'Parameter' not in response:
-        log_error(f"[SSM VALIDATE] {key}: Response missing 'Parameter' key")
-        return None
-    
-    parameter = response['Parameter']
-    
-    # Validate parameter is dict
-    if not isinstance(parameter, dict):
-        log_error(f"[SSM VALIDATE] {key}: Parameter is not dict, got {type(parameter).__name__}")
-        return None
-    
-    # Validate Value key exists
-    if 'Value' not in parameter:
-        log_error(f"[SSM VALIDATE] {key}: Parameter missing 'Value' key")
-        return None
-    
-    raw_value = parameter['Value']
-    
-    # Sanitize the value
-    result = _sanitize_to_string(raw_value, f"ssm:{key}")
-    
-    return result
-
-
-# ===== COLD START OPTIMIZATION WITH TIMING =====
-
-_module_load_start = time.perf_counter()
-_print_timing("===== CONFIG_PARAM_STORE MODULE LOAD START =====")
-
-_USE_PARAMETER_STORE = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
-_print_timing(f"USE_PARAMETER_STORE={_USE_PARAMETER_STORE} (elapsed: {(time.perf_counter() - _module_load_start) * 1000:.2f}ms)")
-
-_BOTO3_SSM_CLIENT = None
-
-if _USE_PARAMETER_STORE:
-    _print_timing("PARAMETER STORE ENABLED - Starting boto3 initialization...")
-    _boto3_import_start = time.perf_counter()
-    
-    try:
-        _print_timing("  Step 1: Importing boto3 module...")
-        import boto3
-        _boto3_import_time = (time.perf_counter() - _boto3_import_start) * 1000
-        _print_timing(f"  *** boto3 imported: {_boto3_import_time:.2f}ms ***")
-        
-        _print_timing("  Step 2: Creating boto3.client('ssm')...")
-        _ssm_client_start = time.perf_counter()
-        _BOTO3_SSM_CLIENT = boto3.client('ssm')
-        _ssm_client_time = (time.perf_counter() - _ssm_client_start) * 1000
-        _print_timing(f"  *** SSM client created: {_ssm_client_time:.2f}ms ***")
-        
-        _total_init_time = (time.perf_counter() - _boto3_import_start) * 1000
-        _print_timing(f"*** TOTAL SSM INITIALIZATION: {_total_init_time:.2f}ms ***")
-        
-        log_info(f"PERFORMANCE: SSM client pre-initialized in {_total_init_time:.2f}ms")
-        
-    except Exception as e:
-        _init_time = (time.perf_counter() - _boto3_import_start) * 1000
-        _print_timing(f"!!! SSM initialization FAILED after {_init_time:.2f}ms: {e}")
-        log_error(f"Failed to pre-initialize SSM client: {e}")
-        _USE_PARAMETER_STORE = False
-        _BOTO3_SSM_CLIENT = None
-else:
-    _print_timing("PARAMETER STORE DISABLED - Skipping boto3 import")
-
-_module_load_time = (time.perf_counter() - _module_load_start) * 1000
-_print_timing(f"===== CONFIG_PARAM_STORE MODULE LOAD COMPLETE: {_module_load_time:.2f}ms =====")
 
 
 # ===== PARAMETER STORE CLIENT =====
 
 class ParameterStoreClient:
-    """
-    Bulletproof AWS Systems Manager Parameter Store client.
-    
-    Features:
-    - Validates at every boundary (cache, SSM, defaults)
-    - Handles object() sentinels gracefully
-    - Type enforcement: always returns string or None
-    - Comprehensive error logging
-    - Timing diagnostics (DEBUG_MODE gated)
-    """
+    """Client for AWS Systems Manager Parameter Store operations."""
     
     def __init__(self, prefix: str = '/lambda-execution-engine'):
         self._prefix = prefix.rstrip('/')
@@ -297,7 +128,15 @@ class ParameterStoreClient:
         self._cache_ttl = 300
     
     def _get_ssm_client(self):
-        """Get pre-initialized SSM client (no lazy loading)."""
+        """
+        Get SSM client - NO LAZY LOADING!
+        
+        DESIGN DECISION: Uses preloaded client only
+        Reason: Lazy loading causes 8,500ms penalty on first request, defeating optimization.
+        
+        boto3 SSM client is preloaded during Lambda INIT in lambda_preload.py.
+        If preload failed, SSM is unavailable - this returns None gracefully.
+        """
         if not _USE_PARAMETER_STORE:
             return None
         
@@ -305,7 +144,8 @@ class ParameterStoreClient:
             if _BOTO3_SSM_CLIENT is not None:
                 self._ssm_client = _BOTO3_SSM_CLIENT
             else:
-                log_error("SSM client unavailable - module-level initialization failed")
+                # Module-level initialization failed - SSM is unavailable
+                log_error("SSM client unavailable - preload failed!")
                 return None
         
         return self._ssm_client
@@ -317,40 +157,28 @@ class ParameterStoreClient:
     
     def get_parameter(self, key: str, default: Any = None,
                      with_decryption: bool = True,
-                     use_cache: bool = True) -> Optional[str]:
+                     use_cache: bool = True) -> Any:
         """
-        Get parameter from SSM with bulletproof validation.
+        Get parameter from SSM with timing diagnostics.
         
-        This method validates at EVERY step:
-        1. Sanitize default input
-        2. Validate cached value (if using cache)
-        3. Validate SSM response structure
-        4. Sanitize SSM value
-        5. Validate before caching
-        6. Validate before returning
-        
-        Args:
-            key: Parameter key (e.g., 'home_assistant/url')
-            default: Default value if not found
-            with_decryption: Decrypt SecureString parameters
-            use_cache: Use caching
-            
-        Returns:
-            Valid string value or None
+        This version shows exactly where time is spent:
+        - Cache operations
+        - SSM API calls (uses preloaded client - no loading overhead!)
+        - Value extraction and validation
         """
         _op_start = time.perf_counter()
         _print_timing(f"===== GET_PARAMETER START: {key} =====")
         
-        # === STEP 1: Sanitize default input ===
-        safe_default = _sanitize_to_string(default, f"default:{key}")
+        # CRITICAL: Sanitize default immediately (handles cache sentinels)
+        safe_default = _sanitize_default(default, key)
         _print_timing(f"  Step 1: Default sanitized (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
         
-        # === STEP 2: Check if SSM is enabled ===
+        # Check if SSM is enabled
         if not _USE_PARAMETER_STORE:
             _print_timing(f"  SSM DISABLED - returning default (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
             return safe_default
         
-        # === STEP 3: Try cache (with validation) ===
+        # Check cache
         cache_key = f"{self._cache_prefix}{key}"
         if use_cache:
             _cache_start = time.perf_counter()
@@ -359,70 +187,68 @@ class ParameterStoreClient:
             cached = cache_get(cache_key)
             _cache_time = (time.perf_counter() - _cache_start) * 1000
             
-            if cached is not None:
-                # CRITICAL: Validate cached value before returning
-                validated = _validate_cached_value(cached, key)
-                
-                if validated is not None:
-                    _print_timing(f"  *** CACHE HIT (validated): {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
-                    return validated
-                else:
-                    _print_timing(f"  Cache validation failed, invalidating: {_cache_time:.2f}ms")
-                    cache_delete(cache_key)
+            if cached is not None and not _is_cache_sentinel(cached):
+                _print_timing(f"  *** CACHE HIT: {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
+                return cached
             else:
                 _print_timing(f"  Cache miss: {_cache_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
         
-        # === STEP 4: Get SSM client ===
-        _print_timing(f"  Step 3: Getting SSM client... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-        ssm = self._get_ssm_client()
-        if ssm is None:
-            _print_timing(f"  !!! SSM CLIENT UNAVAILABLE (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            return safe_default
-        
-        # === STEP 5: Build parameter path ===
+        # Build path
         param_path = self._build_param_path(key)
-        _print_timing(f"  Step 4: Parameter path: {param_path} (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        _print_timing(f"  Step 3: Parameter path: {param_path} (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
         
-        # === STEP 6: Call SSM API ===
         try:
-            _ssm_start = time.perf_counter()
-            _print_timing(f"  Step 5: Calling SSM GetParameter API... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            # Get SSM client (ALREADY PRELOADED - NO LOADING OVERHEAD!)
+            _print_timing(f"  Step 4: Getting SSM client... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            ssm = self._get_ssm_client()
+            if ssm is None:
+                _print_timing(f"  !!! SSM client unavailable (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                return safe_default
             
-            response = ssm.get_parameter(
-                Name=param_path,
-                WithDecryption=with_decryption
-            )
+            # Call SSM (client already initialized, no loading penalty!)
+            _ssm_start = time.perf_counter()
+            _print_timing(f"  Step 5: Calling SSM API... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            
+            response = ssm.get_parameter(Name=param_path, WithDecryption=with_decryption)
             
             _ssm_time = (time.perf_counter() - _ssm_start) * 1000
-            _print_timing(f"  *** SSM API RETURNED: {_ssm_time:.2f}ms *** (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_timing(f"  SSM API: {_ssm_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
             
-            # === STEP 7: Extract and validate SSM value ===
-            _extract_start = time.perf_counter()
-            _print_timing(f"  Step 6: Extracting and validating value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            # Extract value
+            _print_timing(f"  Step 6: Extracting value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            if not isinstance(response, dict):
+                _print_timing(f"  !!! Response not dict (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                return safe_default
             
-            value = _extract_value_from_ssm_response(response, key)
+            param_data = response.get('Parameter')
+            if not isinstance(param_data, dict):
+                _print_timing(f"  !!! Parameter not dict (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                return safe_default
             
-            _extract_time = (time.perf_counter() - _extract_start) * 1000
-            _print_timing(f"  Value validated: {_extract_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            raw_value = param_data.get('Value')
+            _print_timing(f"  Step 7: Validating value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
             
+            value = _extract_string_from_value(raw_value, key)
             if value is None:
-                _print_timing(f"  !!! SSM returned invalid value (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                _print_timing(f"  !!! Extraction returned None (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                return safe_default
+            
+            # Final validation
+            if not isinstance(value, str) or not value:
+                _print_timing(f"  !!! Final validation failed (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
                 return safe_default
             
             log_info(f"[SSM GET] {key}: SUCCESS (length={len(value)})")
             
-            # === STEP 8: Cache the validated value ===
+            # Cache result
             if use_cache:
                 _cache_set_start = time.perf_counter()
-                _print_timing(f"  Step 7: Caching validated value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                _print_timing(f"  Step 8: Caching result... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
                 
-                # Double-check value is still valid before caching
-                if _is_valid_primitive(value):
-                    cache_set(cache_key, value, ttl=self._cache_ttl)
-                    _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
-                    _print_timing(f"  Cached: {_cache_set_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                else:
-                    log_error(f"[SSM GET] {key}: Value became invalid before caching!")
+                cache_set(cache_key, value, ttl=self._cache_ttl)
+                
+                _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
+                _print_timing(f"  Cached: {_cache_set_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
             
             _total_time = (time.perf_counter() - _op_start) * 1000
             _print_timing(f"===== GET_PARAMETER COMPLETE: {_total_time:.2f}ms =====")
@@ -433,11 +259,8 @@ class ParameterStoreClient:
             _error_time = (time.perf_counter() - _op_start) * 1000
             _print_timing(f"!!! EXCEPTION after {_error_time:.2f}ms: {e}")
             log_error(f"[SSM GET] {key}: Exception - {e}")
-            
-            # Invalidate cache on error
             if use_cache:
                 cache_delete(cache_key)
-            
             return safe_default
 
 
@@ -449,17 +272,13 @@ _param_store_client = ParameterStoreClient()
 # ===== CONVENIENCE FUNCTIONS =====
 
 def get_parameter(key: str, default: Any = None, with_decryption: bool = True, 
-                  use_cache: bool = True) -> Optional[str]:
-    """
-    Get parameter from SSM with bulletproof validation.
-    
-    Always returns string or None - never object() or invalid types.
-    """
+                  use_cache: bool = True) -> Any:
+    """Get parameter from SSM (handles cache sentinels correctly)."""
     return _param_store_client.get_parameter(key, default, with_decryption, use_cache)
 
 
 def get_parameters(keys: List[str], default: Any = None, 
-                   with_decryption: bool = True) -> Dict[str, Optional[str]]:
+                   with_decryption: bool = True) -> Dict[str, Any]:
     """Batch get parameters from SSM."""
     results = {}
     for key in keys:
@@ -472,9 +291,6 @@ def invalidate_cache(key: Optional[str] = None):
     if key:
         cache_key = f"ssm_param_{key}"
         cache_delete(cache_key)
-    else:
-        # Clear all SSM parameter cache
-        log_warning("Clearing all SSM parameter cache")
 
 
 __all__ = [
