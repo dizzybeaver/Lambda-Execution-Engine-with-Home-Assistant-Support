@@ -182,16 +182,16 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Route by namespace
         if namespace == "Alexa.Discovery":
-            return handle_alexa_discovery(event, context)
+            return handle_alexa_discovery(event)
         
         elif namespace == "Alexa.Authorization":
-            return handle_alexa_authorization(event, context)
+            return handle_alexa_authorization(event)
         
         elif namespace in ["Alexa.PowerController", "Alexa.BrightnessController",
                           "Alexa.ColorController", "Alexa.ColorTemperatureController",
                           "Alexa.ThermostatController", "Alexa.LockController",
                           "Alexa"]:
-            return handle_alexa_control(event, context)
+            return handle_alexa_control(event)
         
         else:
             log_warning(f"Unsupported namespace: {namespace}")
