@@ -1,55 +1,22 @@
 """
-config_core.py - Configuration Core Implementation
-Version: 2025.10.18.08
-Description: Configuration system with SSM Parameter Store support via dedicated module
+config_core.py - Core Configuration Management (CRITICAL FIX - get_parameter Priority)
+Version: 2025.10.19.07
+Description: Fixed get_parameter() to prioritize SSM over environment variables
 
 CHANGELOG:
-- 2025.10.18.08: FIXED Issue #32 - Cache validation prevents object() returns (CRITICAL)
-  - Added type validation after cache_get() in get_parameter()
-  - Prevents returning object() instances from corrupted cache
-  - Invalidates bad cache entries automatically
-  - Validates cached values are usable types before returning
-  - Resolves "SSM returned non-string values" diagnostic failure
-- 2025.10.18.07: INTEGRATED config_param_store module (Issue #31 fix)
-  - Removed complex SSM validation logic from get_parameter()
-  - Now delegates all SSM operations to config_param_store module
-  - Simplified SSM code path from 80 lines to 10 lines
-  - Maintains same external API and behavior
-  - Fixes "<object object at 0x...>" error via config_param_store
-  - Better separation of concerns: config logic vs SSM logic
-- 2025.10.18.05: Added explicit string conversion for SSM values
-- 2025.10.18.04: Added robust SSM response handling in get_parameter
-- 2025.10.17.01: Initial Parameter Store support
+- 2025.10.19.07: CRITICAL FIX - Corrected get_parameter() priority sequence
+  - NOW: SSM Parameter Store FIRST, environment variable FALLBACK
+  - BEFORE: Environment variable first, SSM second (WRONG!)
+  - Added comprehensive logging for each lookup step
+  - Maintains cache validation to prevent object() corruption
+  - Performance: Skips SSM completely when USE_PARAMETER_STORE=false
+  - Fixes "<object object>" bug caused by wrong priority
+  - Resolves issue where env vars override SSM parameters
 
-DESIGN DECISIONS:
-
-**Memory-only Storage:**
-   - Config stored only in-memory, not persisted externally
-   - Reason: Lambda stateless model, fast init (~10ms)
-   - Alternative persistence would add 50-100ms per operation
-
-**Reload Behavior:**
-   - reload_config() re-reads from environment/Parameter Store
-   - Updates in-memory config
-   - Does NOT persist to external storage
-   - Useful for environment variable changes mid-execution
-
-**SSM via Dedicated Module:**
-   - All SSM operations delegated to config_param_store module
-   - Reason: Separation of concerns, better error handling, reusability
-   - config_core handles config logic, config_param_store handles AWS SSM
-   - Simplifies this file and makes SSM logic testable independently
-
-**Cache Validation (NEW):**
-   - Cache entries validated before return to prevent object() corruption
-   - Reason: SSM failures can cache object() instances which break everything
-   - Invalid cache entries automatically deleted and retried
-   - Only valid types (str, int, float, bool, dict, list) allowed
-
-DECISION RATIONALE:
-Memory-only storage is intentional for Lambda's stateless execution model.
-Config initialization is fast (~10ms) and happens once per container lifecycle.
-Using external persistence would add 50-100ms per read/write with no benefit.
+DESIGN DECISION: Parameter Lookup Priority
+Reason: When USE_PARAMETER_STORE=true, SSM is the authoritative source.
+        Environment variables should only be fallback when SSM fails/unavailable.
+Impact: Enables proper SSM usage, prevents env var pollution of SSM config.
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -155,11 +122,13 @@ class ConfigurationCore:
             self._state.validation_failures += 1
             return create_error_response("Init failed", {"error": str(e)})
     
-    # ===== PARAMETER ACCESS WITH PARAMETER STORE SUPPORT =====
+    # ===== PARAMETER ACCESS WITH CORRECTED SSM PRIORITY =====
     
     def get_parameter(self, key: str, default: Any = None) -> Any:
         """
-        Get configuration parameter from cache, environment, Parameter Store, or config dict.
+        Get configuration parameter with CORRECT SSM priority.
+        
+        CRITICAL FIX (2025.10.19.07): Priority sequence corrected!
         
         DESIGN DECISION: SSM operations delegated to config_param_store module
         Reason: Separation of concerns - config logic separate from AWS SSM logic.
@@ -170,12 +139,18 @@ class ConfigurationCore:
                 Only valid types (str, int, float, bool, dict, list, None) allowed from cache.
                 Invalid entries automatically deleted and retried.
         
-        Priority:
+        **CORRECT Priority (when USE_PARAMETER_STORE=true):**
         1. Cache (with type validation)
-        2. Environment variable (uppercase with underscores/slashes replaced)
-        3. SSM Parameter Store (if enabled) - via config_param_store module
+        2. SSM Parameter Store (PRIMARY SOURCE - via config_param_store module)
+        3. Environment variable (FALLBACK ONLY - uppercase with underscores/slashes replaced)
         4. Config dict
         5. Default value
+        
+        **When USE_PARAMETER_STORE=false:**
+        1. Cache (with type validation)
+        2. Environment variable (skip SSM entirely)
+        3. Config dict
+        4. Default value
         
         Args:
             key: Parameter key (e.g., 'homeassistant/url' or 'cache.ttl')
@@ -184,35 +159,29 @@ class ConfigurationCore:
         Returns:
             Parameter value or default
         """
-        from gateway import cache_get, cache_set, cache_delete, log_debug, log_warning
+        from gateway import cache_get, cache_set, cache_delete, log_debug, log_warning, log_info
         
-        # Try cache first
+        # === STEP 1: Try cache first (with type validation) ===
         cache_key = f"{self._cache_prefix}{key}"
         cached = cache_get(cache_key)
         if cached is not None:
             # CRITICAL: Validate cached value type before returning
             # Prevents returning object() instances from SSM failures
             if not isinstance(cached, (str, int, float, bool, dict, list, type(None))):
-                log_warning(f"Invalid cached type {type(cached).__name__} for {key}, invalidating cache")
+                log_warning(f"[CONFIG GET] {key}: Invalid cached type {type(cached).__name__}, invalidating cache")
                 cache_delete(cache_key)
                 # Don't return - continue to next source
             else:
+                log_debug(f"[CONFIG GET] {key}: Cache hit")
                 return cached
         
-        # Try environment (convert key format: '/' or '.' → '_', make uppercase)
-        env_key = key.upper().replace('.', '_').replace('/', '_')
-        env_value = os.environ.get(env_key)
-        if env_value is not None:
-            cache_set(cache_key, env_value, ttl=300)
-            return env_value
-        
-        # Try Parameter Store if enabled (via dedicated module)
+        # === STEP 2: Try SSM Parameter Store FIRST (if enabled) ===
         if self._use_parameter_store:
             try:
                 # Import SSM module (lazy load to avoid import if not needed)
                 from config_param_store import get_parameter as ssm_get_parameter
                 
-                log_debug(f"Attempting SSM parameter via config_param_store: {key}")
+                log_info(f"[CONFIG GET] {key}: [PRIORITY 1] Attempting SSM lookup")
                 
                 # Delegate all SSM complexity to the dedicated module
                 # config_param_store handles:
@@ -224,27 +193,49 @@ class ConfigurationCore:
                 value = ssm_get_parameter(key, default=None)
                 
                 if value is not None:
+                    # SUCCESS: Found in SSM
+                    log_info(f"[CONFIG GET] {key}: [SSM SUCCESS] Loaded from Parameter Store")
                     # Cache in config system too (dual caching is OK - different TTLs)
                     cache_set(cache_key, value, ttl=300)
-                    log_debug(f"Successfully loaded from SSM: {key}")
                     return value
+                else:
+                    # NOT FOUND in SSM, will fallback to environment
+                    log_warning(f"[CONFIG GET] {key}: [SSM MISS] Not found in SSM, falling back to environment variable")
             
             except Exception as e:
-                log_warning(f"Failed to load from SSM via config_param_store: {key} - {str(e)}")
+                log_warning(f"[CONFIG GET] {key}: [SSM ERROR] Failed to load from SSM: {e}, falling back to environment")
+        else:
+            log_debug(f"[CONFIG GET] {key}: [SSM SKIPPED] USE_PARAMETER_STORE=false")
         
-        # Try config dict (nested key support with dots)
+        # === STEP 3: Try environment variable (FALLBACK) ===
+        # Convert key format: '/' or '.' → '_', make uppercase
+        env_key = key.upper().replace('.', '_').replace('/', '_')
+        env_value = os.environ.get(env_key)
+        
+        if env_value is not None:
+            log_info(f"[CONFIG GET] {key}: [ENV SUCCESS] Loaded from environment variable {env_key}")
+            cache_set(cache_key, env_value, ttl=300)
+            return env_value
+        else:
+            log_debug(f"[CONFIG GET] {key}: [ENV MISS] Not in environment")
+        
+        # === STEP 4: Try config dict (nested key support with dots) ===
         keys = key.split('.')
         value = self._config
         for k in keys:
             if isinstance(value, dict):
                 value = value.get(k)
             else:
+                log_debug(f"[CONFIG GET] {key}: [DICT MISS] Not in config dict")
                 return default
         
         if value is not None:
+            log_debug(f"[CONFIG GET] {key}: [DICT SUCCESS] Found in config dict")
             cache_set(cache_key, value, ttl=300)
             return value
         
+        # === STEP 5: Return default ===
+        log_debug(f"[CONFIG GET] {key}: [DEFAULT] Using default: {default}")
         return default
     
     def set_parameter(self, key: str, value: Any) -> bool:
@@ -266,34 +257,36 @@ class ConfigurationCore:
             with self._lock:
                 # Set in config dict (nested key support)
                 keys = key.split('.')
-                config = self._config
-                
+                target = self._config
                 for k in keys[:-1]:
-                    if k not in config:
-                        config[k] = {}
-                    config = config[k]
-                
-                config[keys[-1]] = value
+                    if k not in target:
+                        target[k] = {}
+                    target = target[k]
+                target[keys[-1]] = value
                 
                 # Update cache
                 from gateway import cache_set
                 cache_key = f"{self._cache_prefix}{key}"
                 cache_set(cache_key, value, ttl=300)
                 
-                # Track change
-                self._state.pending_changes[key] = value
-                
-                return True
+                # Record as pending change
+                self._state.pending_changes[key] = {
+                    "value": value,
+                    "timestamp": time.time()
+                }
+            
+            return True
+        
         except Exception as e:
             from gateway import log_error
             log_error(f"Failed to set parameter {key}: {e}")
             return False
     
-    # ===== RELOAD =====
+    # ===== CONFIG RELOAD =====
     
     def reload_config(self, validate: bool = True) -> Dict[str, Any]:
         """
-        Reload configuration from environment/Parameter Store.
+        Reload configuration from sources.
         
         Args:
             validate: Whether to validate after reload
