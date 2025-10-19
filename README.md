@@ -845,7 +845,7 @@ Response: 187ms
 Features: Everything
 
 
-Failsafe Mode (LEE_FAILSAFE_ENABLED=true):
+Failsafe Mode (LAMBDA_MODE=failsafe):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 lambda_failsafe.py
@@ -866,7 +866,7 @@ Your smart home still works!
 
 ```bash
 # Enable failsafe mode (no code changes needed!)
-export LEE_FAILSAFE_ENABLED=true
+export LAMBDA_MODE=failsafe
 
 # Lambda automatically switches to lambda_failsafe.py
 # Instant activation on next invocation
@@ -975,7 +975,7 @@ PARAMETER_PREFIX=/lambda-execution-engine
 # EMERGENCY FAILSAFE
 # ═══════════════════════════════════════════════════════
 
-LEE_FAILSAFE_ENABLED=false          # Emergency bypass mode
+LAMBDA_MODE=normal          # Emergency bypass mode or leave non-defined for normal mode
 ```
 
 All variables are verified and available in actual deployment.
@@ -1345,7 +1345,7 @@ aws lambda update-function-configuration \
 # Enable failsafe
 aws lambda update-function-configuration \
     --function-name HomeAssistantExecutionEngine \
-    --environment Variables="{LEE_FAILSAFE_ENABLED=true,...}"
+    --environment Variables="{LAMBDA_MODE=failsafe,...}"
 
 # Test
 aws lambda invoke \
@@ -1358,7 +1358,7 @@ aws lambda invoke \
 # Disable failsafe
 aws lambda update-function-configuration \
     --function-name HomeAssistantExecutionEngine \
-    --environment Variables="{LEE_FAILSAFE_ENABLED=false,...}"
+    --environment Variables="{LAMBDA_MODE=normal,...}"
 ```
 
 ---
@@ -1750,7 +1750,7 @@ ISSUE: High memory usage / OOM
     HA_WEBSOCKET_ENABLED=false
 
 ✓ Enable failsafe temporarily:
-    LEE_FAILSAFE_ENABLED=true
+    LAMBDA_MODE=failsafe
 
 ✓ Monitor memory in CloudWatch:
     - Look for patterns
@@ -1917,7 +1917,7 @@ aws lambda update-function-code \
 
 **Q: What about failsafe mode?**
 
-A: Set `LEE_FAILSAFE_ENABLED=true` for emergency bypass. Instant activation (no redeployment). Provides basic HA control with maximum reliability (42MB, 50ms, 99.99% uptime).
+A: Set `LAMBDA_MODE=failsafe` for emergency bypass. Instant activation (no redeployment). Provides basic HA control with maximum reliability (42MB, 50ms, 99.99% uptime).
 
 **Q: Why a flat package structure?**
 
