@@ -59,7 +59,7 @@ The Home Assistant extension enables voice control through Alexa, automation man
 
 ### 1. SUGA - Single Universal Gateway Architecture
 
-**The Problem:** Traditional Lambda applications duplicate infrastructure across every module - HTTP clients, logging, caching, error handling - resulting in 400KB+ of redundant code and maintenance nightmares.
+**The Problem:** Traditional Lambda applications duplicate infrastructure across every module - HTTP clients, logging, caching, error handling - resulting in potential redundant code, maintenance nightmares, and more memory requirements.
 
 **The Solution:** SUGA consolidates ALL infrastructure operations through ONE intelligent routing hub.
 
