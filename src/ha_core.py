@@ -1,18 +1,22 @@
 """
-ha_core.py - Home Assistant Core Operations (CACHE VALIDATION FIX)
-Version: 2025.10.19.CACHE_FIX
-Description: Core operations with CACHE VALIDATION to prevent object() sentinel bug
+ha_core.py - Home Assistant Core Operations
+Version: 2025.10.19.22
+Description: Core operations - SENTINEL VALIDATION REMOVED
 
-CRITICAL FIX: Added cache validation in get_ha_config()
-- BEFORE: Returned cached value without validation (returned object() sentinels!)
-- AFTER: Validates cached value is dict before returning
-- Prevents "Config is not dict" error from object() sentinels
-- Module-level ha_config import for performance (no lazy loading)
+CHANGELOG:
+- 2025.10.19.22: REMOVED scattered sentinel validation (SUGA compliance)
+  - DELETED sentinel checks in get_ha_config()
+  - Sentinel sanitization now handled by interface_cache.py (gateway layer)
+  - SUGA-compliant: Infrastructure logic in gateway, business logic stays here
+- 2025.10.19.CACHE_FIX: Added cache validation (SUPERSEDED)
 
 Design Decision: Module-level ha_config import
 Reason: Lazy import defeats the entire performance optimization strategy.
         ha_config imports config_param_store, which uses preloaded boto3 from lambda_preload.
         If we lazy load ha_config, we miss the optimization window and load during first request.
+        
+Design Decision: Gateway handles sentinels
+Reason: SUGA principle - infrastructure concerns (sanitization) belong in gateway layer.
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -54,35 +58,22 @@ def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, A
     HA /api/states returns different formats depending on how it's called.
     This function handles all common formats robustly.
     """
-    if data is None:
-        log_debug(f"Data is None in {context}")
-        return []
-    
-    # Already a list
     if isinstance(data, list):
-        log_debug(f"Data is already a list with {len(data)} items")
         return [item for item in data if isinstance(item, dict)]
     
-    # JSON string - parse it
-    if isinstance(data, str):
-        try:
-            parsed = parse_json(data)
-            log_debug(f"Parsed JSON string in {context}")
-            return _extract_entity_list(parsed, context)
-        except Exception as e:
-            log_warning(f"Failed to parse JSON string in {context}: {str(e)}")
-            return []
-    
-    # Dict - check for common entity list keys
     if isinstance(data, dict):
-        for key in ['entities', 'data', 'states', 'body', 'result']:
-            if key in data:
-                value = data[key]
-                if isinstance(value, list):
-                    log_debug(f"Found entity list in data['{key}'] with {len(value)} items")
-                    return [item for item in value if isinstance(item, dict)]
-                elif isinstance(value, (str, dict)):
-                    return _extract_entity_list(value, f"{context}.{key}")
+        if 'entity_id' in data:
+            return [data]
+        
+        if 'data' in data and isinstance(data['data'], list):
+            return [item for item in data['data'] if isinstance(item, dict)]
+        
+        keys_to_try = ['states', 'entities', 'items', 'results']
+        for key in keys_to_try:
+            if key in data and isinstance(data[key], list):
+                return [item for item in data[key] if isinstance(item, dict)]
+        
+        log_debug(f"Dict format in {context} not recognized: {list(data.keys())[:5]}")
     
     log_warning(f"Could not extract entity list from {type(data).__name__} in {context}")
     return []
@@ -92,10 +83,13 @@ def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, A
 
 def get_ha_config(force_reload: bool = False) -> Dict[str, Any]:
     """
-    Get Home Assistant configuration with CACHE VALIDATION.
+    Get Home Assistant configuration with basic cache validation.
     
     PERFORMANCE: Uses module-level import (no lazy loading!)
-    CRITICAL FIX: Validates cached value before returning (prevents object() sentinel bug)
+    SUGA COMPLIANCE: Sentinel sanitization handled by interface_cache.py
+    
+    NOTE: Gateway (interface_cache.py) now handles all sentinel sanitization.
+          This function only validates that cached value is a dict with required keys.
     """
     correlation_id = generate_correlation_id()
     
@@ -107,23 +101,15 @@ def get_ha_config(force_reload: bool = False) -> Dict[str, Any]:
     if not force_reload:
         cached = cache_get(cache_key)
         if cached is not None:
-            # CRITICAL: Validate cached value before returning
-            # Cache can return object() sentinels or invalid types
-            if type(cached).__name__ == 'object' and str(cached).startswith('<object object'):
-                log_error(f"[{correlation_id}] Cached config is object() sentinel, invalidating")
-                cache_delete(cache_key)
-            elif not isinstance(cached, dict):
-                log_error(f"[{correlation_id}] Cached config is {type(cached).__name__}, not dict, invalidating")
-                cache_delete(cache_key)
+            # Simple validation: Must be dict with 'enabled' key
+            # NOTE: Gateway already sanitized sentinels, so no need to check
+            if isinstance(cached, dict) and 'enabled' in cached:
+                log_debug(f"[{correlation_id}] Using cached HA config")
+                return cached
             else:
-                # Validate it has required keys
-                if 'enabled' not in cached:
-                    log_error(f"[{correlation_id}] Cached config missing 'enabled' key, invalidating")
-                    cache_delete(cache_key)
-                else:
-                    # Cache is valid!
-                    log_debug(f"[{correlation_id}] Using validated cached HA config")
-                    return cached
+                # Invalid cache format, rebuild
+                log_warning(f"[{correlation_id}] Cached config invalid, rebuilding")
+                cache_delete(cache_key)
     
     # Cache miss or invalid - load fresh config
     log_debug(f"[{correlation_id}] Loading fresh HA config")
@@ -136,6 +122,8 @@ def get_ha_config(force_reload: bool = False) -> Dict[str, Any]:
             'error': 'Invalid config type'
         }
     
+    # Cache the config
+    # NOTE: Gateway (interface_cache.py) will sanitize sentinels automatically
     cache_set(cache_key, config, ttl=HA_CACHE_TTL_CONFIG)
     log_debug(f"[{correlation_id}] HA config loaded and cached")
     
@@ -238,39 +226,14 @@ def call_ha_api(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
             if _is_debug_mode():
                 log_info(f"[{correlation_id}] [DEBUG] HA_CORE: SUCCESS - Data type: {type(http_result.get('data'))}")
             increment_counter('ha_api_success')
-            return http_result
         else:
-            # HTTP client returns different formats:
-            # 1. Exception: {'success': False, 'error': str, 'error_type': str}
-            # 2. HTTP error: {'success': False, 'status_code': int, 'data': ...}
-            
             if _is_debug_mode():
                 log_error(f"[{correlation_id}] [DEBUG] HA_CORE: FAILURE")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Status code: {http_result.get('status_code', 'N/A')}")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error: {http_result.get('error', 'HTTP_ERROR')}")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error type: {http_result.get('error_type', 'N/A')}")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Response data: {http_result.get('data')}")
-            
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error: {http_result.get('error', 'NO_ERROR_FIELD')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error code: {http_result.get('error_code', 'NO_ERROR_CODE')}")
             increment_counter('ha_api_failure')
-            
-            # Normalize response to standard error format
-            status_code = http_result.get('status_code')
-            error_msg = http_result.get('error')
-            
-            if not error_msg and status_code:
-                # HTTP error without exception - create error message from status
-                error_msg = f"HTTP {status_code}"
-                if status_code == 401:
-                    error_msg = "Authentication failed - check access token"
-                elif status_code == 404:
-                    error_msg = f"Endpoint not found: {endpoint}"
-                elif status_code >= 500:
-                    error_msg = f"Home Assistant server error ({status_code})"
-            
-            return create_error_response(
-                error_msg or 'Unknown error',
-                http_result.get('error_type', 'HTTP_ERROR')
-            )
+        
+        return http_result
         
     except Exception as e:
         if _is_debug_mode():
@@ -437,11 +400,12 @@ def check_ha_status() -> Dict[str, Any]:
 def get_diagnostic_info() -> Dict[str, Any]:
     """Get HA diagnostic information."""
     return {
-        'ha_core_version': '2025.10.19.CACHE_FIX',
+        'ha_core_version': '2025.10.19.22',
         'cache_ttl_entities': HA_CACHE_TTL_ENTITIES,
         'cache_ttl_state': HA_CACHE_TTL_STATE,
         'circuit_breaker_name': HA_CIRCUIT_BREAKER_NAME,
-        'debug_mode': _is_debug_mode()
+        'debug_mode': _is_debug_mode(),
+        'sentinel_sanitization': 'Handled by gateway (interface_cache.py)'
     }
 
 
