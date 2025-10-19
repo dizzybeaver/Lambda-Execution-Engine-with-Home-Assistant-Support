@@ -238,14 +238,39 @@ def call_ha_api(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
             if _is_debug_mode():
                 log_info(f"[{correlation_id}] [DEBUG] HA_CORE: SUCCESS - Data type: {type(http_result.get('data'))}")
             increment_counter('ha_api_success')
+            return http_result
         else:
+            # HTTP client returns different formats:
+            # 1. Exception: {'success': False, 'error': str, 'error_type': str}
+            # 2. HTTP error: {'success': False, 'status_code': int, 'data': ...}
+            
             if _is_debug_mode():
                 log_error(f"[{correlation_id}] [DEBUG] HA_CORE: FAILURE")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error: {http_result.get('error', 'NO_ERROR_FIELD')}")
-                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error code: {http_result.get('error_code', 'NO_ERROR_CODE')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Status code: {http_result.get('status_code', 'N/A')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error: {http_result.get('error', 'HTTP_ERROR')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Error type: {http_result.get('error_type', 'N/A')}")
+                log_error(f"[{correlation_id}] [DEBUG] HA_CORE: Response data: {http_result.get('data')}")
+            
             increment_counter('ha_api_failure')
-        
-        return http_result
+            
+            # Normalize response to standard error format
+            status_code = http_result.get('status_code')
+            error_msg = http_result.get('error')
+            
+            if not error_msg and status_code:
+                # HTTP error without exception - create error message from status
+                error_msg = f"HTTP {status_code}"
+                if status_code == 401:
+                    error_msg = "Authentication failed - check access token"
+                elif status_code == 404:
+                    error_msg = f"Endpoint not found: {endpoint}"
+                elif status_code >= 500:
+                    error_msg = f"Home Assistant server error ({status_code})"
+            
+            return create_error_response(
+                error_msg or 'Unknown error',
+                http_result.get('error_type', 'HTTP_ERROR')
+            )
         
     except Exception as e:
         if _is_debug_mode():
