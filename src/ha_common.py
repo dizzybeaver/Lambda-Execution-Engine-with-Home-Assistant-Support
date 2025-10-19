@@ -1,7 +1,14 @@
 """
 ha_common.py
-Version: 2025.10.11.01
+Version: 2025.10.19.04
 Description: Home Assistant common utilities
+
+CHANGELOG:
+- 2025.10.19.04: ARCHITECTURE FIX - Removed duplicate get_ha_config()
+  - Replaced duplicate get_ha_config() with import from ha_config.py
+  - Fixes SSM Parameter Store lookup bug (was using wrong keys)
+  - Single source of truth for HA configuration
+  - Eliminates <object object> serialization error in HTTP requests
 
 Copyright 2025 Joseph Hersey
 
@@ -87,34 +94,25 @@ def invalidate_cache_section(section: str):
 
 
 def get_ha_config() -> Dict[str, Any]:
-    """Get Home Assistant configuration from cache or parameters."""
-    from gateway import get_parameter, cache_get, cache_set
-    from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    """
+    Get Home Assistant configuration - delegates to ha_config.py.
     
-    context = create_operation_context('ha_common', 'get_config')
+    ARCHITECTURE NOTE (2025.10.19.04):
+    This function now delegates to ha_config.load_ha_config() to ensure
+    single source of truth for HA configuration. The previous implementation
+    had wrong parameter names ('ha_base_url', 'ha_access_token') which 
+    didn't match SSM Parameter Store keys ('home_assistant/url', 
+    'home_assistant/token'), causing <object object> serialization errors.
     
-    try:
-        cache_data = get_consolidated_cache()
-        if cache_data.get("config"):
-            close_operation_context(context, success=True)
-            return cache_data["config"]
-        
-        config = {
-            'base_url': get_parameter('ha_base_url', ''),
-            'access_token': get_parameter('ha_access_token', ''),
-            'timeout': int(get_parameter('ha_timeout', 30)),
-            'verify_ssl': get_parameter('ha_verify_ssl', 'true').lower() == 'true'
-        }
-        
-        cache_data["config"] = config
-        set_consolidated_cache(cache_data)
-        
-        close_operation_context(context, success=True)
-        return config
-        
-    except Exception as e:
-        close_operation_context(context, success=False)
-        return handle_operation_error('ha_common', 'get_config', e, context['correlation_id'])
+    Returns:
+        Dict containing:
+        - base_url: Home Assistant URL
+        - access_token: Long-lived access token
+        - timeout: Request timeout
+        - verify_ssl: SSL verification flag
+    """
+    from ha_config import load_ha_config
+    return load_ha_config()
 
 
 def call_ha_api(
