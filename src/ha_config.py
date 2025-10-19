@@ -1,41 +1,40 @@
 """
 ha_config.py - Home Assistant Configuration Management
-Version: 2025.10.19.TIMING_MODULE_IMPORT
-Description: CRITICAL FIX - Module-level config_param_store import for performance
+Version: 2025.10.19.BULLETPROOF
+Description: BULLETPROOF - Validates cache returns, handles all edge cases
 
 CHANGELOG:
-- 2025.10.19.TIMING_MODULE_IMPORT: CRITICAL PERFORMANCE FIX
-  - Moved config_param_store import to MODULE LEVEL (was lazy loaded in function)
-  - This ensures 7.7s boto3 load happens during Lambda INIT (257ms), not first request
-  - DESIGN DECISION: Always import config_param_store, even if SSM disabled
-  - Reason: Import cost is negligible if USE_PARAMETER_STORE=false (boto3 won't load)
-  - Root cause: Lazy import inside _get_config_value() caused 7.7s first-request penalty
-  - All timing diagnostics preserved for debugging
-- 2025.10.19.TIMING: Added comprehensive timing diagnostics
-- 2025.10.19.07: SSM-first with environment fallback
-- 2025.10.19.06: Emergency fix for environment-only mode
+- 2025.10.19.BULLETPROOF: DEFENSIVE PROGRAMMING
+  - Validates cached config before returning (checks for dict type)
+  - Invalidates and rebuilds if cache contains invalid data
+  - Type enforcement: always returns dict, never object()
+  - Module-level config_param_store import for performance
+  - Comprehensive timing diagnostics
+  - Documents all edge cases
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 
 Design Decisions:
+- Cache validation: Check type before returning cached config
+  Reason: Cache can contain object() sentinels or wrong types from previous bugs
+- Rebuild on invalid cache: Don't fail, just rebuild
+  Reason: Better to have slightly slower response than fail completely
 - Module-level config_param_store import: Always import at module level
-  Reason: Lazy import defeats performance optimization, causes 7.7s first-request delay
-- config_param_store handles its own boto3 loading: Conditional based on USE_PARAMETER_STORE
-  Reason: If SSM disabled, config_param_store import is cheap (no boto3 load)
+  Reason: Lazy import causes 7.7s first-request delay
 """
 
 from typing import Dict, Any, Optional
 import os
 import time
 
-# CRITICAL: Import config_param_store at MODULE LEVEL for performance!
-# This ensures boto3 initialization (7.7s) happens during Lambda INIT, not first request
+# CRITICAL: Import config_param_store at MODULE LEVEL for performance
 from config_param_store import get_parameter as ssm_get_parameter
 
 from gateway import (
     cache_get,
     cache_set,
+    cache_delete,
     log_debug,
     log_info,
     log_warning,
@@ -64,6 +63,52 @@ def _safe_int(value: str, default: int) -> int:
         return default
 
 
+# ===== CACHE VALIDATION =====
+
+def _validate_cached_config(cached: Any) -> Optional[Dict[str, Any]]:
+    """
+    Validate cached configuration before returning.
+    
+    Cache can contain:
+    - Valid dict config
+    - object() sentinels from cache_core.py
+    - Invalid types from previous bugs
+    - Stale/corrupted data
+    
+    Args:
+        cached: Value from cache
+        
+    Returns:
+        Valid dict or None (which signals to rebuild)
+    """
+    if cached is None:
+        return None
+    
+    # Check for object() sentinel
+    if type(cached).__name__ == 'object' and str(cached).startswith('<object object'):
+        log_error("[CACHE VALIDATE] Cached config is object() sentinel, invalidating")
+        return None
+    
+    # Must be a dict
+    if not isinstance(cached, dict):
+        log_error(f"[CACHE VALIDATE] Cached config is {type(cached).__name__}, not dict, invalidating")
+        return None
+    
+    # Validate it has the expected keys
+    if 'enabled' not in cached:
+        log_error("[CACHE VALIDATE] Cached config missing 'enabled' key, invalidating")
+        return None
+    
+    # If enabled, must have base_url and access_token
+    if cached.get('enabled'):
+        if 'base_url' not in cached or 'access_token' not in cached:
+            log_error("[CACHE VALIDATE] Cached config missing required keys, invalidating")
+            return None
+    
+    # Cache is valid
+    return cached
+
+
 # ===== CONFIGURATION MANAGEMENT =====
 
 def _get_config_value(
@@ -84,9 +129,6 @@ def _get_config_value(
     1. Environment variable (PRIMARY SOURCE)
     2. Default value
     
-    PERFORMANCE: config_param_store is imported at MODULE LEVEL (not here)
-    to ensure boto3 initialization happens during Lambda INIT phase.
-    
     Args:
         key: SSM parameter key (e.g., 'home_assistant/url')
         env_var: Environment variable name (e.g., 'HOME_ASSISTANT_URL')
@@ -105,8 +147,7 @@ def _get_config_value(
         _ssm_start = time.perf_counter()
         _print_timing(f"    Attempting SSM lookup for {key}...")
         
-        # NOTE: config_param_store is ALREADY imported at module level!
-        # No lazy import overhead here - ssm_get_parameter is immediately available
+        # config_param_store is imported at module level - no lazy import overhead
         value = ssm_get_parameter(key, default=None)
         
         _ssm_time = (time.perf_counter() - _ssm_start) * 1000
@@ -119,7 +160,7 @@ def _get_config_value(
         else:
             _print_timing(f"    [SSM MISS] {key}: Not found in SSM, falling back to environment")
     
-    # === Priority 2: Environment variable (fallback or primary if SSM disabled) ===
+    # === Priority 2: Environment variable ===
     _env_start = time.perf_counter()
     _print_timing(f"    Checking environment variable {env_var}...")
     
@@ -152,14 +193,11 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
     """
     Build configuration from SSM Parameter Store or environment variables.
     
-    This function is instrumented with comprehensive timing to show exactly
-    where configuration loading time is spent.
-    
     Args:
         use_parameter_store: Whether to use SSM Parameter Store
         
     Returns:
-        Configuration dictionary
+        Configuration dictionary (always dict, never None or object())
     """
     _start = time.perf_counter()
     _print_timing("===== _build_config_from_sources START =====")
@@ -253,10 +291,10 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
 
 def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
     """
-    Load Home Assistant configuration with caching and comprehensive timing.
+    Load Home Assistant configuration with bulletproof cache validation.
     
     Configuration priority:
-    1. Cache (if not force_refresh)
+    1. Validated cache (if not force_refresh)
     2. SSM Parameter Store (if USE_PARAMETER_STORE=true)
     3. Environment variables (fallback or primary if SSM disabled)
     4. Defaults
@@ -265,12 +303,12 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
         force_refresh: Skip cache and reload from sources
         
     Returns:
-        Configuration dictionary
+        Configuration dictionary (always dict, never None or object())
     """
     _start = time.perf_counter()
     _print_timing("===== LOAD_HA_CONFIG START =====")
     
-    # Check cache first
+    # Check cache first (with validation)
     if not force_refresh:
         _cache_start = time.perf_counter()
         _print_timing("Checking cache...")
@@ -281,9 +319,16 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
         _print_timing(f"Cache check: {_cache_time:.2f}ms, found={cached is not None}")
         
         if cached is not None:
-            _total_time = (time.perf_counter() - _start) * 1000
-            _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (CACHED): {_total_time:.2f}ms =====")
-            return cached
+            # CRITICAL: Validate cached value before returning
+            validated = _validate_cached_config(cached)
+            
+            if validated is not None:
+                _total_time = (time.perf_counter() - _start) * 1000
+                _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (VALIDATED CACHE): {_total_time:.2f}ms =====")
+                return validated
+            else:
+                _print_timing("Cache validation failed, invalidating and rebuilding...")
+                cache_delete('ha_config')
     
     # Build fresh config
     _print_timing("Building fresh config...")
@@ -294,6 +339,12 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
     
     _build_time = (time.perf_counter() - _build_start) * 1000
     _print_timing(f"*** Config built: {_build_time:.2f}ms ***")
+    
+    # Validate config before caching
+    if not isinstance(config, dict):
+        log_error(f"[CONFIG] _build_config_from_sources returned {type(config).__name__}, not dict!")
+        # Return minimal valid config
+        return {'enabled': False}
     
     # Cache result
     _cache_set_start = time.perf_counter()
@@ -320,16 +371,20 @@ def validate_ha_config(config: Dict[str, Any]) -> bool:
     Returns:
         True if valid, False otherwise
     """
+    if not isinstance(config, dict):
+        log_error(f"[CONFIG VALIDATE] Config is {type(config).__name__}, not dict")
+        return False
+    
     if not config.get('enabled', False):
-        log_warning("[CONFIG] Home Assistant is disabled")
+        log_warning("[CONFIG VALIDATE] Home Assistant is disabled")
         return False
     
     if not config.get('base_url'):
-        log_error("[CONFIG] Missing base_url")
+        log_error("[CONFIG VALIDATE] Missing base_url")
         return False
     
     if not config.get('access_token'):
-        log_error("[CONFIG] Missing access_token")
+        log_error("[CONFIG VALIDATE] Missing access_token")
         return False
     
     return True
@@ -338,8 +393,6 @@ def validate_ha_config(config: Dict[str, Any]) -> bool:
 def get_ha_preset(preset: str = 'default') -> Dict[str, Any]:
     """
     Get Home Assistant preset configuration.
-    
-    Presets provide predefined configurations for common scenarios.
     
     Args:
         preset: Preset name ('default', 'fast', 'reliable', 'minimal')
@@ -377,8 +430,6 @@ def load_ha_connection_config() -> Dict[str, Any]:
     """
     Load connection-specific Home Assistant configuration.
     
-    Returns only connection-related settings without full config.
-    
     Returns:
         Connection configuration dictionary
     """
@@ -394,8 +445,6 @@ def load_ha_connection_config() -> Dict[str, Any]:
 def load_ha_preset_config(preset: str = 'default') -> Dict[str, Any]:
     """
     Load Home Assistant configuration with preset overrides.
-    
-    Merges base configuration with preset values.
     
     Args:
         preset: Preset name to apply
