@@ -112,19 +112,19 @@ def cache_stats() -> Dict[str, Any]:
 
 def log_info(message: str, **kwargs) -> None:
     """Log info message."""
-    execute_operation(GatewayInterface.LOGGING, 'info', message=message, **kwargs)
+    execute_operation(GatewayInterface.LOGGING, 'log_info', message=message, **kwargs)
 
 def log_error(message: str, error: Optional[Exception] = None, **kwargs) -> None:
     """Log error message."""
-    execute_operation(GatewayInterface.LOGGING, 'error', message=message, error=error, **kwargs)
+    execute_operation(GatewayInterface.LOGGING, 'log_error', message=message, error=error, **kwargs)
 
 def log_warning(message: str, **kwargs) -> None:
     """Log warning message."""
-    execute_operation(GatewayInterface.LOGGING, 'warning', message=message, **kwargs)
+    execute_operation(GatewayInterface.LOGGING, 'log_warning', message=message, **kwargs)
 
 def log_debug(message: str, **kwargs) -> None:
     """Log debug message."""
-    execute_operation(GatewayInterface.LOGGING, 'debug', message=message, **kwargs)
+    execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, **kwargs)
 
 def log_operation_start(operation: str, **kwargs) -> None:
     """Log operation start."""
@@ -192,7 +192,7 @@ def validate_cache_key(key: str) -> None:
     
     Validates cache keys against security rules:
     - Length: 1-255 characters
-    - Characters: [a-zA-Z0-9_\-:.]
+    - Characters: [a-zA-Z0-9_\\-:.]
     - Rejects: control characters, path traversal, special characters
     
     Part of Cache Ultra-Optimization Phase 2: validation moved from cache_core.py
