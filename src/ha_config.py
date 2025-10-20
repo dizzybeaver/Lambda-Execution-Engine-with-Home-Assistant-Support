@@ -1,543 +1,377 @@
 """
-ha_config.py - Home Assistant Configuration Management
-Version: 2025.10.19.COLD_START_OPT
-Description: COLD START OPTIMIZATION - Added sentinel sanitization before caching
+lambda_failsafe.py - Emergency Failsafe Handler (SIMPLIFIED)
+Version: 2025.10.20.TOKEN_ONLY
+Description: Direct passthrough to Home Assistant with ONLY token from SSM
+
+BREAKING CHANGE:
+- SSM retrieves ONLY the Home Assistant token
+- ALL other configuration from environment variables
+- Faster failsafe activation, simpler implementation
 
 CHANGELOG:
-- 2025.10.19.COLD_START_OPT: CRITICAL FIX - Cache sentinel sanitization
-  - Added _sanitize_config_for_cache() to remove object() sentinels before caching
-  - Prevents cache invalidation on every cold start (saves ~535ms)
-  - Ensures only valid dict with primitive types gets cached
-  
-Design Decisions:
-- Defensive validation: Check EVERY value before adding to config dict
-  Reason: SSM can return object() instances that break everything downstream
-- Convert immediately: Don't wait for later validation
-  Reason: Better to have empty string than crash with object()
+- 2025.10.20.TOKEN_ONLY: SIMPLIFIED - Only token from SSM
+  - Uses simplified config_param_store.get_ha_token()
+  - All other config from environment
+  - Improved debug output
+  - Faster failsafe mode
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-from typing import Dict, Any, Optional
 import os
+import json
 import time
+from typing import Dict, Any, Optional
+from urllib import request
+from urllib.error import URLError, HTTPError
 
-# CRITICAL: Import config_param_store at MODULE LEVEL for performance
-from config_param_store import get_parameter as ssm_get_parameter
-
-from gateway import (
-    cache_get,
-    cache_set,
-    cache_delete,
-    log_debug,
-    log_info,
-    log_warning,
-    log_error
-)
-
-
-# ===== TIMING HELPERS =====
 
 def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled for timing output."""
-    return os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 
-def _print_timing(message: str):
-    """Print timing message only if DEBUG_MODE=true."""
+def _is_debug_timings() -> bool:
+    """Check if DEBUG_TIMINGS is enabled."""
+    return os.getenv('DEBUG_TIMINGS', 'false').lower() == 'true'
+
+
+def _print_debug(msg: str):
+    """Print debug message only if DEBUG_MODE=true."""
     if _is_debug_mode():
-        print(f"[HA_CONFIG_TIMING] {message}")
+        print(f"[FAILSAFE_DEBUG] {msg}")
 
 
-def _safe_int(value: Any, default: int) -> int:
-    """Safely convert any value to int with default fallback."""
-    if value is None:
-        return default
+def _print_timing(msg: str):
+    """Print timing message only if DEBUG_TIMINGS=true."""
+    if _is_debug_timings():
+        print(f"[FAILSAFE_TIMING] {msg}")
+
+
+# ===== LOGGING =====
+
+class _Logger:
+    """Minimal logger for failsafe mode."""
     
-    # Check for object() sentinel
-    if type(value).__name__ == 'object' and str(value).startswith('<object object'):
-        log_warning(f"[SAFE_INT] Detected object() sentinel, using default {default}")
-        return default
+    @staticmethod
+    def debug(msg: str):
+        if _is_debug_mode():
+            print(f"[FAILSAFE] DEBUG: {msg}")
+    
+    @staticmethod
+    def info(msg: str):
+        print(f"[FAILSAFE] INFO: {msg}")
+    
+    @staticmethod
+    def warning(msg: str):
+        print(f"[FAILSAFE] WARNING: {msg}")
+    
+    @staticmethod
+    def error(msg: str):
+        print(f"[FAILSAFE] ERROR: {msg}")
+
+
+_logger = _Logger()
+
+
+# ===== TOKEN LOADING =====
+
+def _load_token_from_ssm() -> Optional[str]:
+    """
+    Load Home Assistant token from SSM Parameter Store.
+    
+    Only used if USE_PARAMETER_STORE=true in failsafe mode.
+    
+    Returns:
+        Token string or None
+    """
+    _start = time.perf_counter()
+    _print_timing("Loading token from SSM...")
+    _print_debug("Attempting SSM token retrieval in failsafe mode")
     
     try:
-        return int(value)
-    except (ValueError, TypeError):
-        return default
-
-
-# ===== VALUE SANITIZATION =====
-
-def _sanitize_value(value: Any, key: str, default: str = '') -> str:
-    """
-    NUCLEAR SANITIZATION: Convert ANY value to safe string.
-    
-    Handles:
-    - None → default
-    - object() sentinels → default
-    - Invalid types → default
-    - Valid strings → passthrough
-    """
-    if value is None:
-        log_debug(f"[SANITIZE] {key}: None, using default")
-        return default
-    
-    # Check for object() sentinel
-    if type(value).__name__ == 'object' and str(value).startswith('<object object'):
-        log_error(f"[SANITIZE] {key}: OBJECT SENTINEL DETECTED! Using default")
-        return default
-    
-    # Must be string
-    if not isinstance(value, str):
-        log_warning(f"[SANITIZE] {key}: Type {type(value).__name__}, converting to string")
-        try:
-            return str(value)
-        except Exception as e:
-            log_error(f"[SANITIZE] {key}: Failed to convert {type(value).__name__}: {e}")
-            return default
-    
-    # Empty string check
-    if not value or not value.strip():
-        log_warning(f"[SANITIZE] {key}: Empty string, using default")
-        return default if default else ''
-    
-    return value
-
-
-# ===== CACHE VALIDATION =====
-
-def _validate_cached_config(cached: Any) -> Optional[Dict[str, Any]]:
-    """
-    Validate cached configuration before returning.
-    
-    Cache can contain:
-    - Valid dict config
-    - object() sentinels from cache_core.py
-    - Invalid types from previous bugs
-    - Stale/corrupted data
-    
-    Args:
-        cached: Value from cache
+        # Lazy import config_param_store
+        from config_param_store import get_ha_token
         
-    Returns:
-        Valid dict or None (which signals to rebuild)
-    """
-    if cached is None:
-        return None
-    
-    # Check for object() sentinel
-    if type(cached).__name__ == 'object' and str(cached).startswith('<object object'):
-        log_error("[CACHE VALIDATE] Cached config is object() sentinel, invalidating")
-        return None
-    
-    # Must be a dict
-    if not isinstance(cached, dict):
-        log_error(f"[CACHE VALIDATE] Cached config is {type(cached).__name__}, not dict, invalidating")
-        return None
-    
-    # Validate it has the expected keys
-    if 'enabled' not in cached:
-        log_error("[CACHE VALIDATE] Cached config missing 'enabled' key, invalidating")
-        return None
-    
-    # If enabled, must have base_url and access_token
-    if cached.get('enabled'):
-        if 'base_url' not in cached or 'access_token' not in cached:
-            log_error("[CACHE VALIDATE] Cached config missing required keys, invalidating")
-            return None
-    
-    # Cache is valid
-    return cached
-
-
-def _sanitize_config_for_cache(config: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    NUCLEAR SANITIZATION: Remove object() sentinels before caching.
-    
-    CRITICAL FIX for cold start performance:
-    - Prevents cache pollution from _CACHE_MISS sentinels
-    - Ensures only primitive types get cached
-    - Saves ~535ms per cold start by avoiding cache invalidation
-    
-    Args:
-        config: Configuration dictionary (may contain sentinels)
+        token = get_ha_token(use_cache=True)
         
-    Returns:
-        Sanitized configuration dictionary (no sentinels)
-    """
-    sanitized = {}
-    
-    for key, value in config.items():
-        # Detect object() sentinel
-        if type(value).__name__ == 'object' and str(value).startswith('<object object'):
-            log_error(f"[SANITIZE_CONFIG] Found sentinel in key '{key}', skipping!")
-            continue  # Don't add sentinel to cache
+        _elapsed = (time.perf_counter() - _start) * 1000
+        _print_timing(f"SSM token retrieval: {_elapsed:.2f}ms, success={token is not None}")
         
-        # Only allow primitive types
-        if isinstance(value, (str, int, float, bool, list, dict, tuple, set, type(None))):
-            sanitized[key] = value
+        if token:
+            _print_debug("Token retrieved from SSM")
+            _logger.info("Token loaded from SSM Parameter Store")
         else:
-            log_warning(f"[SANITIZE_CONFIG] Skipping non-primitive type {type(value).__name__} for key '{key}'")
-    
-    return sanitized
-
-
-# ===== CONFIGURATION MANAGEMENT =====
-
-def _get_config_value(
-    key: str,
-    env_var: str,
-    default: str = '',
-    use_parameter_store: bool = False
-) -> str:
-    """
-    Get configuration value with SSM-first priority and DEFENSIVE validation.
-    
-    Priority (when USE_PARAMETER_STORE=true):
-    1. SSM Parameter Store (PRIMARY SOURCE)
-    2. Environment variable (FALLBACK)
-    3. Default value
-    
-    Args:
-        key: Parameter key (e.g., 'home_assistant/url')
-        env_var: Environment variable name
-        default: Default value if not found
-        use_parameter_store: Whether to use SSM Parameter Store
+            _print_debug("SSM returned None")
+            _logger.warning("SSM token retrieval returned None")
         
-    Returns:
-        Configuration value as string (ALWAYS string, never None or object())
+        return token
+        
+    except Exception as e:
+        _elapsed = (time.perf_counter() - _start) * 1000
+        _print_timing(f"SSM token retrieval failed: {_elapsed:.2f}ms")
+        _print_debug(f"SSM exception: {e}")
+        _logger.error(f"Failed to load token from SSM: {e}")
+        return None
+
+
+# ===== CONFIGURATION =====
+
+def _load_failsafe_config() -> Dict[str, Any]:
     """
-    _print_timing(f"  _get_config_value START: key={key}, env_var={env_var}")
+    Load failsafe configuration.
     
-    # Try SSM first if enabled
+    Configuration priority for token:
+    1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
+    2. HOME_ASSISTANT_TOKEN environment variable
+    3. LONG_LIVED_ACCESS_TOKEN environment variable (legacy)
+    
+    All other configuration from environment only.
+    
+    Returns:
+        Configuration dictionary
+        
+    Raises:
+        ValueError: If HOME_ASSISTANT_URL not configured
+    """
+    _start = time.perf_counter()
+    _print_timing("===== LOAD_FAILSAFE_CONFIG START =====")
+    _print_debug("Loading failsafe configuration")
+    
+    use_parameter_store = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+    
+    # Load base URL from environment (ALWAYS from environment in failsafe)
+    base_url = os.getenv('HOME_ASSISTANT_URL')
+    if not base_url:
+        _print_debug("HOME_ASSISTANT_URL not set")
+        raise ValueError('HOME_ASSISTANT_URL not configured')
+    
+    _print_debug(f"Base URL: {base_url}")
+    
+    # Load SSL verification setting
+    verify_ssl_str = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
+    verify_ssl = verify_ssl_str != 'false'
+    _print_debug(f"SSL verification: {verify_ssl}")
+    
+    # Load token
+    fallback_token = None
+    
     if use_parameter_store:
-        _print_timing(f"    USE_PARAMETER_STORE=True")
-        _print_timing(f"    Attempting SSM lookup for {key}...")
+        _print_debug("USE_PARAMETER_STORE=true, attempting SSM")
+        fallback_token = _load_token_from_ssm()
+    
+    # Fallback to environment if SSM failed or disabled
+    if fallback_token is None:
+        _print_debug("Loading token from environment")
+        fallback_token = os.getenv('HOME_ASSISTANT_TOKEN') or os.getenv('LONG_LIVED_ACCESS_TOKEN')
         
-        try:
-            _ssm_start = time.perf_counter()
-            value = ssm_get_parameter(key, default=default)
-            _ssm_time = (time.perf_counter() - _ssm_start) * 1000
-            
-            _print_timing(f"    *** SSM lookup completed: {_ssm_time:.2f}ms ***")
-            _print_timing(f"    SSM returned type: {type(value).__name__}")
-            
-            # DEFENSIVE: Sanitize value from SSM
-            if value is not None and value != default:
-                sanitized = _sanitize_value(value, key, default)
-                _print_timing(f"  [SSM SUCCESS] {key}: {_ssm_time:.2f}ms")
-                return sanitized
-            
-            _print_timing(f"  [SSM MISS] {key}: {_ssm_time:.2f}ms, falling back to env")
-        
-        except Exception as e:
-            _print_timing(f"  [SSM ERROR] {key}: {str(e)}")
-            log_warning(f"[SSM ERROR] {key}: {str(e)}, falling back to env")
+        if fallback_token:
+            _print_debug("Token found in environment")
+        else:
+            _print_debug("No token in environment")
     
-    # Fall back to environment variable
-    value = os.environ.get(env_var, default)
-    sanitized = _sanitize_value(value, key, default)
-    _print_timing(f"  [ENV] {key}: {sanitized if sanitized else 'EMPTY'}")
-    
-    return sanitized
-
-
-def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, Any]:
-    """
-    Build configuration from sources with DEFENSIVE validation.
-    
-    DEFENSIVE: Each value is sanitized before adding to dict.
-    GUARANTEE: Always returns dict, never object() or other types.
-    
-    Args:
-        use_parameter_store: Whether to use SSM Parameter Store
-        
-    Returns:
-        Configuration dictionary (ALWAYS dict, validated values)
-    """
-    _start = time.perf_counter()
-    _print_timing("===== _build_config_from_sources START =====")
-    
-    # Check if HA is enabled
-    _print_timing("Getting enabled status...")
-    _enabled_start = time.perf_counter()
-    enabled_str = os.environ.get('HOME_ASSISTANT_ENABLED', 'true').lower()
-    enabled = enabled_str in ('true', '1', 'yes')
-    _enabled_time = (time.perf_counter() - _enabled_start) * 1000
-    _print_timing(f"Enabled check: {_enabled_time:.2f}ms, enabled={enabled}")
-    
-    if not enabled:
-        _print_timing(f"===== _build_config_from_sources COMPLETE: {(time.perf_counter() - _start) * 1000:.2f}ms =====")
-        return {'enabled': False}
-    
-    # Get base URL with DEFENSIVE validation
-    _print_timing("Getting base_url...")
-    _url_start = time.perf_counter()
-    base_url = _get_config_value(
-        'home_assistant/url',
-        'HOME_ASSISTANT_URL',
-        default='',
-        use_parameter_store=use_parameter_store
-    )
-    _url_time = (time.perf_counter() - _url_start) * 1000
-    _print_timing(f"*** base_url retrieved: {_url_time:.2f}ms, type={type(base_url).__name__}, value={'[REDACTED]' if base_url else 'EMPTY'}")
-    
-    # DEFENSIVE: Extra validation
-    if not isinstance(base_url, str):
-        log_error(f"[BUILD_CONFIG] base_url is {type(base_url).__name__}, forcing to empty string!")
-        base_url = ''
-    
-    # Get access token with DEFENSIVE validation
-    _print_timing("Getting access_token...")
-    _token_start = time.perf_counter()
-    access_token = _get_config_value(
-        'home_assistant/token',
-        'HOME_ASSISTANT_TOKEN',
-        default='',
-        use_parameter_store=use_parameter_store
-    )
-    _token_time = (time.perf_counter() - _token_start) * 1000
-    _print_timing(f"*** access_token retrieved: {_token_time:.2f}ms, type={type(access_token).__name__}, length={len(access_token) if isinstance(access_token, str) else 'N/A'}")
-    
-    # DEFENSIVE: Extra validation
-    if not isinstance(access_token, str):
-        log_error(f"[BUILD_CONFIG] access_token is {type(access_token).__name__}, forcing to empty string!")
-        access_token = ''
-    
-    # Get timeout
-    _print_timing("Getting timeout...")
-    timeout_str = _get_config_value(
-        'home_assistant/timeout',
-        'HOME_ASSISTANT_TIMEOUT',
-        default='30',
-        use_parameter_store=use_parameter_store
-    )
-    timeout = _safe_int(timeout_str, 30)
-    _print_timing(f"timeout retrieved: {(time.perf_counter() - _start) * 1000:.2f}ms, value={timeout}")
-    
-    # Get verify_ssl
-    _print_timing("Getting verify_ssl...")
-    verify_ssl_str = _get_config_value(
-        'home_assistant/verify_ssl',
-        'HOME_ASSISTANT_VERIFY_SSL',
-        default='true',
-        use_parameter_store=use_parameter_store
-    )
-    verify_ssl = verify_ssl_str.lower() in ('true', '1', 'yes')
-    _print_timing(f"verify_ssl retrieved: {(time.perf_counter() - _start) * 1000:.2f}ms, value={verify_ssl}")
-    
-    # Get assistant name
-    _print_timing("Getting assistant_name...")
-    assistant_name = _get_config_value(
-        'home_assistant/assistant_name',
-        'HA_ASSISTANT_NAME',
-        default='Alexa',
-        use_parameter_store=use_parameter_store
-    )
-    _print_timing(f"assistant_name retrieved: {(time.perf_counter() - _start) * 1000:.2f}ms, value={assistant_name}")
-    
-    # Build config dict
     config = {
-        'enabled': enabled,
         'base_url': base_url,
-        'access_token': access_token,
-        'timeout': timeout,
         'verify_ssl': verify_ssl,
-        'assistant_name': assistant_name
+        'debug_mode': _is_debug_mode(),
+        'fallback_token': fallback_token,
+        'api_endpoint': f'{base_url}/api/alexa/smart_home',
+        'use_parameter_store': use_parameter_store
     }
     
-    _total_time = (time.perf_counter() - _start) * 1000
-    _print_timing(f"===== _build_config_from_sources COMPLETE: {_total_time:.2f}ms =====")
+    _elapsed = (time.perf_counter() - _start) * 1000
+    _print_timing(f"===== LOAD_FAILSAFE_CONFIG COMPLETE: {_elapsed:.2f}ms =====")
+    
+    _logger.debug(f'Failsafe configuration loaded: base_url={base_url}, verify_ssl={verify_ssl}, ssm={use_parameter_store}, has_token={fallback_token is not None}')
     
     return config
 
 
-def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
+# ===== TOKEN EXTRACTION =====
+
+def _extract_bearer_token(event: Dict[str, Any], fallback_token: Optional[str] = None) -> str:
     """
-    Load Home Assistant configuration with bulletproof cache validation.
+    Extract Bearer token from Alexa directive event.
     
-    Configuration priority:
-    1. Validated cache (if not force_refresh)
-    2. SSM Parameter Store (if USE_PARAMETER_STORE=true)
-    3. Environment variables (fallback or primary if SSM disabled)
-    4. Defaults
+    Priority:
+    1. directive.endpoint.scope.token (user-linked account)
+    2. directive.payload.scope.token (discovery phase)
+    3. fallback_token (from SSM or environment)
     
     Args:
-        force_refresh: Skip cache and reload from sources
+        event: Alexa Smart Home event
+        fallback_token: Fallback token if not in event
         
     Returns:
-        Configuration dictionary (always dict, never None or object())
+        Bearer token
+        
+    Raises:
+        ValueError: If no token found
+    """
+    _print_debug("Extracting bearer token from event")
+    
+    directive = event.get('directive', {})
+    
+    # Try endpoint scope
+    endpoint = directive.get('endpoint', {})
+    scope = endpoint.get('scope', {})
+    token = scope.get('token')
+    
+    if token:
+        _print_debug("Token found in directive.endpoint.scope")
+        return token
+    
+    # Try payload scope
+    payload = directive.get('payload', {})
+    scope = payload.get('scope', {})
+    token = scope.get('token')
+    
+    if token:
+        _print_debug("Token found in directive.payload.scope")
+        return token
+    
+    # Use fallback token (from SSM or environment)
+    if fallback_token:
+        _print_debug("Using fallback token from configuration")
+        _logger.warning('Using fallback token (no token in Alexa event)')
+        return fallback_token
+    
+    _print_debug("No token found anywhere")
+    raise ValueError('No Bearer token found in event or configuration')
+
+
+# ===== HTTP REQUEST =====
+
+def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Forward Alexa directive directly to Home Assistant.
+    
+    Args:
+        event: Alexa Smart Home event
+        config: Failsafe configuration
+        
+    Returns:
+        Home Assistant response
     """
     _start = time.perf_counter()
-    _print_timing("===== LOAD_HA_CONFIG START =====")
+    _print_timing("===== FORWARD_TO_HOME_ASSISTANT START =====")
+    _print_debug("Forwarding request to Home Assistant")
     
-    # Check cache first (with validation)
-    if not force_refresh:
-        _cache_start = time.perf_counter()
-        _print_timing("Checking cache...")
+    try:
+        # Extract token
+        token = _extract_bearer_token(event, config.get('fallback_token'))
+        _print_debug(f"Token extracted (length={len(token)})")
         
-        cached = cache_get('ha_config')
-        
-        _cache_time = (time.perf_counter() - _cache_start) * 1000
-        _print_timing(f"Cache check: {_cache_time:.2f}ms, found={cached is not None}")
-        
-        if cached is not None:
-            # CRITICAL: Validate cached value before returning
-            validated = _validate_cached_config(cached)
-            
-            if validated is not None:
-                _total_time = (time.perf_counter() - _start) * 1000
-                _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (VALIDATED CACHE): {_total_time:.2f}ms =====")
-                return validated
-            else:
-                _print_timing("Cache validation failed, invalidating and rebuilding...")
-                cache_delete('ha_config')
-    
-    # Build fresh config
-    _print_timing("Building fresh config...")
-    _build_start = time.perf_counter()
-    
-    use_parameter_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
-    config = _build_config_from_sources(use_parameter_store=use_parameter_store)
-    
-    _build_time = (time.perf_counter() - _build_start) * 1000
-    _print_timing(f"*** Config built: {_build_time:.2f}ms, type={type(config).__name__} ***")
-    
-    # CRITICAL FIX: Sanitize config before caching (removes sentinels)
-    # This prevents cache invalidation on every cold start (saves ~535ms)
-    _print_timing("Sanitizing config for cache...")
-    _sanitize_start = time.perf_counter()
-    config = _sanitize_config_for_cache(config)
-    _sanitize_time = (time.perf_counter() - _sanitize_start) * 1000
-    _print_timing(f"Config sanitized: {_sanitize_time:.2f}ms")
-    
-    # Validate config before caching
-    if not isinstance(config, dict):
-        log_error(f"[CONFIG] _build_config_from_sources returned {type(config).__name__}, not dict!")
-        return {'enabled': False}
-    
-    # Cache the sanitized config
-    _cache_set_start = time.perf_counter()
-    _print_timing("Caching config...")
-    
-    cache_set('ha_config', config, ttl=300)
-    
-    _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
-    _print_timing(f"Config cached: {_cache_set_time:.2f}ms")
-    
-    _total_time = (time.perf_counter() - _start) * 1000
-    _print_timing(f"===== LOAD_HA_CONFIG COMPLETE: {_total_time:.2f}ms =====")
-    
-    return config
-
-
-def validate_ha_config(config: Dict[str, Any]) -> bool:
-    """
-    Validate Home Assistant configuration.
-    
-    Args:
-        config: Configuration dictionary to validate
-        
-    Returns:
-        True if valid, False otherwise
-    """
-    if not isinstance(config, dict):
-        log_error(f"[CONFIG VALIDATE] Config is {type(config).__name__}, not dict")
-        return False
-    
-    if not config.get('enabled', False):
-        log_warning("[CONFIG VALIDATE] Home Assistant is disabled")
-        return False
-    
-    if not config.get('base_url'):
-        log_error("[CONFIG VALIDATE] Missing base_url")
-        return False
-    
-    if not config.get('access_token'):
-        log_error("[CONFIG VALIDATE] Missing access_token")
-        return False
-    
-    return True
-
-
-def get_ha_preset(preset: str = 'default') -> Dict[str, Any]:
-    """
-    Get Home Assistant preset configuration.
-    
-    Args:
-        preset: Preset name ('default', 'fast', 'reliable', 'minimal')
-        
-    Returns:
-        Preset configuration dictionary
-    """
-    presets = {
-        'default': {
-            'timeout': 30,
-            'verify_ssl': True,
-            'assistant_name': 'Alexa'
-        },
-        'fast': {
-            'timeout': 10,
-            'verify_ssl': False,
-            'assistant_name': 'Alexa'
-        },
-        'reliable': {
-            'timeout': 60,
-            'verify_ssl': True,
-            'assistant_name': 'Alexa'
-        },
-        'minimal': {
-            'timeout': 5,
-            'verify_ssl': False,
-            'assistant_name': 'Alexa'
+        # Prepare request
+        url = config['api_endpoint']
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
         }
-    }
-    
-    return presets.get(preset, presets['default'])
+        
+        body = json.dumps(event).encode('utf-8')
+        
+        _print_debug(f"Request URL: {url}")
+        _print_timing("Sending HTTP request...")
+        
+        # Create request
+        req = request.Request(url, data=body, headers=headers, method='POST')
+        
+        # Make HTTP call
+        _http_start = time.perf_counter()
+        with request.urlopen(req, timeout=30) as response:
+            response_body = response.read().decode('utf-8')
+            response_data = json.loads(response_body)
+        
+        _http_time = (time.perf_counter() - _http_start) * 1000
+        _print_timing(f"HTTP request: {_http_time:.2f}ms")
+        _print_debug(f"Response received: status=200")
+        
+        _total_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FORWARD_TO_HOME_ASSISTANT COMPLETE: {_total_time:.2f}ms =====")
+        
+        return response_data
+        
+    except HTTPError as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"HTTP error after {_error_time:.2f}ms: status={e.code}")
+        _print_debug(f"HTTP error: {e.code} {e.reason}")
+        _logger.error(f'HTTP error forwarding to HA: {e.code} {e.reason}')
+        raise
+        
+    except URLError as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"URL error after {_error_time:.2f}ms")
+        _print_debug(f"URL error: {e.reason}")
+        _logger.error(f'URL error forwarding to HA: {e.reason}')
+        raise
+        
+    except Exception as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"Exception after {_error_time:.2f}ms: {e}")
+        _print_debug(f"Exception: {e}")
+        _logger.error(f'Error forwarding to HA: {e}')
+        raise
 
 
-def load_ha_connection_config() -> Dict[str, Any]:
+# ===== MAIN HANDLER =====
+
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Load connection-specific Home Assistant configuration.
+    Failsafe Lambda handler.
     
-    Returns:
-        Connection configuration dictionary
-    """
-    config = load_ha_config()
-    
-    return {
-        'base_url': config.get('base_url'),
-        'timeout': config.get('timeout', 30),
-        'verify_ssl': config.get('verify_ssl', True)
-    }
-
-
-def load_ha_preset_config(preset: str = 'default') -> Dict[str, Any]:
-    """
-    Load Home Assistant configuration with preset overrides.
+    Emergency mode: bypass all LEE/SUGA infrastructure, forward directly to HA.
     
     Args:
-        preset: Preset name to apply
+        event: Alexa Smart Home event
+        context: Lambda context
         
     Returns:
-        Merged configuration dictionary
+        Alexa Smart Home response
     """
-    base_config = load_ha_config()
-    preset_config = get_ha_preset(preset)
+    _start = time.perf_counter()
+    _print_timing("===== FAILSAFE HANDLER START =====")
     
-    # Merge preset into base config
-    merged = base_config.copy()
-    merged.update(preset_config)
+    _logger.info('âš ï¸ FAILSAFE MODE ACTIVATED - Bypassing Lambda Execution Engine')
+    _print_debug("Failsafe mode handler invoked")
     
-    return merged
+    try:
+        # Load configuration
+        config = _load_failsafe_config()
+        
+        # Forward to Home Assistant
+        response = _forward_to_home_assistant(event, config)
+        
+        _total_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FAILSAFE HANDLER COMPLETE: {_total_time:.2f}ms =====")
+        
+        _logger.info(f'âœ"ï¸ Failsafe request successful ({_total_time:.0f}ms)')
+        
+        return response
+        
+    except Exception as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FAILSAFE HANDLER FAILED: {_error_time:.2f}ms =====")
+        _print_debug(f"Failsafe handler exception: {e}")
+        
+        _logger.error(f'â›"ï¸ Failsafe request failed: {e}')
+        
+        # Return error response in Alexa format
+        return {
+            'event': {
+                'header': {
+                    'namespace': 'Alexa',
+                    'name': 'ErrorResponse',
+                    'messageId': event.get('directive', {}).get('header', {}).get('messageId', 'unknown'),
+                    'payloadVersion': '3'
+                },
+                'payload': {
+                    'type': 'INTERNAL_ERROR',
+                    'message': f'Failsafe mode error: {str(e)}'
+                }
+            }
+        }
 
-
-__all__ = [
-    'load_ha_config',
-    'validate_ha_config',
-    'get_ha_preset',
-    'load_ha_connection_config',
-    'load_ha_preset_config'
-]
 
 # EOF
