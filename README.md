@@ -18,10 +18,15 @@
 ### 🏗️ **2-IN-1 PROJECT** 🏗️
 
 **Lambda Execution Engine (LEE)** - Standalone serverless platform  
+
 **+**  
+
 **Home Assistant Extension** - Optional smart home integration
+
 **+**
-**Actual Performance Numbers** - I mean this, this is Joe speaking, All performance numbers listed below came from the actual Cloudwatch logs generated when I was testing execution - They are not AI generated facts.
+
+*Actual Performance Numbers* - I mean this, this is Joe speaking, All performance numbers listed below came from the actual Cloudwatch logs generated when I was testing execution - They are not AI generated facts.
+
 ---
 
 ### ⚡ **PRODUCTION READY** ⚡
