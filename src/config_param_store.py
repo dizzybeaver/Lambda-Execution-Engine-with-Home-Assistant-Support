@@ -118,16 +118,28 @@ def get_ha_token(use_cache: bool = True) -> Optional[str]:
     if use_cache:
         _cache_start = time.perf_counter()
         _print_timing(f"Checking cache... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        _print_debug("Attempting cache retrieval")
         
         cached = cache_get(cache_key)
         _cache_time = (time.perf_counter() - _cache_start) * 1000
         
+        # Check if cached value is valid (not a sentinel)
         if cached is not None:
-            _print_timing(f"*** CACHE HIT: {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
-            _print_debug("Token retrieved from cache")
-            return cached
+            # Check for _CacheMiss sentinel
+            cached_type = type(cached).__name__
+            if cached_type == '_CacheMiss':
+                _print_timing(f"Cache returned _CacheMiss sentinel: {_cache_time:.2f}ms")
+                _print_debug("Cache miss - will fetch from SSM")
+            elif isinstance(cached, str) and cached:
+                _print_timing(f"*** CACHE HIT: {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
+                _print_debug("Token retrieved from cache")
+                return cached
+            else:
+                _print_timing(f"Cache returned invalid value (type={cached_type}): {_cache_time:.2f}ms")
+                _print_debug(f"Invalid cached value: {cached_type}")
         else:
-            _print_timing(f"Cache miss: {_cache_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_timing(f"Cache miss (None): {_cache_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_debug("Cache returned None")
     
     # Build parameter path
     param_path = f"{_PARAMETER_PREFIX}/home_assistant/token"
