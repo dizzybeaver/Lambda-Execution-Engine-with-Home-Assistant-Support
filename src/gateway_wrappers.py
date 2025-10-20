@@ -1,43 +1,27 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.20.01
+Version: 2025.10.20.02
 Description: Wrapper functions that call execute_operation() for cleaner code
 
 CHANGELOG:
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in 5 functions
+  - Fixed record_operation_metric() parameter conflict
+  - Fixed record_cache_metric() parameter conflict
+  - Fixed log_operation_start() parameter conflict
+  - Fixed log_operation_success() parameter conflict
+  - Fixed log_operation_failure() parameter conflict
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
 - 2025.10.20.01: Added 4 new SECURITY wrappers for cache validation (Cache Ultra-Optimization Phase 2)
   - validate_cache_key() - Validate cache key format and safety
   - validate_ttl() - Validate TTL value is within acceptable range
   - validate_module_name() - Validate module name for LUGS dependency tracking
   - validate_number_range() - Generic numeric validation with bounds checking
-- 2025.10.17.04: Added missing SINGLETON memory monitoring wrappers (Issue #11 fix)
-  - get_memory_stats() - Get current memory usage
-  - get_comprehensive_memory_stats() - Detailed memory + GC info
-  - check_lambda_memory_compliance() - Check 128MB limit
-  - force_memory_cleanup() - Aggressive cleanup
-  - optimize_memory() - Multi-strategy optimization
-  - force_comprehensive_memory_cleanup() - Full cleanup
-  - emergency_memory_preserve() - Critical memory preservation
-- 2025.10.16.01: Fixed initialize_config, sanitize_input, websocket_request, increment_counter
 
-DESIGN DECISION: Memory Monitoring Functions
-Reason: singleton_memory.py has comprehensive memory functions but they weren't
-        exposed through gateway wrappers, making them hard to discover/use
-Impact: Other modules can now easily monitor Lambda 128MB compliance
-Pattern: All memory functions route through SINGLETON interface to singleton_memory.py
-
-DESIGN DECISION: Cache Security Validators
-Reason: Cache interface purification - validation logic moved from cache_core.py
-        to security_core.py. Cache now calls these validators via gateway.
-Impact: Cache interface becomes pure cache operations only, validation handled
-        by security interface where it belongs. Increases cross-gateway usage.
-Pattern: Cache validation â†' SECURITY interface â†' security_core validators
-Related: CVE-SUGA-2025-001, CVE-SUGA-2025-002, CVE-SUGA-2025-004 fixes
-
-FIXES APPLIED (2025.10.16):
-- BUG #1: Fixed initialize_config to use 'initialize' operation (was 'reload')
-- BUG #2: Fixed sanitize_input parameter type from Any to str
-- BUG #3: Added timeout parameter to websocket_request wrapper
-- BUG #4: Fixed increment_counter value parameter type from float to int
+CRITICAL BUG FIX (2025.10.20.02):
+Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
+         Passing 'operation' in kwargs created conflict: "got multiple values for argument 'operation'"
+Solution: Renamed parameter from 'operation' to 'operation_name' in all affected functions.
+Impact: 5 functions fixed across METRICS and LOGGING interfaces.
 
 Copyright 2025 Joseph Hersey
 
@@ -126,17 +110,46 @@ def log_debug(message: str, **kwargs) -> None:
     """Log debug message."""
     execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, **kwargs)
 
-def log_operation_start(operation: str, **kwargs) -> None:
-    """Log operation start."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_start', operation=operation, **kwargs)
+def log_operation_start(operation_name: str, **kwargs) -> None:
+    """
+    Log operation start.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation being started
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_start', operation_name=operation_name, **kwargs)
 
-def log_operation_success(operation: str, duration_ms: float, **kwargs) -> None:
-    """Log operation success."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_success', operation=operation, duration_ms=duration_ms, **kwargs)
+def log_operation_success(operation_name: str, duration_ms: float, **kwargs) -> None:
+    """
+    Log operation success.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation that succeeded
+        duration_ms: Operation duration in milliseconds
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_success', operation_name=operation_name, duration_ms=duration_ms, **kwargs)
 
-def log_operation_failure(operation: str, error: str, **kwargs) -> None:
-    """Log operation failure."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_failure', operation=operation, error=error, **kwargs)
+def log_operation_failure(operation_name: str, error: str, **kwargs) -> None:
+    """
+    Log operation failure.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation that failed
+        error: Error description
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_failure', operation_name=operation_name, error=error, **kwargs)
 
 # ===== SECURITY WRAPPERS =====
 
@@ -195,19 +208,11 @@ def validate_cache_key(key: str) -> None:
     - Characters: [a-zA-Z0-9_\\-:.]
     - Rejects: control characters, path traversal, special characters
     
-    Part of Cache Ultra-Optimization Phase 2: validation moved from cache_core.py
-    to security_core.py for proper separation of concerns.
-    
     Args:
         key: Cache key to validate
         
     Raises:
         ValueError: If key is invalid with specific reason
-        
-    Example:
-        >>> validate_cache_key("user_123")  # Valid
-        >>> validate_cache_key("../etc/passwd")  # Raises ValueError
-        >>> validate_cache_key("key\x00name")  # Raises ValueError (control char)
     
     Related CVE: CVE-SUGA-2025-001 (Cache Key Injection)
     """
@@ -222,20 +227,11 @@ def validate_ttl(ttl: float) -> None:
     - Maximum: 86400 seconds / 24 hours (prevents resource exhaustion)
     - Rejects: NaN, infinity, negative values
     
-    Part of Cache Ultra-Optimization Phase 2: validation moved from cache_core.py
-    to security_core.py for proper separation of concerns.
-    
     Args:
         ttl: Time-to-live in seconds
         
     Raises:
         ValueError: If TTL is out of bounds with specific reason
-        
-    Example:
-        >>> validate_ttl(60)  # Valid
-        >>> validate_ttl(0.5)  # Raises ValueError (too short)
-        >>> validate_ttl(100000)  # Raises ValueError (too long)
-        >>> validate_ttl(float('inf'))  # Raises ValueError (infinite)
     
     Related CVE: CVE-SUGA-2025-002 (TTL Boundary Exploitation)
     """
@@ -250,19 +246,11 @@ def validate_module_name(module_name: str) -> None:
     - Length: 1-100 characters
     - Rejects: path separators, control characters, special characters
     
-    Part of Cache Ultra-Optimization Phase 2: validation added to prevent
-    LUGS dependency poisoning attacks.
-    
     Args:
         module_name: Python module name to validate
         
     Raises:
         ValueError: If module name is invalid with specific reason
-        
-    Example:
-        >>> validate_module_name("cache_core")  # Valid
-        >>> validate_module_name("../../../etc/passwd")  # Raises ValueError
-        >>> validate_module_name("module\x00name")  # Raises ValueError (control char)
     
     Related CVE: CVE-SUGA-2025-004 (LUGS Dependency Poisoning)
     """
@@ -276,9 +264,6 @@ def validate_number_range(value: float, min_value: float, max_value: float, name
     - Range: min_value <= value <= max_value
     - Rejects: NaN, infinity (positive or negative)
     
-    Part of Cache Ultra-Optimization Phase 2: generic validator created to
-    support multiple numeric validation needs across the system.
-    
     Args:
         value: Numeric value to validate
         min_value: Minimum acceptable value (inclusive)
@@ -287,12 +272,6 @@ def validate_number_range(value: float, min_value: float, max_value: float, name
         
     Raises:
         ValueError: If value is out of range or special value with specific reason
-        
-    Example:
-        >>> validate_number_range(50, 0, 100, "age")  # Valid
-        >>> validate_number_range(-1, 0, 100, "age")  # Raises ValueError (too low)
-        >>> validate_number_range(150, 0, 100, "age")  # Raises ValueError (too high)
-        >>> validate_number_range(float('nan'), 0, 100)  # Raises ValueError (NaN)
     """
     execute_operation(GatewayInterface.SECURITY, 'validate_number_range', 
                      value=value, min_value=min_value, max_value=max_value, name=name)
@@ -311,17 +290,38 @@ def get_metrics_stats() -> Dict[str, Any]:
     """Get metrics statistics."""
     return execute_operation(GatewayInterface.METRICS, 'get_stats')
 
-def record_operation_metric(operation: str, duration_ms: float, success: bool = True, **kwargs) -> None:
-    """Record operation metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_operation', operation=operation, duration_ms=duration_ms, success=success, **kwargs)
+def record_operation_metric(operation_name: str, duration_ms: float, success: bool = True, **kwargs) -> None:
+    """
+    Record operation metric.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation being recorded
+        duration_ms: Operation duration in milliseconds
+        success: Whether operation succeeded (default: True)
+        **kwargs: Additional metric dimensions
+    """
+    execute_operation(GatewayInterface.METRICS, 'record_operation', operation_name=operation_name, duration_ms=duration_ms, success=success, **kwargs)
 
 def record_error_metric(error_type: str, **kwargs) -> None:
     """Record error metric."""
     execute_operation(GatewayInterface.METRICS, 'record_error', error_type=error_type, **kwargs)
 
-def record_cache_metric(operation: str, hit: bool, **kwargs) -> None:
-    """Record cache metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_cache', operation=operation, hit=hit, **kwargs)
+def record_cache_metric(operation_name: str, hit: bool, **kwargs) -> None:
+    """
+    Record cache metric.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of cache operation (e.g. 'get', 'set')
+        hit: Whether cache operation was a hit (True) or miss (False)
+        **kwargs: Additional metric dimensions
+    """
+    execute_operation(GatewayInterface.METRICS, 'record_cache', operation_name=operation_name, hit=hit, **kwargs)
 
 def record_api_metric(endpoint: str, method: str, status_code: int, duration_ms: float, **kwargs) -> None:
     """Record API metric."""
@@ -387,113 +387,34 @@ def singleton_stats() -> Dict[str, Any]:
     """Get singleton statistics."""
     return execute_operation(GatewayInterface.SINGLETON, 'stats')
 
-# ===== SINGLETON MEMORY WRAPPERS (Added 2025.10.17) =====
+# ===== SINGLETON MEMORY WRAPPERS =====
 
 def get_memory_stats() -> Dict[str, Any]:
-    """
-    Get current memory statistics.
-    
-    Returns:
-        Standardized response with memory stats:
-        - rss_mb: Resident set size in MB
-        - vms_mb: Virtual memory size in MB
-        - percent: Memory usage as percentage of 128MB limit
-        - available_mb: Available memory before hitting limit
-        - compliant: Boolean indicating if under 128MB limit
-    """
+    """Get current memory statistics."""
     return execute_operation(GatewayInterface.SINGLETON, 'get_memory_stats')
 
 def get_comprehensive_memory_stats() -> Dict[str, Any]:
-    """
-    Get comprehensive memory statistics including GC info.
-    
-    Returns:
-        Standardized response with detailed stats:
-        - memory: Current memory usage (rss_mb, available_mb, percent_used, compliant)
-        - gc: Garbage collector stats (collections, stats, tracked_objects)
-        - system: System info (lambda_limit_mb, pressure_level)
-    """
+    """Get comprehensive memory statistics including GC info."""
     return execute_operation(GatewayInterface.SINGLETON, 'get_comprehensive_memory_stats')
 
 def check_lambda_memory_compliance() -> Dict[str, Any]:
-    """
-    Check if memory usage is within Lambda 128MB limit.
-    
-    Returns:
-        Standardized response with compliance check:
-        - compliant: Boolean indicating if under limit
-        - current_mb: Current memory usage in MB
-        - limit_mb: Lambda memory limit (128MB)
-        - margin_mb: Available memory before hitting limit
-    """
+    """Check if memory usage is within Lambda 128MB limit."""
     return execute_operation(GatewayInterface.SINGLETON, 'check_lambda_memory_compliance')
 
 def force_memory_cleanup() -> Dict[str, Any]:
-    """
-    Force aggressive memory cleanup.
-    
-    Triggers garbage collection and attempts to free memory.
-    
-    Returns:
-        Standardized response with cleanup results:
-        - memory_before_mb: Memory before cleanup
-        - memory_after_mb: Memory after cleanup
-        - memory_freed_mb: Amount of memory freed
-        - gc_collections: Number of GC collections performed
-    """
+    """Force aggressive memory cleanup."""
     return execute_operation(GatewayInterface.SINGLETON, 'force_memory_cleanup')
 
 def optimize_memory() -> Dict[str, Any]:
-    """
-    Optimize memory usage with multi-strategy approach.
-    
-    Applies various memory optimization strategies including:
-    - Cache cleanup
-    - Module unloading (via LUGS)
-    - Garbage collection
-    
-    Returns:
-        Standardized response with optimization results:
-        - strategies_applied: List of optimization strategies used
-        - memory_before_mb: Memory before optimization
-        - memory_after_mb: Memory after optimization
-        - memory_freed_mb: Total memory freed
-        - optimization_success: Boolean indicating success
-    """
+    """Optimize memory usage with multi-strategy approach."""
     return execute_operation(GatewayInterface.SINGLETON, 'optimize_memory')
 
 def force_comprehensive_memory_cleanup() -> Dict[str, Any]:
-    """
-    Force comprehensive memory cleanup with all strategies.
-    
-    Most aggressive cleanup approach - use when approaching memory limits.
-    
-    Returns:
-        Standardized response with comprehensive cleanup results:
-        - phases_completed: List of cleanup phases executed
-        - memory_before_mb: Memory before cleanup
-        - memory_after_mb: Memory after cleanup
-        - total_memory_freed_mb: Total memory freed
-        - success: Boolean indicating success
-    """
+    """Force comprehensive memory cleanup with all strategies."""
     return execute_operation(GatewayInterface.SINGLETON, 'force_comprehensive_memory_cleanup')
 
 def emergency_memory_preserve() -> Dict[str, Any]:
-    """
-    Emergency memory preservation for critical situations.
-    
-    Used when system is approaching OOM (out of memory) conditions.
-    Preserves only critical components and aggressively frees everything else.
-    
-    Returns:
-        Standardized response with emergency preservation results:
-        - emergency_triggered: Boolean indicating emergency mode
-        - critical_preserved: List of critical components preserved
-        - memory_before_mb: Memory before emergency action
-        - memory_after_mb: Memory after emergency action
-        - memory_freed_mb: Memory freed during emergency
-        - stable: Boolean indicating if system is now stable
-    """
+    """Emergency memory preservation for critical situations."""
     return execute_operation(GatewayInterface.SINGLETON, 'emergency_memory_preserve')
 
 # ===== INITIALIZATION WRAPPERS =====
@@ -669,10 +590,10 @@ __all__ = [
     'hash_data',
     'verify_hash',
     'sanitize_input',
-    'validate_cache_key',        # NEW 2025.10.20
-    'validate_ttl',               # NEW 2025.10.20
-    'validate_module_name',       # NEW 2025.10.20
-    'validate_number_range',      # NEW 2025.10.20
+    'validate_cache_key',
+    'validate_ttl',
+    'validate_module_name',
+    'validate_number_range',
     
     # METRICS wrappers
     'record_metric',
