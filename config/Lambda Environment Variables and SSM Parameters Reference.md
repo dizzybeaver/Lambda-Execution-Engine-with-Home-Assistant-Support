@@ -1,448 +1,232 @@
-# Lambda Environment Variables & SSM Parameters Reference
-**Version:** 2025.10.18  
-**Copyright:** 2025 Joseph Hersey  
-**License:** Apache 2.0
+# Lambda Environment Variables and SSM Parameters Reference
+**Version:** 2025.10.20.01  
+**Updated:** SSM now token-only, LAMBDA_MODE replaces LEE_FAILSAFE_ENABLED
 
 ---
 
-## Lambda Core Environment Variables
+## Quick Reference
 
-### AWS-Managed Variables (Read-Only)
+### Critical Variables
 
-| Variable | Description |
-|----------|-------------|
-| `AWS_REGION` | AWS region for Lambda execution (cannot be overridden) |
-| `AWS_LAMBDA_FUNCTION_NAME` | Lambda function name |
-| `AWS_LAMBDA_FUNCTION_MEMORY_SIZE` | Allocated memory in MB |
-| `AWS_EXECUTION_ENV` | Python runtime version |
+| Variable | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `LAMBDA_MODE` | String | No | `normal` | Operation mode: `normal`, `failsafe`, `diagnostic` |
+| `HOME_ASSISTANT_ENABLED` | Boolean | No | `false` | Enable Home Assistant extension |
+| `HOME_ASSISTANT_URL` | String | Yes* | - | Base URL of Home Assistant instance |
+| `HOME_ASSISTANT_TOKEN` | String | No** | - | Long-lived access token (fallback) |
+| `USE_PARAMETER_STORE` | Boolean | No | `false` | Enable SSM Parameter Store for token |
+| `DEBUG_MODE` | Boolean | No | `false` | Enable debug output |
+| `DEBUG_TIMINGS` | Boolean | No | `false` | Enable timing measurements |
 
-### User-Configurable Variables
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `LOG_LEVEL` | String | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `ENVIRONMENT` | String | `production` | Deployment environment: `development`, `staging`, `production` |
-| `DEBUG_MODE` | Boolean | `false` | Enable detailed debugging output and stack traces |
+\* Required when `HOME_ASSISTANT_ENABLED=true`  
+\*\* Required if not using SSM Parameter Store
 
 ---
 
-## Emergency Failsafe Variables
+## LAMBDA_MODE (Operation Mode)
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `LEE_FAILSAFE_ENABLED` | Boolean | `false` | **Master switch** - Bypasses entire LEE/SUGA and routes directly to Home Assistant |
+**NEW:** Replaces deprecated `LEE_FAILSAFE_ENABLED`
 
-### Failsafe Behavior
-
-When `LEE_FAILSAFE_ENABLED=true`:
-- **Activates before any LEE imports** - checked first in `lambda_handler()`
-- Routes all requests to standalone `lambda_failsafe.py`
-- Uses only these variables:
-  - `HOME_ASSISTANT_URL` (required)
-  - `HOME_ASSISTANT_TOKEN` (required)
-  - `HOME_ASSISTANT_VERIFY_SSL` (optional)
-  - `DEBUG_MODE` (optional)
-- Ignores all other LEE/extension configuration
-- Falls back to normal LEE if failsafe file missing
-
-### Use Cases
-- Emergency recovery after failed deployment
-- Critical bugs preventing LEE operation
-- Immediate restoration while debugging
-- Temporary bypass for troubleshooting
-
-### Recovery
 ```bash
-# Enable failsafe
-LEE_FAILSAFE_ENABLED=true
-
-# After fixing LEE
-LEE_FAILSAFE_ENABLED=false
+LAMBDA_MODE=normal      # Default - Full LEE operation
+LAMBDA_MODE=failsafe    # Emergency - Direct HA passthrough
+LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 ```
 
----
+### Mode Comparison
 
-## Configuration System Variables
+| Feature | Normal | Failsafe | Diagnostic |
+|---------|--------|----------|------------|
+| LEE/SUGA | ✅ Full | ❌ Bypassed | ⚠️ Limited |
+| Memory | ~67MB | ~42MB | ~50MB |
+| Latency | ~150ms | ~50ms | Varies |
+| All Features | ✅ | ❌ | ⚠️ |
+| Use Case | Production | Emergency | Testing |
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `CONFIGURATION_TIER` | String | `standard` | Base tier: `minimum`, `standard`, `maximum`, `user` |
-| `USE_PARAMETER_STORE` | Boolean | `false` | Enable AWS SSM Parameter Store for configuration |
-| `PARAMETER_PREFIX` | String | `/lambda-execution-engine` | SSM parameter path prefix |
-
-### Configuration Tier Details
-
-Each tier controls memory allocation and circuit breaker behavior:
-
-#### `minimum` Tier
-- **Memory:** 0.5MB circuit breaker overhead
-- **Services:** CloudWatch API, Home Assistant only
-- **Thresholds:** Conservative (3 failures, 30-60s timeouts)
-- **Use Case:** Development, testing, tight memory constraints
-
-#### `standard` Tier (Recommended)
-- **Memory:** 2MB circuit breaker overhead
-- **Services:** CloudWatch API, Home Assistant, External HTTP
-- **Thresholds:** Balanced (2-3 failures, 20-45s timeouts)
-- **Use Case:** Production deployments, balanced performance
-
-#### `maximum` Tier
-- **Memory:** 6MB circuit breaker overhead
-- **Services:** All services including Database, Custom Services
-- **Thresholds:** Aggressive (2-3 failures, 20-60s timeouts)
-- **Use Case:** High-reliability requirements, maximum protection
-
-#### `user` Tier
-- **Memory:** Custom defined in `user_config.py`
-- **Services:** Custom defined
-- **Thresholds:** Custom defined
-- **Use Case:** Advanced users with specific requirements
+**Default:** If not set, defaults to `normal`
 
 ---
 
-## Circuit Breaker Configuration
+## Core Lambda Configuration
 
-Circuit breaker settings are controlled by `CONFIGURATION_TIER`, not individual environment variables. Each tier defines service-specific thresholds.
-
-### Configuration Tier Circuit Breaker Settings
-
-#### MINIMUM Tier
-
-| Service | Failure Threshold | Recovery Timeout | Max Test Calls |
-|---------|------------------|------------------|----------------|
-| CloudWatch API | 3 | 60s | 1 |
-| Home Assistant | 2 | 30s | 1 |
-
-#### STANDARD Tier
-
-| Service | Failure Threshold | Recovery Timeout | Max Test Calls |
-|---------|------------------|------------------|----------------|
-| CloudWatch API | 3 | 45s | 2 |
-| Home Assistant | 2 | 20s | 1 |
-| External HTTP | 3 | 30s | 2 |
-
-#### MAXIMUM Tier
-
-| Service | Failure Threshold | Recovery Timeout | Max Test Calls |
-|---------|------------------|------------------|----------------|
-| CloudWatch API | 3 | 45s | 2 |
-| Home Assistant | 2 | 20s | 1 |
-| External HTTP | 3 | 30s | 2 |
-| Database | 2 | 60s | 1 |
-| Custom Services | 3 | 30s | 2 |
-
-### Circuit Breaker States
-
-| State | Description | Behavior |
-|-------|-------------|----------|
-| `CLOSED` | Normal operation | All requests pass through |
-| `OPEN` | Failing, reject calls | Requests immediately fail |
-| `HALF_OPEN` | Testing recovery | Limited test calls allowed |
-
-### Monitoring Circuit Breakers
-
-Circuit breaker metrics are automatically recorded:
-- State transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED)
-- Failure counts per service
-- Recovery attempts
-- Success/failure rates
-
-**CloudWatch Insights Query:**
-```
-fields @timestamp, message
-| filter message like /circuit_breaker/
-| stats count() by service_name, state
-```
-
----
-
-## HomeAssistant Extension Variables
-
-### Required (if extension enabled)
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `HOME_ASSISTANT_ENABLED` | Boolean | `false` | Master switch to enable/disable HomeAssistant extension |
-| `HOME_ASSISTANT_URL` | String | None | Base URL of Home Assistant instance (http://host:port) |
-| `HOME_ASSISTANT_TOKEN` | String | None | Long-lived access token from Home Assistant |
-
-**Note:** When failsafe mode is enabled (`LEE_FAILSAFE_ENABLED=true`), `HOME_ASSISTANT_ENABLED` is ignored. Only `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` are required.
-
-### Optional
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `HOME_ASSISTANT_TIMEOUT` | Integer | `30` | HTTP request timeout in seconds (not used by failsafe) |
-| `HOME_ASSISTANT_VERIFY_SSL` | Boolean | `true` | Verify SSL certificates for HTTPS connections (used by failsafe) |
-| `HA_ASSISTANT_NAME` | String | `Assistant` | Name used in conversation responses (not used by failsafe) |
-| `HA_FEATURES` | String | `basic` | Feature level: `basic`, `standard`, `full`, `development` (not used by failsafe) |
-| `HA_WEBSOCKET_ENABLED` | Boolean | `false` | Enable WebSocket for entity registry and filtering (not used by failsafe) |
-| `HA_WEBSOCKET_TIMEOUT` | Integer | `10` | WebSocket connection timeout in seconds (not used by failsafe) |
-
----
-
-## WebSocket Configuration
-
-WebSocket functionality is controlled via Home Assistant extension variables.
-
-| Variable | Type | Default | Description | Free Tier |
-|----------|------|---------|-------------|-----------|
-| `HA_WEBSOCKET_ENABLED` | Boolean | `false` | Enable WebSocket client connections | YES |
-| `HA_WEBSOCKET_TIMEOUT` | Integer | `10` | Connection and receive timeout (seconds) | YES |
-
-### WebSocket Capabilities
-
-When `HA_WEBSOCKET_ENABLED=true`, Lambda can:
-- **Connect:** Establish outbound WebSocket connections to external servers
-- **Send:** Transmit JSON messages over WebSocket
-- **Receive:** Receive responses with timeout
-- **Close:** Gracefully close connections
-
-### WebSocket Limitations
-
-- [YES] Outbound connections FROM Lambda TO external WebSocket servers
-- [NO] Inbound connections (requires API Gateway WebSocket API)
-- [YES] Standard Lambda execution costs only
-- [YES] No additional AWS services required
-
-### Use Cases
-- Home Assistant WebSocket API access
-- Real-time entity state subscriptions
-- Bidirectional communication with HA
-- Event streaming from HA
-
-### Performance Considerations
-- WebSocket adds connection overhead (~100-300ms)
-- Consider disabling if not needed to reduce latency
-- Connection reuse not supported (Lambda stateless)
-- Each request creates new connection
-
----
-
-## Debug Interface Variables
-
-Debug interface is controlled by `DEBUG_MODE` and `LOG_LEVEL` variables.
+### System Settings
 
 | Variable | Type | Values | Description |
 |----------|------|--------|-------------|
-| `DEBUG_MODE` | Boolean | `true`/`false` | Enable enhanced debugging features |
+| `ENVIRONMENT` | String | `development`/`staging`/`production` | Deployment environment |
 | `LOG_LEVEL` | String | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL` | CloudWatch logging verbosity |
+| `CONFIGURATION_TIER` | String | `minimum`/`standard`/`maximum`/`user` | Circuit breaker tier |
 
-### Debug Mode Features
+### Debug Settings (NEW)
 
-When `DEBUG_MODE=true`:
-- Full request/response logging
-- Gateway operation routing details
-- Circuit breaker state transitions
-- WebSocket connection lifecycle
-- Detailed timing metrics
-- Stack traces for all errors
+| Variable | Type | Values | Description |
+|----------|------|--------|-------------|
+| `DEBUG_MODE` | Boolean | `true`/`false` | Enable debug statements |
+| `DEBUG_TIMINGS` | Boolean | `true`/`false` | Enable timing measurements |
 
-### Log Level Behavior
+**Debug Output:**
+- `DEBUG_MODE=true` → Shows execution flow, routing decisions, configuration loading
+- `DEBUG_TIMINGS=true` → Shows performance measurements with millisecond precision
+- Both can be enabled simultaneously for comprehensive diagnostics
 
-| Level | What Gets Logged |
-|-------|------------------|
-| `DEBUG` | Everything including verbose internal operations |
-| `INFO` | Normal operations, success/failure, timing |
-| `WARNING` | Potential issues, degraded performance |
-| `ERROR` | Errors that didn't crash Lambda |
-| `CRITICAL` | Severe errors requiring immediate attention |
-
-### Debug Helpers
-
-Additional debug tools bypass normal execution:
-- `Lambda_diagnostics.py` - Isolated testing, bypasses Lambda_function.py
-- `Lambda_emergency.py` - Emergency scenario testing
-
-**Usage:**
-```python
-# Normal: lambda_function.py handles all requests
-# Diagnostic: Lambda_diagnostics.py bypasses LEE
-# Emergency: Lambda_emergency.py tests failure scenarios
-```
+**Cost Impact:**
+- `DEBUG_MODE`: 3-5x log volume increase (~$0.50-$1.00 per million requests)
+- `DEBUG_TIMINGS`: 2-3x log volume increase (~$0.30-$0.60 per million requests)
+- **Recommendation:** Enable only for troubleshooting, disable immediately after
 
 ---
 
-## AWS Systems Manager (SSM) Parameter Store
+## Home Assistant Extension Configuration
 
-### Enabling Parameter Store
+### Core Settings
 
-Set these environment variables to enable SSM:
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `HOME_ASSISTANT_ENABLED` | Boolean | `false` | Master switch for HA extension |
+| `HOME_ASSISTANT_URL` | String | - | Base URL (e.g., `http://192.168.1.100:8123`) |
+| `HOME_ASSISTANT_TOKEN` | String | - | Long-lived token (if not using SSM) |
+| `HOME_ASSISTANT_TIMEOUT` | Integer | `30` | API timeout in seconds |
+| `HOME_ASSISTANT_VERIFY_SSL` | Boolean | `true` | Verify SSL certificates |
+
+### Extension Features
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `HA_ASSISTANT_NAME` | String | `Jarvis` | Assistant name for responses |
+| `HA_FEATURES` | String | `standard` | Feature preset: `minimal`/`standard`/`full`/`development` |
+| `HA_WEBSOCKET_ENABLED` | Boolean | `false` | Enable WebSocket support |
+| `HA_WEBSOCKET_TIMEOUT` | Integer | `10` | WebSocket timeout in seconds |
+
+---
+
+## SSM Parameter Store Configuration (SIMPLIFIED)
+
+### Enabling SSM
+
 ```bash
 USE_PARAMETER_STORE=true
 PARAMETER_PREFIX=/lambda-execution-engine
 ```
 
-**Note:** SSM parameters are **not used** when failsafe mode is active. Failsafe reads only from Lambda environment variables.
+### CRITICAL CHANGE: Token Only
 
-### SSM Parameter Hierarchy
+**SSM now stores ONLY the Home Assistant token.**
 
-All parameters use the prefix defined in `PARAMETER_PREFIX` (default: `/lambda-execution-engine/`)
-
-#### Lambda Core Parameters
-
-| Parameter Path | Type | Description |
-|----------------|------|-------------|
-| `/lambda-execution-engine/log_level` | String | Override LOG_LEVEL environment variable |
-| `/lambda-execution-engine/environment` | String | Override ENVIRONMENT environment variable |
-| `/lambda-execution-engine/debug_mode` | String | Override DEBUG_MODE environment variable |
-| `/lambda-execution-engine/configuration_tier` | String | Override CONFIGURATION_TIER environment variable |
-
-#### HomeAssistant Extension Parameters
-
-| Parameter Path | Type | Description |
-|----------------|------|-------------|
-| `/lambda-execution-engine/home_assistant/enabled` | String | Override HOME_ASSISTANT_ENABLED |
-| `/lambda-execution-engine/home_assistant/url` | String | Override HOME_ASSISTANT_URL |
-| `/lambda-execution-engine/home_assistant/token` | SecureString | **Recommended for tokens** - Override HOME_ASSISTANT_TOKEN |
-| `/lambda-execution-engine/home_assistant/timeout` | String | Override HOME_ASSISTANT_TIMEOUT |
-| `/lambda-execution-engine/home_assistant/verify_ssl` | String | Override HOME_ASSISTANT_VERIFY_SSL |
-| `/lambda-execution-engine/home_assistant/assistant_name` | String | Override HA_ASSISTANT_NAME |
-| `/lambda-execution-engine/home_assistant/features` | String | Override HA_FEATURES |
-| `/lambda-execution-engine/home_assistant/websocket_enabled` | String | Override HA_WEBSOCKET_ENABLED |
-| `/lambda-execution-engine/home_assistant/websocket_timeout` | String | Override HA_WEBSOCKET_TIMEOUT |
-
-#### Circuit Breaker Parameters (Advanced)
-
-Circuit breaker configuration is tier-based and not exposed as individual SSM parameters. To customize circuit breaker settings:
-
-1. Use `CONFIGURATION_TIER=user`
-2. Modify `user_config.py` with custom thresholds
-3. Redeploy Lambda package
-
-**Not supported via SSM:**
-- Individual service failure thresholds
-- Per-service recovery timeouts
-- Custom service definitions
-
-#### Custom Configuration Parameters
-
-| Parameter Path | Type | Description |
-|----------------|------|-------------|
-| `/lambda-execution-engine/custom/[key]` | Any | User-defined custom configuration values |
-
----
-
-## Priority Order
-
-Configuration values are resolved in this order (highest to lowest priority):
-
-1. **Failsafe Mode** - If `LEE_FAILSAFE_ENABLED=true`, only environment variables are used
-2. **Environment Variables** - Set in Lambda console
-3. **SSM Parameter Store** - If `USE_PARAMETER_STORE=true` (ignored in failsafe mode)
-4. **Default Values** - Hardcoded in application
-
----
-
-## Quick Setup Examples
-
-### Minimal Setup (Environment Variables Only)
-```bash
-HOME_ASSISTANT_ENABLED=true
-HOME_ASSISTANT_URL=http://192.168.1.100:8123
-HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+**SSM Parameter:**
+```
+/lambda-execution-engine/home_assistant/token (SecureString)
 ```
 
-### Secure Setup (Using SSM for Token)
-```bash
-# Environment Variables
-HOME_ASSISTANT_ENABLED=true
-HOME_ASSISTANT_URL=http://192.168.1.100:8123
-USE_PARAMETER_STORE=true
-PARAMETER_PREFIX=/lambda/ha
+**All other configuration MUST be in Lambda environment variables:**
+- URL, timeout, verify_ssl, assistant_name, features, websocket settings
+- Log level, environment, debug mode, configuration tier
+- Everything except the token
 
-# SSM Parameter (create separately)
-aws ssm put-parameter \
-  --name "/lambda/ha/home_assistant/token" \
-  --value "eyJ0eXAiOiJKV1Qi..." \
-  --type "SecureString"
-```
+### SSM Priority
 
-### Emergency Failsafe Setup
-```bash
-# Minimal configuration for immediate recovery
-LEE_FAILSAFE_ENABLED=true
-HOME_ASSISTANT_URL=http://192.168.1.100:8123
-HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
-HOME_ASSISTANT_VERIFY_SSL=false
-DEBUG_MODE=true
-```
+**Token loading priority:**
+1. SSM Parameter Store (if `USE_PARAMETER_STORE=true`)
+2. `HOME_ASSISTANT_TOKEN` environment variable
+3. `LONG_LIVED_ACCESS_TOKEN` environment variable (legacy)
 
-### Development Setup
-```bash
-ENVIRONMENT=development
-DEBUG_MODE=true
-LOG_LEVEL=DEBUG
-CONFIGURATION_TIER=standard
-HOME_ASSISTANT_ENABLED=true
-HOME_ASSISTANT_URL=http://192.168.1.100:8123
-HOME_ASSISTANT_TOKEN=your_token
-HA_FEATURES=development
-HA_WEBSOCKET_ENABLED=true
-```
+**Performance:**
+- First call: ~250ms (SSM API call)
+- Subsequent calls: <2ms (cached for 300 seconds)
+- Cache TTL: 300 seconds (5 minutes)
 
-### Production Setup (High Reliability)
-```bash
-ENVIRONMENT=production
-LOG_LEVEL=INFO
-CONFIGURATION_TIER=maximum
-USE_PARAMETER_STORE=true
-PARAMETER_PREFIX=/lambda-prod
-HOME_ASSISTANT_ENABLED=true
-# All sensitive values in SSM Parameter Store
-```
+### IAM Permissions
 
----
-
-## IAM Permissions for SSM
-
-To use Parameter Store, add this policy to Lambda execution role:
-
+**Minimal permissions required:**
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": [
-        "ssm:GetParameter",
-        "ssm:GetParameters"
-      ],
-      "Resource": [
-        "arn:aws:ssm:REGION:ACCOUNT:parameter/lambda-execution-engine/*"
-      ]
+      "Action": ["ssm:GetParameter"],
+      "Resource": "arn:aws:ssm:REGION:ACCOUNT:parameter/lambda-execution-engine/home_assistant/token"
     }
   ]
 }
 ```
 
-Replace `REGION` and `ACCOUNT` with your AWS region and account ID.
-
-**Note:** IAM permissions are not required for failsafe mode, as it only reads Lambda environment variables.
+**Note:** Only `ssm:GetParameter` needed for single token parameter.
 
 ---
 
-## Variable Usage by Mode
+## Configuration Priority
 
-### Normal LEE Mode
-- Uses all variables listed above
-- Respects `HOME_ASSISTANT_ENABLED`
-- Can use SSM Parameter Store
-- Full feature set available
-- Circuit breaker protection active
+### Normal Mode
+1. Lambda environment variables (primary)
+2. SSM Parameter Store token (if `USE_PARAMETER_STORE=true`)
+3. Default values
 
-### Failsafe Mode (`LEE_FAILSAFE_ENABLED=true`)
-**Only uses these variables:**
-- `HOME_ASSISTANT_URL` [REQUIRED]
-- `HOME_ASSISTANT_TOKEN` [REQUIRED]
-- `HOME_ASSISTANT_VERIFY_SSL` [OPTIONAL] (default: true)
-- `DEBUG_MODE` [OPTIONAL] (default: false)
+### Failsafe Mode (`LAMBDA_MODE=failsafe`)
+1. Lambda environment variables ONLY
+2. No SSM calls (faster, simpler)
+3. Token from `HOME_ASSISTANT_TOKEN` environment variable
 
-**Ignores all other variables:**
-- Configuration tier, logging, metrics
-- Extension features, caching, circuit breaker
-- SSM Parameter Store (reads only env vars)
-- All HA extension optional features
+---
+
+## Configuration Examples
+
+### Minimal (Environment Only)
+```bash
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+```
+
+### Secure (Token in SSM)
+```bash
+# Lambda environment
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TIMEOUT=30
+HOME_ASSISTANT_VERIFY_SSL=true
+USE_PARAMETER_STORE=true
+PARAMETER_PREFIX=/lambda-execution-engine
+
+# SSM parameter (create separately)
+/lambda-execution-engine/home_assistant/token (SecureString)
+```
+
+### Emergency Failsafe
+```bash
+LAMBDA_MODE=failsafe
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+HOME_ASSISTANT_VERIFY_SSL=false
+DEBUG_MODE=true
+```
+
+### Development with Debug
+```bash
+ENVIRONMENT=development
+DEBUG_MODE=true
+DEBUG_TIMINGS=true
+LOG_LEVEL=DEBUG
+CONFIGURATION_TIER=standard
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=your_token
+HA_FEATURES=development
+```
+
+### Production (High Reliability)
+```bash
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+DEBUG_MODE=false
+DEBUG_TIMINGS=false
+CONFIGURATION_TIER=maximum
+USE_PARAMETER_STORE=true
+PARAMETER_PREFIX=/lambda-prod
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=https://ha.example.com
+HOME_ASSISTANT_VERIFY_SSL=true
+# Token in SSM: /lambda-prod/home_assistant/token
+```
 
 ---
 
@@ -457,7 +241,7 @@ HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=false
 ```
 **Overhead:** ~15-20MB  
-**Available:** ~108-113MB for code
+**Available:** ~108-113MB
 
 ### Standard Configuration
 ```bash
@@ -466,7 +250,7 @@ HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=false
 ```
 **Overhead:** ~20-25MB  
-**Available:** ~103-108MB for code
+**Available:** ~103-108MB
 
 ### Maximum Configuration
 ```bash
@@ -475,97 +259,143 @@ HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=true
 ```
 **Overhead:** ~30-35MB  
-**Available:** ~93-98MB for code
+**Available:** ~93-98MB
 
 ### Failsafe Mode
 ```bash
-LEE_FAILSAFE_ENABLED=true
+LAMBDA_MODE=failsafe
 ```
 **Overhead:** ~5-8MB  
-**Available:** ~120-123MB for code
-
-**Notes:**
-- Overhead includes: LEE core, SUGA-ISP, interfaces, circuit breakers, metrics
-- Actual usage varies based on request complexity
-- WebSocket adds ~2-3MB when enabled
-- Cache usage grows during execution
-- Consider increasing Lambda memory if approaching limits
+**Available:** ~120-123MB
 
 ---
 
-## Troubleshooting Variable Issues
+## Troubleshooting
 
 ### Issue: Configuration Not Loading
+
 **Check:**
 1. Variable names are EXACT (case-sensitive)
 2. Boolean values are lowercase: `true`/`false`
-3. SSM parameter paths match PARAMETER_PREFIX
-4. IAM policy grants ssm:GetParameter
-5. SSM parameters exist in correct region
+3. If using SSM: parameter path matches `PARAMETER_PREFIX`
+4. If using SSM: IAM policy grants `ssm:GetParameter`
+5. If using SSM: parameter exists in correct region
 
 ### Issue: Failsafe Not Activating
+
 **Check:**
-1. Variable is exactly: `LEE_FAILSAFE_ENABLED=true`
-2. Value is lowercase: `true` not `True` or `TRUE`
-3. lambda_failsafe.py exists in deployment package
+1. Variable is exactly: `LAMBDA_MODE=failsafe` (lowercase)
+2. Not `LEE_FAILSAFE_ENABLED` (deprecated, no longer works)
+3. `lambda_failsafe.py` exists in deployment package
 4. Check CloudWatch logs for activation message
 
-### Issue: Circuit Breaker Too Aggressive
-**Solutions:**
-1. Change tier: `CONFIGURATION_TIER=minimum`
-2. Modify user_config.py for custom thresholds
-3. Review service availability
-4. Check network latency
+### Issue: Token Not Loading
 
-### Issue: Out of Memory Errors
+**Enable debug to diagnose:**
+```bash
+DEBUG_MODE=true
+DEBUG_TIMINGS=true
+```
+
+**Check CloudWatch logs for:**
+```
+[SSM_DEBUG] Attempting SSM token retrieval
+[SSM_TIMING] SSM token retrieval: XXms, success=true/false
+[HA_CONFIG_DEBUG] Token retrieved from SSM/environment
+```
+
 **Solutions:**
-1. Decrease tier: `CONFIGURATION_TIER=minimum`
-2. Disable WebSocket: `HA_WEBSOCKET_ENABLED=false`
-3. Review cache settings
-4. Increase Lambda memory allocation
+1. Verify SSM parameter exists: `aws ssm get-parameter --name /path/to/token`
+2. Check IAM permissions for Lambda execution role
+3. Verify `USE_PARAMETER_STORE=true` set correctly
+4. Fallback to environment: Set `HOME_ASSISTANT_TOKEN` temporarily
+
+### Issue: Debug Output Not Appearing
+
+**Check:**
+```bash
+# Verify variables set
+aws lambda get-function-configuration --function-name <name> \
+  | jq '.Environment.Variables | {DEBUG_MODE, DEBUG_TIMINGS}'
+
+# Check CloudWatch log group exists
+aws logs describe-log-groups --log-group-name-prefix /aws/lambda/
+
+# Verify IAM permissions for CloudWatch Logs
+```
 
 ---
 
 ## Best Practices
 
 ### Security
-- [YES] Use SSM SecureString for tokens
-- [YES] Enable HOME_ASSISTANT_VERIFY_SSL=true in production
-- [YES] Use PARAMETER_PREFIX to isolate environments
-- [NO] Never commit tokens to version control
-- [YES] Rotate tokens regularly
+- ✅ Use SSM SecureString for token (encrypted at rest)
+- ✅ Enable `HOME_ASSISTANT_VERIFY_SSL=true` in production
+- ✅ Use different `PARAMETER_PREFIX` per environment
+- ❌ Never commit tokens to version control
+- ✅ Rotate tokens regularly
+- ✅ Restrict IAM permissions to token path only
 
 ### Performance
-- [YES] Use CONFIGURATION_TIER=standard for most cases
-- [YES] Disable unused features (websocket if not needed)
-- [NO] Avoid DEBUG_MODE in production (log volume)
-- [YES] Monitor circuit breaker states
-- [YES] Cache SSM parameters (automatic, 300s TTL)
+- ✅ Use `CONFIGURATION_TIER=standard` for most cases
+- ✅ Disable unused features (websocket if not needed)
+- ❌ Avoid `DEBUG_MODE=true` in production (log volume)
+- ✅ Token caching automatic (300s TTL)
+- ✅ Monitor cold start times with `DEBUG_TIMINGS`
 
 ### Reliability
-- [YES] Enable circuit breaker protection (tier >= standard)
-- [YES] Set appropriate timeouts for your network
-- [YES] Configure LEE_FAILSAFE_ENABLED for emergencies
-- [YES] Monitor CloudWatch logs regularly
-- [YES] Test failover scenarios periodically
+- ✅ Configure failsafe mode for emergencies (`LAMBDA_MODE=failsafe`)
+- ✅ Enable circuit breaker protection (tier >= standard)
+- ✅ Set appropriate timeouts for your network
+- ✅ Monitor CloudWatch logs regularly
+- ✅ Test failsafe activation periodically
 
 ### Cost Optimization
-- [YES] Minimize log volume (avoid DEBUG in prod)
-- [YES] Use SSM parameter caching (reduces API calls)
-- [YES] Monitor Lambda invocation count
-- [YES] Review CloudWatch log retention
-- [YES] Consider Lambda reserved concurrency
+- ✅ Minimize log volume (disable debug in production)
+- ✅ SSM token caching reduces API calls (automatic)
+- ✅ Use short CloudWatch log retention (7 days for debug)
+- ✅ Monitor Lambda invocation count
+- ✅ Consider reserved concurrency for predictable costs
+
+---
+
+## Migration Notes
+
+### From Old Configuration
+
+**If you have:**
+```bash
+LEE_FAILSAFE_ENABLED=true  # ❌ No longer works
+USE_PARAMETER_STORE=true
+# Multiple SSM parameters for URL, timeout, etc.
+```
+
+**Update to:**
+```bash
+LAMBDA_MODE=failsafe  # ✅ New variable
+USE_PARAMETER_STORE=true  # ✅ Token only now
+HOME_ASSISTANT_URL=http://...  # ✅ Now in environment
+HOME_ASSISTANT_TIMEOUT=30  # ✅ Now in environment
+# ... all other config in environment ...
+
+# SSM: Only /path/to/token remains
+```
+
+**See:** `MIGRATION GUIDE - SSM Simplification (Token Only).md`
 
 ---
 
 ## Notes
 
-- Environment variables take precedence over SSM parameters (except in failsafe mode)
-- SSM parameters are cached for 300 seconds to reduce API calls
-- Boolean values in SSM must be strings: `"true"` or `"false"`
-- Use `SecureString` type in SSM for all tokens and secrets
-- Change `PARAMETER_PREFIX` to isolate configurations per environment
-- Failsafe mode provides insurance against LEE failures
+- `LAMBDA_MODE` replaces deprecated `LEE_FAILSAFE_ENABLED`
+- SSM now stores ONLY the token (all other config in environment)
+- Debug modes add <1ms overhead but increase log volume significantly
+- Boolean values: use lowercase `true`/`false` not `True`/`False`
+- SSM token cached for 300 seconds (5 minutes)
+- Failsafe mode bypasses ALL LEE infrastructure
 - Toggle failsafe without code changes or redeployment
 - Circuit breaker configuration is tier-based, not per-variable
-- WebSocket is outbound only (Lambda client to external server)
+
+---
+
+# EOF
