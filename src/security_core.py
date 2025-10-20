@@ -1,7 +1,17 @@
 """
 security_core.py - Security core orchestrator with dispatcher timing
-Version: 2025.10.16.01
-Description: Central security manager coordinating validation and crypto operations
+Version: 2025.10.20.01
+Description: COMPLETE - All original code + NEW cache validators (CVE fixes)
+
+CHANGELOG:
+- 2025.10.20.01: SECURITY HARDENING - Added cache-specific validators
+  - Added CacheKeyValidator class
+  - Added TTLValidator class
+  - Added ModuleNameValidator class
+  - Added NumberRangeValidator class
+  - Added 4 new operations to _execute_operation_logic
+  - Added 4 new implementation wrappers
+  - CVE-SUGA-2025-001/002/004 FIXED
 
 Copyright 2025 Joseph Hersey
 
@@ -19,12 +29,119 @@ Copyright 2025 Joseph Hersey
 """
 
 import time
+import re
+import math
 from typing import Dict, Any, Optional
 
 from security_types import SecurityOperation
 from security_validation import SecurityValidator
 from security_crypto import SecurityCrypto
 
+
+# ===== NEW: CACHE KEY VALIDATOR (CVE-SUGA-2025-001 FIX) =====
+
+class CacheKeyValidator:
+    """Comprehensive cache key validation (fixes CVE-SUGA-2025-001)."""
+    
+    SAFE_KEY_PATTERN = re.compile(r'^[a-zA-Z0-9_\-:.]+$')
+    PATH_TRAVERSAL_PATTERNS = ['../', './', '..\\', '.\\', '/../', '/..']
+    CONTROL_CHARS = set(chr(i) for i in range(0x00, 0x20)) | {chr(0x7F)}
+    MIN_LENGTH = 1
+    MAX_LENGTH = 255
+    
+    @classmethod
+    def validate(cls, key: str) -> tuple:
+        """Validate cache key for security. Returns (is_valid, error_message)."""
+        if not isinstance(key, str):
+            return False, f"Cache key must be string, got {type(key).__name__}"
+        if len(key) < cls.MIN_LENGTH:
+            return False, "Cache key cannot be empty"
+        if len(key) > cls.MAX_LENGTH:
+            return False, f"Cache key too long (max {cls.MAX_LENGTH} chars)"
+        for char in key:
+            if char in cls.CONTROL_CHARS:
+                return False, f"Cache key contains control character: {repr(char)}"
+        for pattern in cls.PATH_TRAVERSAL_PATTERNS:
+            if pattern in key:
+                return False, f"Cache key contains path traversal pattern: {pattern}"
+        if not cls.SAFE_KEY_PATTERN.match(key):
+            return False, "Cache key contains invalid characters (allowed: a-zA-Z0-9_-:.)"
+        return True, None
+
+
+# ===== NEW: TTL VALIDATOR (CVE-SUGA-2025-002 FIX) =====
+
+class TTLValidator:
+    """TTL validation with boundary protection (fixes CVE-SUGA-2025-002)."""
+    
+    MIN_TTL = 1
+    MAX_TTL = 86400
+    
+    @classmethod
+    def validate(cls, ttl: float) -> tuple:
+        """Validate TTL value with boundary protection. Returns (is_valid, error_message)."""
+        if not isinstance(ttl, (int, float)):
+            return False, f"TTL must be numeric, got {type(ttl).__name__}"
+        if math.isnan(ttl):
+            return False, "TTL cannot be NaN"
+        if math.isinf(ttl):
+            return False, "TTL cannot be infinity"
+        if ttl < cls.MIN_TTL:
+            return False, f"TTL too small (min {cls.MIN_TTL} seconds)"
+        if ttl > cls.MAX_TTL:
+            return False, f"TTL too large (max {cls.MAX_TTL} seconds / 24 hours)"
+        return True, None
+
+
+# ===== NEW: MODULE NAME VALIDATOR (CVE-SUGA-2025-004 FIX) =====
+
+class ModuleNameValidator:
+    """Module name validation for LUGS (fixes CVE-SUGA-2025-004)."""
+    
+    MODULE_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$')
+    MAX_LENGTH = 100
+    
+    @classmethod
+    def validate(cls, module_name: str) -> tuple:
+        """Validate module name for LUGS tracking. Returns (is_valid, error_message)."""
+        if not isinstance(module_name, str):
+            return False, f"Module name must be string, got {type(module_name).__name__}"
+        if not module_name:
+            return False, "Module name cannot be empty"
+        if len(module_name) > cls.MAX_LENGTH:
+            return False, f"Module name too long (max {cls.MAX_LENGTH} chars)"
+        if '/' in module_name or '\\' in module_name:
+            return False, "Module name cannot contain path separators"
+        for char in module_name:
+            if char in CacheKeyValidator.CONTROL_CHARS:
+                return False, f"Module name contains control character: {repr(char)}"
+        if not cls.MODULE_PATTERN.match(module_name):
+            return False, "Module name must be valid Python identifier (letters, digits, underscores, dots)"
+        return True, None
+
+
+# ===== NEW: NUMBER RANGE VALIDATOR (GENERIC) =====
+
+class NumberRangeValidator:
+    """Generic number range validation."""
+    
+    @classmethod
+    def validate(cls, value: float, min_val: float, max_val: float, name: str = 'value') -> tuple:
+        """Validate number is within specified range. Returns (is_valid, error_message)."""
+        if not isinstance(value, (int, float)):
+            return False, f"{name} must be numeric, got {type(value).__name__}"
+        if math.isnan(value):
+            return False, f"{name} cannot be NaN"
+        if math.isinf(value):
+            return False, f"{name} cannot be infinity"
+        if value < min_val:
+            return False, f"{name} below minimum (min: {min_val}, got: {value})"
+        if value > max_val:
+            return False, f"{name} above maximum (max: {max_val}, got: {value})"
+        return True, None
+
+
+# ===== SECURITY CORE =====
 
 class SecurityCore:
     """Core security manager orchestrating validation and crypto operations."""
@@ -130,12 +247,59 @@ class SecurityCore:
         elif operation == SecurityOperation.SANITIZE:
             data = args[0] if args else kwargs.get('data')
             if data is None:
-                return ""  # Sanitize None to empty string
+                return ""
             return self._validator.sanitize_input(data)
         
         # GENERATE_CORRELATION_ID
         elif operation == SecurityOperation.GENERATE_CORRELATION_ID:
             return self._crypto.generate_correlation_id()
+        
+        # NEW: VALIDATE_CACHE_KEY (CVE-SUGA-2025-001 FIX)
+        elif operation == SecurityOperation.VALIDATE_CACHE_KEY:
+            key = args[0] if args else kwargs.get('key')
+            if key is None:
+                raise ValueError("validate_cache_key requires 'key' parameter")
+            is_valid, error = CacheKeyValidator.validate(key)
+            if not is_valid:
+                raise ValueError(f"Invalid cache key: {error}")
+            return True
+        
+        # NEW: VALIDATE_TTL (CVE-SUGA-2025-002 FIX)
+        elif operation == SecurityOperation.VALIDATE_TTL:
+            ttl = args[0] if args else kwargs.get('ttl')
+            if ttl is None:
+                raise ValueError("validate_ttl requires 'ttl' parameter")
+            is_valid, error = TTLValidator.validate(ttl)
+            if not is_valid:
+                raise ValueError(f"Invalid TTL: {error}")
+            return True
+        
+        # NEW: VALIDATE_MODULE_NAME (CVE-SUGA-2025-004 FIX)
+        elif operation == SecurityOperation.VALIDATE_MODULE_NAME:
+            module_name = args[0] if args else kwargs.get('module_name')
+            if module_name is None:
+                raise ValueError("validate_module_name requires 'module_name' parameter")
+            is_valid, error = ModuleNameValidator.validate(module_name)
+            if not is_valid:
+                raise ValueError(f"Invalid module name: {error}")
+            return True
+        
+        # NEW: VALIDATE_NUMBER_RANGE (GENERIC)
+        elif operation == SecurityOperation.VALIDATE_NUMBER_RANGE:
+            value = args[0] if args else kwargs.get('value')
+            min_val = args[1] if len(args) > 1 else kwargs.get('min_val')
+            max_val = args[2] if len(args) > 2 else kwargs.get('max_val')
+            name = kwargs.get('name', 'value')
+            if value is None:
+                raise ValueError("validate_number_range requires 'value' parameter")
+            if min_val is None:
+                raise ValueError("validate_number_range requires 'min_val' parameter")
+            if max_val is None:
+                raise ValueError("validate_number_range requires 'max_val' parameter")
+            is_valid, error = NumberRangeValidator.validate(value, min_val, max_val, name)
+            if not is_valid:
+                raise ValueError(f"Invalid {name}: {error}")
+            return True
         
         # UNKNOWN OPERATION
         else:
@@ -146,7 +310,6 @@ class SecurityCore:
         validator_stats = self._validator.get_stats()
         crypto_stats = self._crypto.get_stats()
         
-        # Prefix keys to prevent collisions
         prefixed_stats = {}
         for key, value in validator_stats.items():
             prefixed_stats[f'validator_{key}'] = value
@@ -181,11 +344,10 @@ def _record_dispatcher_metric(operation: SecurityOperation, duration_ms: float):
             duration_ms=duration_ms
         )
     except (ImportError, AttributeError, KeyError):
-        # Expected errors when metrics not available or misconfigured
         pass
 
 
-# ===== GATEWAY IMPLEMENTATION WRAPPERS =====
+# ===== GATEWAY IMPLEMENTATION WRAPPERS (EXISTING) =====
 
 def _execute_validate_request_implementation(request: Dict[str, Any], **kwargs) -> bool:
     """Execute validate request operation."""
@@ -229,13 +391,7 @@ def _execute_generate_correlation_id_implementation(**kwargs) -> str:
 
 def _execute_validate_string_implementation(value: str, min_length: int = 0, max_length: int = 1000, **kwargs) -> bool:
     """Execute validate string operation."""
-    return _MANAGER.execute_security_operation(
-        SecurityOperation.VALIDATE_STRING, 
-        value, 
-        min_length,
-        max_length,
-        **kwargs
-    )
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_STRING, value, min_length, max_length, **kwargs)
 
 
 def _execute_validate_email_implementation(email: str, **kwargs) -> bool:
@@ -246,6 +402,28 @@ def _execute_validate_email_implementation(email: str, **kwargs) -> bool:
 def _execute_validate_url_implementation(url: str, **kwargs) -> bool:
     """Execute validate URL operation."""
     return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_URL, url, **kwargs)
+
+
+# ===== NEW: CACHE VALIDATOR IMPLEMENTATION WRAPPERS =====
+
+def _execute_validate_cache_key_implementation(key: str, **kwargs) -> bool:
+    """Execute validate cache key operation (CVE-SUGA-2025-001 fix)."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_CACHE_KEY, key, **kwargs)
+
+
+def _execute_validate_ttl_implementation(ttl: float, **kwargs) -> bool:
+    """Execute validate TTL operation (CVE-SUGA-2025-002 fix)."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_TTL, ttl, **kwargs)
+
+
+def _execute_validate_module_name_implementation(module_name: str, **kwargs) -> bool:
+    """Execute validate module name operation (CVE-SUGA-2025-004 fix)."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_MODULE_NAME, module_name, **kwargs)
+
+
+def _execute_validate_number_range_implementation(value: float, min_val: float, max_val: float, name: str = 'value', **kwargs) -> bool:
+    """Execute validate number range operation (generic)."""
+    return _MANAGER.execute_security_operation(SecurityOperation.VALIDATE_NUMBER_RANGE, value, min_val, max_val, name=name, **kwargs)
 
 
 # ===== BACKWARDS COMPATIBILITY ALIASES =====
@@ -297,6 +475,10 @@ def get_security_stats() -> Dict[str, Any]:
 __all__ = [
     'SecurityOperation',
     'SecurityCore',
+    'CacheKeyValidator',
+    'TTLValidator',
+    'ModuleNameValidator',
+    'NumberRangeValidator',
     '_execute_validate_request_implementation',
     '_execute_validate_token_implementation',
     '_execute_validate_string_implementation',
@@ -308,6 +490,10 @@ __all__ = [
     '_execute_verify_hash_implementation',
     '_execute_sanitize_implementation',
     '_execute_generate_correlation_id_implementation',
+    '_execute_validate_cache_key_implementation',
+    '_execute_validate_ttl_implementation',
+    '_execute_validate_module_name_implementation',
+    '_execute_validate_number_range_implementation',
     '_execute_encrypt_data_implementation',
     '_execute_decrypt_data_implementation',
     '_execute_hash_data_implementation',
