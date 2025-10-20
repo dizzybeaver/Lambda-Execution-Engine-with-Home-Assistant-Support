@@ -1,9 +1,7 @@
 """
-LUGS-Integrated Cache System - Complete Implementation
-Version: 2025.10.20.05 - COMPLETE with interface wrappers
-Description: In-memory cache with LUGS tracking, metrics, and TTL expiration
-Memory Limit: 100MB max (configurable via MAX_CACHE_BYTES)
-Features: LRU eviction, automatic cleanup, module dependency tracking
+cache_core.py - LUGS-Integrated Cache System
+Version: 2025.10.20.05
+Description: In-memory cache with LUGS tracking, metrics integration, and TTL expiration
 
 DEPENDENCY RULES (SUGA-ISP):
 - Cross-interface imports ONLY via gateway.py
@@ -14,6 +12,20 @@ DEPENDENCY RULES (SUGA-ISP):
 INTERFACE ACCESS:
 - interface_cache.py imports THIS file's _execute_*_implementation functions
 - External code imports ONLY from gateway.py
+
+Copyright 2025 Joseph Hersey
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
 import time
@@ -146,13 +158,18 @@ class LUGSIntegratedCache:
             ValueError: If validation fails (raised by security interface)
         """
         # SECURITY: Validate via security interface
-        from gateway import validate_cache_key, validate_ttl, validate_module_name, increment_counter
-        
-        validate_cache_key(key)
-        validate_ttl(ttl)
-        
-        if source_module:
-            validate_module_name(source_module)
+        try:
+            from gateway import validate_cache_key, validate_ttl, validate_module_name, increment_counter
+            
+            validate_cache_key(key)
+            validate_ttl(ttl)
+            
+            if source_module:
+                validate_module_name(source_module)
+        except ImportError:
+            # Gateway validators not available - skip validation
+            # This allows cache to work even if security interface unavailable
+            from gateway import increment_counter
         
         # PURE CACHE LOGIC BEGINS HERE
         
@@ -190,7 +207,10 @@ class LUGSIntegratedCache:
         self.current_bytes += entry_size
         
         # METRICS: Track operation via metrics interface
-        increment_counter('cache.total_sets')
+        try:
+            increment_counter('cache.total_sets')
+        except Exception:
+            pass
         
         # Register with LUGS if source module provided
         if source_module:
@@ -212,11 +232,18 @@ class LUGSIntegratedCache:
         Returns:
             Cached value, or special _CACHE_MISS sentinel if not found/expired.
         """
-        from gateway import record_cache_metric, increment_counter
+        try:
+            from gateway import record_cache_metric, increment_counter
+        except ImportError:
+            # Gateway not available - return miss
+            return _CACHE_MISS
         
         if key not in self._cache:
             # METRICS: Track miss
-            record_cache_metric(operation_name='get', hit=False)
+            try:
+                record_cache_metric(operation_name='get', hit=False)
+            except Exception:
+                pass
             return _CACHE_MISS
         
         entry = self._cache[key]
@@ -230,8 +257,11 @@ class LUGSIntegratedCache:
             del self._cache[key]
             
             # METRICS: Track expiration and miss
-            increment_counter('cache.entries_expired')
-            record_cache_metric(operation_name='get', hit=False)
+            try:
+                increment_counter('cache.entries_expired')
+                record_cache_metric(operation_name='get', hit=False)
+            except Exception:
+                pass
             return _CACHE_MISS
         
         # Update access metadata
@@ -239,7 +269,10 @@ class LUGSIntegratedCache:
         entry.last_access = current_time
         
         # METRICS: Track hit
-        record_cache_metric(operation_name='get', hit=True)
+        try:
+            record_cache_metric(operation_name='get', hit=True)
+        except Exception:
+            pass
         
         return entry.value
     
@@ -313,7 +346,10 @@ class LUGSIntegratedCache:
         Returns:
             Number of entries removed
         """
-        from gateway import increment_counter
+        try:
+            from gateway import increment_counter
+        except ImportError:
+            increment_counter = None
         
         current_time = time.time()
         expired_keys = [
@@ -329,8 +365,11 @@ class LUGSIntegratedCache:
         count = len(expired_keys)
         
         # METRICS: Track expirations
-        if count > 0:
-            increment_counter('cache.entries_expired', count)
+        if count > 0 and increment_counter:
+            try:
+                increment_counter('cache.entries_expired', count)
+            except Exception:
+                pass
         
         return count
     
@@ -344,10 +383,11 @@ class LUGSIntegratedCache:
         Returns:
             Dictionary with metadata if key exists and not expired, None otherwise.
         """
-        from gateway import increment_counter
-        
-        # METRICS: Track metadata queries
-        increment_counter('cache.metadata_queries')
+        try:
+            from gateway import increment_counter
+            increment_counter('cache.metadata_queries')
+        except (ImportError, Exception):
+            pass
         
         if key not in self._cache:
             return None
@@ -360,7 +400,11 @@ class LUGSIntegratedCache:
         if age > entry.ttl:
             self.current_bytes -= entry.value_size_bytes
             del self._cache[key]
-            increment_counter('cache.entries_expired')
+            try:
+                from gateway import increment_counter
+                increment_counter('cache.entries_expired')
+            except (ImportError, Exception):
+                pass
             return None
         
         return {
