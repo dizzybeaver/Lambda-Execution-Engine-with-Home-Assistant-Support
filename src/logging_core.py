@@ -1,17 +1,28 @@
 """
 logging_core.py - Unified logging interface (gateway-facing)
-Version: 2025.10.16.05
+Version: 2025.10.20.02
 Description: Gateway compatibility layer for logging subsystem
             SUGA-ISP COMPLIANT: Uses gateway services, no duplicate implementations
-            BUG FIXES: Parameter type consistency, correlation_id standardization
 
-Bug Fixes Applied:
-- Standardized error parameter to Union[str, Exception] for flexibility
-- Standardized all correlation_id to Optional[str] = None
-- Uses gateway.generate_correlation_id (no UUID duplication)
-- Removed unnecessary fallback logic (Lambda always has gateway)
-- Added type hints for better error detection
-- Improved parameter consistency across all functions
+CHANGELOG:
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in implementation functions
+  - Fixed _execute_log_operation_start_implementation(operation_name, ...)
+  - Fixed _execute_log_operation_success_implementation(operation_name, ...)
+  - Fixed _execute_log_operation_failure_implementation(operation_name, ...)
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
+- 2025.10.16.05: Bug Fixes Applied
+  - Standardized error parameter to Union[str, Exception] for flexibility
+  - Standardized all correlation_id to Optional[str] = None
+  - Uses gateway.generate_correlation_id (no UUID duplication)
+  - Removed unnecessary fallback logic (Lambda always has gateway)
+  - Added type hints for better error detection
+  - Improved parameter consistency across all functions
+
+CRITICAL BUG FIX (2025.10.20.02):
+Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
+         Implementation functions had 'operation' parameter, creating conflict in kwargs.
+Solution: Renamed parameter from 'operation' to 'operation_name' in all affected functions.
+Impact: Matches interface_logging.py validation and gateway_wrappers.py parameter names.
 
 SUGA-ISP Compliance:
 - Uses gateway for correlation ID generation (no reimplementation)
@@ -72,9 +83,11 @@ def _execute_log_error_implementation(message: str, error: Optional[Exception] =
     """
     Execute log error operation.
     
+    BUG FIX: Changed error parameter to Union[str, Exception] for flexibility
+    
     Args:
-        message: Error message
-        error: Optional exception object
+        message: Log message
+        error: Exception object or error string (optional)
         extra: Additional context data
         **kwargs: Additional parameters (ignored for compatibility)
     """
@@ -86,7 +99,7 @@ def _execute_log_warning_implementation(message: str, extra: Optional[Dict[str, 
     Execute log warning operation.
     
     Args:
-        message: Warning message
+        message: Log message
         extra: Additional context data
         **kwargs: Additional parameters (ignored for compatibility)
     """
@@ -98,65 +111,63 @@ def _execute_log_debug_implementation(message: str, extra: Optional[Dict[str, An
     Execute log debug operation.
     
     Args:
-        message: Debug message
+        message: Log message
         extra: Additional context data
         **kwargs: Additional parameters (ignored for compatibility)
     """
     return execute_logging_operation(LogOperation.LOG_DEBUG, message, extra=extra)
 
 
-def _execute_log_operation_start_implementation(operation: str, correlation_id: Optional[str] = None, context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+def _execute_log_operation_start_implementation(operation_name: str, correlation_id: Optional[str] = None, **kwargs) -> None:
     """
     Execute log operation start.
     
-    SUGA-ISP COMPLIANT: Uses gateway.generate_correlation_id (no UUID duplication)
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
     
     Args:
-        operation: Operation name
-        correlation_id: Optional correlation ID (generated via gateway if not provided)
-        context: Optional context data (not used currently)
+        operation_name: Operation name (renamed from 'operation')
+        correlation_id: Optional correlation ID
         **kwargs: Additional parameters (ignored for compatibility)
-        
-    Returns:
-        Correlation ID (generated via gateway or provided)
     """
-    if not correlation_id:
-        # ✅ Use gateway service instead of reimplementing
-        correlation_id = execute_operation(GatewayInterface.SECURITY, 'generate_correlation_id')
-    
-    execute_logging_operation(LogOperation.LOG_OPERATION_START, operation, correlation_id)
-    return correlation_id
+    execute_logging_operation(LogOperation.LOG_OPERATION_START, operation_name, correlation_id)
 
 
-def _execute_log_operation_success_implementation(operation: str, duration_ms: float = 0, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
+def _execute_log_operation_success_implementation(operation_name: str, duration_ms: float, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
     """
     Execute log operation success.
     
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
     Args:
-        operation: Operation name
+        operation_name: Operation name (renamed from 'operation')
         duration_ms: Operation duration in milliseconds
         correlation_id: Optional correlation ID
         result: Optional operation result
         **kwargs: Additional parameters (ignored for compatibility)
     """
-    execute_logging_operation(LogOperation.LOG_OPERATION_SUCCESS, operation, duration_ms, correlation_id, result)
+    execute_logging_operation(LogOperation.LOG_OPERATION_SUCCESS, operation_name, duration_ms, correlation_id, result)
 
 
-def _execute_log_operation_failure_implementation(operation: str, error: Union[str, Exception], correlation_id: Optional[str] = None, **kwargs) -> None:
+def _execute_log_operation_failure_implementation(operation_name: str, error: Union[str, Exception], correlation_id: Optional[str] = None, **kwargs) -> None:
     """
     Execute log operation failure.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
     
     BUG FIX: Changed error parameter to Union[str, Exception] for flexibility
     
     Args:
-        operation: Operation name
+        operation_name: Operation name (renamed from 'operation')
         error: Error description (string) or Exception object
         correlation_id: Optional correlation ID
         **kwargs: Additional parameters (ignored for compatibility)
     """
     # Convert Exception to string if needed for consistency with logging_manager
     error_str = str(error) if isinstance(error, Exception) else error
-    execute_logging_operation(LogOperation.LOG_OPERATION_FAILURE, operation, error_str, correlation_id)
+    execute_logging_operation(LogOperation.LOG_OPERATION_FAILURE, operation_name, error_str, correlation_id)
 
 
 # ===== ERROR RESPONSE TRACKING =====
@@ -194,13 +205,13 @@ def _clear_error_response_logs_internal(**kwargs) -> None:
     Args:
         **kwargs: Additional parameters (ignored for compatibility)
     """
-    _MANAGER.clear_error_response_logs()
+    _MANAGER.clear_error_responses()
 
 
-# ===== EXPORTS =====
+# ===== MODULE EXPORTS =====
 
 __all__ = [
-    # Gateway compatibility layer
+    # Gateway-facing implementations
     '_execute_log_info_implementation',
     '_execute_log_error_implementation',
     '_execute_log_warning_implementation',
@@ -209,18 +220,10 @@ __all__ = [
     '_execute_log_operation_success_implementation',
     '_execute_log_operation_failure_implementation',
     
-    # Error response tracking
+    # Internal error response tracking
     '_log_error_response_internal',
     '_get_error_response_analytics_internal',
     '_clear_error_response_logs_internal',
-    
-    # Re-export from other modules for convenience
-    'LogOperation',
-    'LogTemplate',
-    'ErrorLogLevel',
-    'ErrorEntry',
-    'ErrorLogEntry',
-    'execute_logging_operation',
 ]
 
 # EOF
