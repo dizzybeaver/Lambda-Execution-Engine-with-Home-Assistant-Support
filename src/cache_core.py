@@ -1,158 +1,136 @@
 """
-cache_core.py - Cache Core Implementation
-Version: 2025.10.20.04
-Description: FIXED metrics parameter name - operation_name kwarg (Bug Fix)
+LUGS-Integrated Cache System - Complete Implementation
+Version: 2025.10.20.05 - COMPLETE with interface wrappers
+Description: In-memory cache with LUGS tracking, metrics, and TTL expiration
+Memory Limit: 100MB max (configurable via MAX_CACHE_BYTES)
+Features: LRU eviction, automatic cleanup, module dependency tracking
 
-CHANGELOG:
-- 2025.10.20.04: BUG FIX - Parameter name mismatch
-  - FIXED: record_cache_metric() calls now use operation_name= kwarg explicitly
-  - Previously: record_cache_metric('get', hit=True) - positional arg
-  - Now: record_cache_metric(operation_name='get', hit=True) - keyword arg
-  - Reason: Wrapper expects operation_name, not positional operation
-  - This fixes CloudWatch error: "missing 1 required positional argument: 'operation'"
+DEPENDENCY RULES (SUGA-ISP):
+- Cross-interface imports ONLY via gateway.py
+- Metrics: via gateway.record_cache_metric(), gateway.increment_counter()
+- Logging: via gateway.log_*()
+- Security: via gateway.validate_*()
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+INTERFACE ACCESS:
+- interface_cache.py imports THIS file's _execute_*_implementation functions
+- External code imports ONLY from gateway.py
 """
 
-import sys
 import time
-from typing import Any, Dict, Optional, Set
+import sys
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional, Set
 
+# ===== CONFIGURATION =====
 
-# ===== CONSTANTS =====
-
-DEFAULT_CACHE_TTL = 60  # seconds
-MAX_CACHE_BYTES = 50 * 1024 * 1024  # 50MB
-
+DEFAULT_CACHE_TTL = 300  # 5 minutes default TTL
+MAX_CACHE_BYTES = 100 * 1024 * 1024  # 100MB limit
 
 # ===== CACHE MISS SENTINEL =====
 
-_CACHE_MISS = object()  # Sentinel for cache miss detection
+class _CacheMiss:
+    """Sentinel value for cache misses."""
+    def __repr__(self):
+        return '<CACHE_MISS>'
 
+_CACHE_MISS = _CacheMiss()
 
-# ===== CACHE OPERATIONS ENUM =====
+# ===== CACHE TYPES =====
 
-class CacheOperation(Enum):
-    """Cache operations enumeration."""
-    GET = "get"
-    SET = "set"
-    EXISTS = "exists"
-    DELETE = "delete"
-    CLEAR = "clear"
-    CLEANUP_EXPIRED = "cleanup_expired"
-    GET_STATS = "get_stats"
-    GET_METADATA = "get_metadata"
-    GET_MODULE_DEPENDENCIES = "get_module_dependencies"
-
-
-# ===== CACHE ENTRY =====
+class CacheOperation(str, Enum):
+    """Cache operation types for metrics."""
+    GET = 'get'
+    SET = 'set'
+    DELETE = 'delete'
+    CLEAR = 'clear'
+    CLEANUP = 'cleanup'
 
 @dataclass
 class CacheEntry:
-    """Cache entry with LUGS metadata and type hints."""
+    """Cache entry with metadata."""
     value: Any
     timestamp: float
-    ttl: float
-    source_module: Optional[str] = None
-    access_count: int = 0
-    last_access: float = 0.0
-    value_size_bytes: int = 0
+    ttl: int
+    source_module: Optional[str]
+    access_count: int
+    last_access: float
+    value_size_bytes: int
 
-
-# ===== LUGS-INTEGRATED CACHE =====
+# ===== CACHE IMPLEMENTATION =====
 
 class LUGSIntegratedCache:
     """
-    Cache with LUGS dependency tracking and memory monitoring.
+    In-memory cache with LUGS integration and metrics.
     
-    PURIFIED: No validation logic (security interface handles validation).
-    PURE CACHE: Only cache operations - no metrics, no validation.
-    METRICS: All metrics via METRICS interface (no internal tracking).
-    
-    LAMBDA OPTIMIZED: No threading locks (single-threaded per container).
-    SECURITY: All validation via security interface (CVE fixes applied).
-    
-    DESIGN NOTES:
-    - Single-threaded: Lambda containers are single-threaded, no locks needed
-    - Entry modification: Direct modification of entry fields is safe
-    - Expiration cleanup: Happens inline during get() and exists()
-    - LUGS integration: Optional - cache operations continue if LUGS fails
-    - None handling: Can cache None values safely (use exists() to check)
-    - Memory tracking: Tracks both item count AND bytes for Lambda 128MB safety
-    - TTL: Configurable via CACHE_TTL environment variable (default: 60s)
-    - Fast metadata: get_metadata() provides O(1) access without gateway routing
-    - Validation: ALL validation via security interface
-    - Metrics: ALL metrics via metrics interface (no internal _stats)
+    Features:
+    - TTL-based expiration
+    - LRU eviction on memory pressure
+    - Module dependency tracking for LUGS
+    - Metrics integration via gateway
+    - Memory-bounded (100MB default)
     """
     
-    def __init__(self):
+    def __init__(self, max_bytes: int = MAX_CACHE_BYTES):
         self._cache: Dict[str, CacheEntry] = {}
-        self.max_bytes = MAX_CACHE_BYTES
+        self.max_bytes = max_bytes
         self.current_bytes = 0
-        # NO MORE _stats dictionary - all metrics via METRICS interface
     
     def _calculate_entry_size(self, key: str, value: Any) -> int:
-        """Calculate memory size of cache entry."""
+        """Estimate memory size of cache entry."""
         try:
             key_size = sys.getsizeof(key)
             value_size = sys.getsizeof(value)
-            overhead = sys.getsizeof(CacheEntry)
-            return key_size + value_size + overhead
+            metadata_size = 200  # Approximate overhead for CacheEntry
+            return key_size + value_size + metadata_size
         except Exception:
             return 1024  # Default estimate
     
-    def _evict_lru_entries(self, bytes_to_free: int) -> None:
+    def _check_memory_pressure(self) -> bool:
+        """Check if cache is under memory pressure (>80% full)."""
+        return self.current_bytes > (self.max_bytes * 0.8)
+    
+    def _evict_lru_entries(self, bytes_needed: int) -> int:
         """Evict least recently used entries to free memory."""
         if not self._cache:
-            return
+            return 0
         
-        # Import metrics functions
-        from gateway import increment_counter
-        
-        # Sort by last_access (oldest first)
+        # Sort by last access time
         sorted_entries = sorted(
             self._cache.items(),
-            key=lambda item: item[1].last_access
+            key=lambda x: x[1].last_access
         )
         
-        freed = 0
+        bytes_freed = 0
         evicted_count = 0
+        
         for key, entry in sorted_entries:
-            if freed >= bytes_to_free:
+            if bytes_freed >= bytes_needed:
                 break
             
-            freed += entry.value_size_bytes
+            bytes_freed += entry.value_size_bytes
             self.current_bytes -= entry.value_size_bytes
             del self._cache[key]
             evicted_count += 1
         
-        # METRICS: Track evictions via metrics interface
-        increment_counter('cache.memory_evictions', evicted_count)
-    
-    def _check_memory_pressure(self) -> bool:
-        """Check if cache is under memory pressure (>90% full)."""
-        return self.current_bytes > (self.max_bytes * 0.9)
+        # METRICS: Track evictions
+        if evicted_count > 0:
+            try:
+                from gateway import increment_counter
+                increment_counter('cache.entries_evicted', evicted_count)
+            except (ImportError, Exception):
+                pass
+        
+        return evicted_count
     
     def _handle_memory_pressure(self) -> None:
-        """Handle memory pressure by cleaning up expired entries first."""
-        from gateway import log_warning
-        
-        # Try expired cleanup first
-        expired_count = self.cleanup_expired()
-        
-        # Still under pressure after cleanup?
-        if self._check_memory_pressure():
-            log_warning(
-                f"Cache memory pressure after cleanup: {self.current_bytes}/{self.max_bytes} bytes "
-                f"({(self.current_bytes/self.max_bytes)*100:.1f}% full, {expired_count} expired cleared)"
-            )
+        """Handle memory pressure by evicting entries."""
+        bytes_to_free = int(self.max_bytes * 0.2)  # Free 20%
+        self._evict_lru_entries(bytes_to_free)
     
     def set(self, key: str, value: Any, ttl: int = DEFAULT_CACHE_TTL, source_module: Optional[str] = None) -> None:
         """
-        Set cache entry with validation via security interface.
+        Set cache entry with TTL and optional module tracking.
         
         PURIFIED: No validation in cache - delegates to security interface.
         SECURITY: Validation via security interface (CVE fixes applied).
@@ -234,40 +212,40 @@ class LUGSIntegratedCache:
         Returns:
             Cached value, or special _CACHE_MISS sentinel if not found/expired.
         """
-        from gateway import increment_counter, record_cache_metric
-        
-        # METRICS: Track total gets
-        increment_counter('cache.total_gets')
+        from gateway import record_cache_metric, increment_counter
         
         if key not in self._cache:
-            # METRICS: Track cache miss (FIXED: use operation_name kwarg)
+            # METRICS: Track miss
             record_cache_metric(operation_name='get', hit=False)
             return _CACHE_MISS
         
         entry = self._cache[key]
         current_time = time.time()
+        age = current_time - entry.timestamp
         
         # Check expiration
-        if current_time - entry.timestamp > entry.ttl:
+        if age > entry.ttl:
+            # Remove expired entry
             self.current_bytes -= entry.value_size_bytes
             del self._cache[key]
             
-            # METRICS: Track cache miss and expiration (FIXED: use operation_name kwarg)
-            record_cache_metric(operation_name='get', hit=False)
+            # METRICS: Track expiration and miss
             increment_counter('cache.entries_expired')
+            record_cache_metric(operation_name='get', hit=False)
             return _CACHE_MISS
         
-        # Update access tracking
+        # Update access metadata
         entry.access_count += 1
         entry.last_access = current_time
         
-        # METRICS: Track cache hit (FIXED: use operation_name kwarg)
+        # METRICS: Track hit
         record_cache_metric(operation_name='get', hit=True)
+        
         return entry.value
     
     def exists(self, key: str) -> bool:
         """
-        Check if key exists in cache and is not expired.
+        Check if key exists and is not expired.
         
         Args:
             key: Cache key
@@ -280,23 +258,28 @@ class LUGSIntegratedCache:
         
         entry = self._cache[key]
         current_time = time.time()
+        age = current_time - entry.timestamp
         
         # Check expiration
-        if current_time - entry.timestamp > entry.ttl:
-            from gateway import increment_counter
-            
+        if age > entry.ttl:
+            # Remove expired entry
             self.current_bytes -= entry.value_size_bytes
             del self._cache[key]
             
             # METRICS: Track expiration
-            increment_counter('cache.entries_expired')
+            try:
+                from gateway import increment_counter
+                increment_counter('cache.entries_expired')
+            except (ImportError, Exception):
+                pass
+            
             return False
         
         return True
     
     def delete(self, key: str) -> bool:
         """
-        Delete cache entry.
+        Delete cache entry if it exists.
         
         Args:
             key: Cache key
@@ -447,7 +430,7 @@ def _get_cache_instance() -> LUGSIntegratedCache:
     return _cache_instance
 
 
-# ===== CACHE OPERATIONS =====
+# ===== CACHE OPERATIONS (for backward compatibility) =====
 
 def cache_get(key: str) -> Any:
     """Get from cache."""
@@ -502,5 +485,99 @@ def cache_get_module_dependencies() -> Set[str]:
     cache = _get_cache_instance()
     return cache.get_module_dependencies()
 
+
+# ===== INTERFACE IMPLEMENTATION WRAPPERS =====
+# These functions are imported by interface_cache.py
+
+def _execute_get_implementation(key: str, **kwargs) -> Any:
+    """Implementation wrapper for cache get operation."""
+    cache = _get_cache_instance()
+    return cache.get(key)
+
+
+def _execute_set_implementation(key: str, value: Any, ttl: int = DEFAULT_CACHE_TTL, source_module: Optional[str] = None, **kwargs) -> None:
+    """Implementation wrapper for cache set operation."""
+    cache = _get_cache_instance()
+    cache.set(key, value, ttl, source_module)
+
+
+def _execute_exists_implementation(key: str, **kwargs) -> bool:
+    """Implementation wrapper for cache exists operation."""
+    cache = _get_cache_instance()
+    return cache.exists(key)
+
+
+def _execute_delete_implementation(key: str, **kwargs) -> bool:
+    """Implementation wrapper for cache delete operation."""
+    cache = _get_cache_instance()
+    return cache.delete(key)
+
+
+def _execute_clear_implementation(**kwargs) -> int:
+    """Implementation wrapper for cache clear operation."""
+    cache = _get_cache_instance()
+    return cache.clear()
+
+
+def _execute_cleanup_expired_implementation(**kwargs) -> int:
+    """Implementation wrapper for cache cleanup operation."""
+    cache = _get_cache_instance()
+    return cache.cleanup_expired()
+
+
+def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Implementation wrapper for cache stats operation."""
+    cache = _get_cache_instance()
+    return cache.get_stats()
+
+
+def _execute_get_metadata_implementation(key: str, **kwargs) -> Optional[Dict[str, Any]]:
+    """Implementation wrapper for cache metadata operation."""
+    cache = _get_cache_instance()
+    return cache.get_metadata(key)
+
+
+def _execute_get_module_dependencies_implementation(**kwargs) -> Set[str]:
+    """Implementation wrapper for module dependencies operation."""
+    cache = _get_cache_instance()
+    return cache.get_module_dependencies()
+
+
+# ===== MODULE EXPORTS =====
+
+__all__ = [
+    # Constants
+    'DEFAULT_CACHE_TTL',
+    'MAX_CACHE_BYTES',
+    
+    # Types
+    'CacheOperation',
+    'CacheEntry',
+    
+    # Main class
+    'LUGSIntegratedCache',
+    
+    # Module-level operations (backward compatibility)
+    'cache_get',
+    'cache_set',
+    'cache_exists',
+    'cache_delete',
+    'cache_clear',
+    'cache_cleanup_expired',
+    'cache_get_stats',
+    'cache_get_metadata',
+    'cache_get_module_dependencies',
+    
+    # Interface implementation wrappers (for interface_cache.py)
+    '_execute_get_implementation',
+    '_execute_set_implementation',
+    '_execute_exists_implementation',
+    '_execute_delete_implementation',
+    '_execute_clear_implementation',
+    '_execute_cleanup_expired_implementation',
+    '_execute_get_stats_implementation',
+    '_execute_get_metadata_implementation',
+    '_execute_get_module_dependencies_implementation',
+]
 
 # EOF
