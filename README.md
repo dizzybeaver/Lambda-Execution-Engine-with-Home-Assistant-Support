@@ -295,7 +295,6 @@ LEE supports two configuration methods, each with different performance characte
 ║     └─ Processing:        200 - 220 ms                        ║
 ║                                                                ║
 ║  💾 Memory Used:          56 MB / 128 MB (44%)                ║
-║  💰 Cost per 1M calls:    $1.02                               ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
 
@@ -319,16 +318,14 @@ LEE supports two configuration methods, each with different performance characte
 ║     └─ Processing:        384 ms                              ║
 ║                                                                ║
 ║  💾 Memory Used:          90 MB / 128 MB (70%)                ║
-║  💰 Cost per 1M calls:    $1.32                               ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
 
 ═══════════════════════════════════════════════════════════════
-                        📊 WINNER                               
+                        📊 COMPARISON                            
 ═══════════════════════════════════════════════════════════════
 Environment Variables are 29% faster (666-751ms savings)
 Environment Variables use 38% less memory (34 MB savings)
-Environment Variables cost 23% less ($0.30 per million)
 ═══════════════════════════════════════════════════════════════
 ```
 
@@ -380,7 +377,6 @@ Environment Variables cost 23% less ($0.30 per million)
 │  INIT Phase                 243ms         820ms                │
 │  Config Load (cold)         0.44ms        516ms                │
 │  Config Load (warm)         0.02ms        0.02ms               │
-│  Cost per 1M calls          $1.02         $1.32                │
 │  Free Tier Capacity         8.2M/mo       6.0M/mo              │
 │                                                                │
 │  Change Config              Redeploy      Instant              │
@@ -399,7 +395,6 @@ Environment Variables cost 23% less ($0.30 per million)
 - 🏠 **Home/Personal projects** - Simple setup, zero overhead
 - ⚡ **Performance-critical** - 29% faster cold starts
 - 💾 **Memory-constrained** - 38% less memory usage
-- 💰 **Cost-sensitive** - 23% cheaper execution
 - 🔧 **Simple config** - Few parameters (<10)
 - 📦 **Infrequent changes** - Config rarely updated
 
@@ -422,7 +417,6 @@ Environment Variables cost 23% less ($0.30 per million)
 **Trade-offs:**
 - ⚠️ 666-751ms slower cold starts (+29%)
 - ⚠️ 34 MB more memory usage (+38%)
-- ⚠️ $0.30 more per million calls (+23%)
 - ⚠️ Requires IAM policy for SSM access
 
 ### 🎯 Recommendation Matrix
@@ -453,7 +447,7 @@ Environment Variables cost 23% less ($0.30 per million)
 ║  └─ NO → Either works                                         ║
 ║                                                               ║
 ║  Default for most users:                                      ║
-║  → Environment Variables (faster, simpler, cheaper)           ║
+║  → Environment Variables (faster, simpler)                    ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 ```
@@ -474,72 +468,140 @@ HOME_ASSISTANT_TOKEN → /lambda/ha/token (SSM)
 
 ---
 
-## 💰 Cost Analysis: The Honest Truth
+## 💰 AWS Free Tier: The Reality
 
-Let's talk real numbers, not marketing speak.
+Let's be clear about costs - **most users will NEVER be charged.**
 
-### AWS Lambda Free Tier (Forever Free)
+### 🎁 AWS Lambda Free Tier (Permanent)
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║                    AWS FREE TIER (PERMANENT)                  ║
+║                AWS FREE TIER - FOREVER FREE                   ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║                                                               ║
-║  📦 Free Tier Allowance (every month, forever):               ║
+║  AWS provides every month, permanently:                       ║
 ║                                                               ║
-║     1,000,000 requests                                        ║
-║     400,000 GB-seconds                                        ║
+║  📦 1,000,000 requests                                        ║
+║  ⏱️  400,000 GB-seconds of compute time                       ║
 ║                                                               ║
-║  🏠 Typical Home Smart Home Usage:                            ║
-║                                                               ║
-║     Light Use:     ~3,000 requests/month (0.3% of free tier) ║
-║     Moderate Use:  ~10,000 requests/month (1% of free tier)  ║
-║     Heavy Use:     ~30,000 requests/month (3% of free tier)  ║
-║                                                               ║
-║  💰 Monthly Cost: $0.00                                       ║
-║                                                               ║
-║  📊 To EXCEED free tier, you would need:                      ║
-║     33,333 requests PER DAY (every single day)                ║
-║     = One voice command every 2.5 seconds, 24/7/365           ║
-║                                                               ║
-║  🎯 Reality Check:                                            ║
-║     You would need to run a commercial smart home             ║
-║     operation to ever pay anything                            ║
+║  This is NOT a 12-month trial.                                ║
+║  This is PERMANENT free tier.                                 ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 ```
 
-### Even If You Exceed Free Tier...
+### 🏠 Typical Usage: Smart Home Example
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
-║           COST EXAMPLE: 2 MILLION REQUESTS/MONTH              ║
-║              (1 million OVER the free tier)                   ║
+║              REALISTIC MONTHLY USAGE SCENARIOS                ║
 ╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  🏡 Light Home Use:                                           ║
+║     ~3,000 requests/month                                     ║
+║     = 0.3% of free tier                                       ║
+║     💰 Cost: $0.00                                            ║
+║                                                               ║
+║  🏠 Moderate Use:                                             ║
+║     ~10,000 requests/month                                    ║
+║     = 1% of free tier                                         ║
+║     💰 Cost: $0.00                                            ║
+║                                                               ║
+║  🏘️ Heavy Family Use:                                        ║
+║     ~30,000 requests/month                                    ║
+║     = 3% of free tier                                         ║
+║     💰 Cost: $0.00                                            ║
+║                                                               ║
+║  🏢 Power User:                                               ║
+║     ~100,000 requests/month                                   ║
+║     = 10% of free tier                                        ║
+║     💰 Cost: $0.00                                            ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+### 🎯 What Would It Take to Exceed Free Tier?
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║          TO EXCEED THE FREE TIER, YOU WOULD NEED:             ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  📊 Over 1 Million Requests Per Month                         ║
+║                                                               ║
+║  That means:                                                  ║
+║  • 33,333 requests EVERY SINGLE DAY                           ║
+║  • 1,388 requests per hour (24/7)                             ║
+║  • 23 requests per minute (non-stop)                          ║
+║  • One request every 2.6 seconds, 24/7/365                    ║
+║                                                               ║
+║  🏠 For a smart home, this would require:                     ║
+║  • Voice command every 2.6 seconds around the clock           ║
+║  • No sleep, no breaks, no downtime                           ║
+║  • Running a commercial operation                             ║
+║                                                               ║
+║  📈 Realistic ceiling for family home:                        ║
+║  • Heavy use: 100,000 requests/month (10% of limit)          ║
+║  • Still $0.00/month                                          ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+### 💸 If You Somehow Exceed Free Tier
+
+If you're running a **commercial operation** and somehow exceed the generous limits:
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║        HYPOTHETICAL: 2 MILLION REQUESTS/MONTH                 ║
+║           (1 million OVER free tier limit)                    ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  AWS Lambda Pricing (beyond free tier):                       ║
+║                                                               ║
+║  📋 Request charges: $0.20 per 1 million requests             ║
+║  ⏱️  Duration charges: $0.0000166667 per GB-second           ║
+║                                                               ║
+║  Example calculation (2M requests, 1M over limit):            ║
 ║                                                               ║
 ║  Environment Variables Configuration:                         ║
-║  ────────────────────────────────────────                     ║
-║    Request charges:  $0.20 (1M × $0.20/million)               ║
-║    Duration charges: $0.82 (49,125 GB-seconds)                ║
-║    TOTAL:            $1.02/month                              ║
+║    Request cost:  $0.20                                       ║
+║    Duration cost: $0.82                                       ║
+║    Total:         ~$1.00/month                                ║
 ║                                                               ║
 ║  SSM Parameter Store Configuration:                           ║
-║  ────────────────────────────────────────                     ║
-║    Request charges:  $0.20 (1M × $0.20/million)               ║
-║    Duration charges: $1.12 (66,950 GB-seconds)                ║
-║    TOTAL:            $1.32/month                              ║
+║    Request cost:  $0.20                                       ║
+║    Duration cost: $1.12                                       ║
+║    Total:         ~$1.32/month                                ║
 ║                                                               ║
 ║  Compare to alternatives:                                     ║
-║  ────────────────────────────────────────                     ║
-║    Home Assistant Cloud:    $6.50/month                       ║
-║    Nabu Casa:               $6.50/month                       ║
-║    Commercial solutions:    $10-30/month                      ║
-║    Always-on EC2 t3.micro:  ~$7.50/month                      ║
+║    • Home Assistant Cloud: $6.50/month                        ║
+║    • Always-on EC2 instance: ~$7.50/month                     ║
+║    • Commercial platforms: $10-30/month                       ║
+║                                                               ║
+║  Even if you exceed limits, it's still minimal cost.          ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 ```
 
-**The Truth:** For normal usage, this costs absolutely nothing. The AWS Free Tier is extraordinarily generous.
+### ✅ The Bottom Line
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║                      COST REALITY                             ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  For 99% of users:                                            ║
+║  💰 Monthly cost: $0.00                                       ║
+║                                                               ║
+║  The AWS Free Tier is so generous that normal home use       ║
+║  will NEVER incur charges.                                    ║
+║                                                               ║
+║  You would need to run a commercial smart home operation      ║
+║  to ever see a bill.                                          ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+```
 
 ---
 
