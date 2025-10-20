@@ -1,13 +1,12 @@
 # Lambda Execution Engine with Home Assistant Support
 
+<div align="center">
 [![Status](https://img.shields.io/badge/status-Beta-purple.svg)](https://github.com/dizzybeaver/Lambda-Execution-Engine-with-Home-Assistant-Support)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900.svg)](https://aws.amazon.com/lambda/)
 [![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)](https://www.python.org/)
 [![Memory ENV](https://img.shields.io/badge/RAM%20ENV-56MB%20%2F%20128MB-brightgreen.svg)](https://aws.amazon.com/lambda/)
 [![Memory SSM](https://img.shields.io/badge/RAM%20SSM-90MB%20%2F%20128MB-green.svg)](https://aws.amazon.com/lambda/)
-
-<div align="center">
 
 # 🚀 Lambda Execution Engine
 
