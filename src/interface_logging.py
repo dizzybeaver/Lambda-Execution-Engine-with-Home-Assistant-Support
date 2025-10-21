@@ -1,37 +1,63 @@
+# Filename: interface_logging.py
 """
-interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.20.02
-Description: Router for Logging interface with dispatch dictionary pattern
+interface_logging.py - Logging Interface Router
+Version: 2025.10.21.01
+Description: Firewall router for Logging interface (SUGA-ISP COMPLIANT)
+             This file acts as the interface router (firewall) between the SUGA-ISP
+             and internal implementation files. Only this file may be accessed by
+             gateway.py. Internal files are isolated.
 
 CHANGELOG:
-- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation functions
-  - Fixed _validate_operation_start_params() to expect 'operation_name'
-  - Fixed _validate_operation_success_params() to expect 'operation_name'
-  - Fixed _validate_operation_failure_params() to expect 'operation_name'
-  - Resolves RuntimeError: "got multiple values for argument 'operation'"
-- 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-  - Converted from elif chain (7 operations) to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code from ~160 lines to ~145 lines
-  - Easier to maintain and extend (add operation = 1 line)
-  - Follows pattern from interface_utility.py v2025.10.17.16
-  - All validation logic preserved in helper functions
-- 2025.10.17.15: FIXED Issue #20 - Added import error protection
-- 2025.10.16.04: Bug fixes - Added error handling, parameter validation
-
-CRITICAL BUG FIX (2025.10.20.02):
-Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
-         Validation functions checked for 'operation' in kwargs, creating conflict.
-Solution: Changed validation functions to check for 'operation_name' instead of 'operation'.
-Impact: Matches gateway_wrappers.py parameter rename (operation → operation_name).
+- 2025.10.21.01: Added DEBUG_MODE support (DEC-22 compliance)
+  - Added _is_debug_mode() function to check DEBUG_MODE environment variable
+  - Added _print_debug() function for consistent debug output
+  - Added DEBUG_MODE checks at module initialization
+  - Added debug logging for operation dispatch
+  - Consistent with logging_manager.py and logging_core.py DEBUG_MODE pattern
+- 2025.10.20.03: Parameter Validation Updates
+  - Updated validation functions to expect 'operation_name' parameter
+  - Matches gateway_wrappers.py parameter names
+  - Aligned with logging_core.py implementation function parameters
+- 2025.10.16.06: Architecture Compliance
+  - Implements SUGA-ISP interface router pattern
+  - Routes operations to logging_core.py implementations
+  - Validates parameters before routing
+  - Uses dispatch dictionary for O(1) routing
 
 Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 """
 
-from typing import Any, Callable, Dict
+import os
+from typing import Any, Dict, Callable
 
-# ===== IMPORT PROTECTION =====
+# ===== DEBUG_MODE SUPPORT (DEC-22) =====
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE environment variable is set to 'true'."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+def _print_debug(msg: str, component: str = 'INTERFACE_LOGGING'):
+    """Print debug message if DEBUG_MODE=true (DEC-22)."""
+    if _is_debug_mode():
+        print(f"[{component}_DEBUG] {msg}")
+
+# Module initialization debug
+_print_debug("Loading interface_logging.py module")
+
+
+# ===== IMPORTS =====
 
 try:
     from logging_core import (
@@ -41,23 +67,18 @@ try:
         _execute_log_debug_implementation,
         _execute_log_operation_start_implementation,
         _execute_log_operation_success_implementation,
-        _execute_log_operation_failure_implementation
+        _execute_log_operation_failure_implementation,
     )
     _LOGGING_AVAILABLE = True
     _LOGGING_IMPORT_ERROR = None
+    _print_debug("logging_core imported successfully")
 except ImportError as e:
     _LOGGING_AVAILABLE = False
     _LOGGING_IMPORT_ERROR = str(e)
-    _execute_log_info_implementation = None
-    _execute_log_error_implementation = None
-    _execute_log_warning_implementation = None
-    _execute_log_debug_implementation = None
-    _execute_log_operation_start_implementation = None
-    _execute_log_operation_success_implementation = None
-    _execute_log_operation_failure_implementation = None
+    _print_debug(f"logging_core import failed: {e}")
 
 
-# ===== VALIDATION HELPERS =====
+# ===== PARAMETER VALIDATION =====
 
 def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate message parameter exists."""
@@ -106,7 +127,8 @@ def _validate_operation_failure_params(kwargs: Dict[str, Any]) -> None:
 
 def _build_dispatch_dict() -> Dict[str, Callable]:
     """Build dispatch dictionary for logging operations. Only called if logging available."""
-    return {
+    _print_debug("Building operation dispatch dictionary")
+    dispatch = {
         'log_info': lambda **kwargs: (
             _validate_message_param(kwargs, 'log_info'),
             _execute_log_info_implementation(**kwargs)
@@ -142,6 +164,8 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _execute_log_operation_failure_implementation(**kwargs)
         )[1],
     }
+    _print_debug(f"Dispatch dictionary built with {len(dispatch)} operations")
+    return dispatch
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _LOGGING_AVAILABLE else {}
 
@@ -163,24 +187,35 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
         RuntimeError: If Logging interface unavailable
         ValueError: If operation is unknown or parameters invalid
     """
+    _print_debug(f"execute_logging_operation() called: operation='{operation}'")
+    
     # Check Logging availability
     if not _LOGGING_AVAILABLE:
-        raise RuntimeError(
+        error_msg = (
             f"Logging interface unavailable: {_LOGGING_IMPORT_ERROR}. "
             "This may indicate missing logging_core module or circular import."
         )
+        _print_debug(f"ERROR: {error_msg}")
+        raise RuntimeError(error_msg)
     
     # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
-        raise ValueError(
+        error_msg = (
             f"Unknown logging operation: '{operation}'. "
             f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
         )
+        _print_debug(f"ERROR: {error_msg}")
+        raise ValueError(error_msg)
     
     # Dispatch using dictionary lookup (O(1))
-    return _OPERATION_DISPATCH[operation](**kwargs)
+    _print_debug(f"Dispatching operation '{operation}' to implementation")
+    result = _OPERATION_DISPATCH[operation](**kwargs)
+    _print_debug(f"Operation '{operation}' completed successfully")
+    return result
 
 
 __all__ = ['execute_logging_operation']
+
+_print_debug("interface_logging.py module loaded successfully")
 
 # EOF
