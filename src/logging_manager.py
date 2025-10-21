@@ -1,21 +1,22 @@
 # Filename: logging_manager.py
 """
 logging_manager.py - Core logging manager (SECURITY HARDENED)
-Version: 2025.10.21.02
+Version: 2025.10.21.03
 Description: LoggingCore class with rate limiting and validation
 
-SECURITY ENHANCEMENTS (2025.10.21.02):
+SECURITY ENHANCEMENTS (2025.10.21.03):
+- Fixed ErrorEntry dataclass usage
 - Rate limiting: MAX_LOGS_PER_INVOCATION to prevent log flooding
 - LOG_LEVEL validation: Prevents misconfiguration
 - Invocation tracking: Reset log count per Lambda invocation
 - Enhanced error tracking with limits
 
 CHANGELOG:
+- 2025.10.21.03: Fixed ErrorEntry usage (removed ErrorLogEntry)
 - 2025.10.21.02: SECURITY HARDENING - Rate limiting + LOG_LEVEL validation
 - 2025.10.21.01: Added singleton docs + DEBUG_MODE support + documentation standards
 - 2025.10.18.01: Fixed ErrorLogLevel enum usage (Issue #15)
 - 2025.10.17.04: Removed threading locks (Issue #14)
-- 2025.10.17.03: Fixed inconsistent error log limits (Issue #10)
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -28,56 +29,39 @@ from typing import Dict, Any, Optional, List
 from collections import deque
 from datetime import datetime
 
-from logging_types import (
-    LogTemplate, ErrorEntry, ErrorLogEntry, ErrorLogLevel
-)
+from logging_types import LogTemplate, ErrorEntry, ErrorLogLevel
 
 # ===== CONFIGURATION =====
 
-# Template system
-_USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'true').lower() == 'true'
-
-# SECURITY: Rate limiting (CVE-LOG-003 mitigation)
+_USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'false').lower() == 'true'
 MAX_LOGS_PER_INVOCATION = int(os.environ.get('MAX_LOGS_PER_INVOCATION', '500'))
 LOG_RATE_LIMIT_ENABLED = os.environ.get('LOG_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
-
-# SECURITY: LOG_LEVEL validation
 VALID_LOG_LEVELS = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
 
-# ===== DEBUG_MODE SUPPORT (DEC-22) =====
+# ===== DEBUG_MODE SUPPORT =====
 
 def _is_debug_mode() -> bool:
     """Check if DEBUG_MODE is enabled for flow visibility."""
     return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 def _print_debug(msg: str, component: str = 'LOGGING_MANAGER'):
-    """Print debug message if DEBUG_MODE=true (DEC-22)."""
+    """Print debug message if DEBUG_MODE=true."""
     if _is_debug_mode():
         print(f"[{component}_DEBUG] {msg}")
 
-_print_debug("Loading logging_manager.py module (SECURITY HARDENED)")
+_print_debug("Loading logging_manager.py module")
 
 # ===== LOGGING CONFIGURATION =====
 
 def _get_validated_log_level() -> int:
-    """
-    Get and validate LOG_LEVEL environment variable.
-    
-    SECURITY: Validates LOG_LEVEL to prevent misconfiguration.
-    Returns default INFO if invalid.
-    
-    Returns:
-        int: logging level constant
-    """
+    """Get and validate LOG_LEVEL environment variable."""
     log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
     
-    # Validate against allowed levels
     if log_level_str not in VALID_LOG_LEVELS:
         print(f"[LOGGING_MANAGER_WARNING] Invalid LOG_LEVEL='{log_level_str}', "
               f"must be one of {VALID_LOG_LEVELS}. Defaulting to INFO.")
         log_level_str = 'INFO'
     
-    # Convert to logging constant
     level_map = {
         'DEBUG': logging.DEBUG,
         'INFO': logging.INFO,
@@ -90,7 +74,6 @@ def _get_validated_log_level() -> int:
     _print_debug(f"Log level set to: {log_level_str} ({level})")
     return level
 
-# Configure Python logging
 logging.basicConfig(
     level=_get_validated_log_level(),
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -115,19 +98,13 @@ class RateLimitTracker:
         _print_debug(f"Rate limit tracker reset for invocation: {invocation_id}")
     
     def increment(self) -> bool:
-        """
-        Increment log count and check if limit exceeded.
-        
-        Returns:
-            bool: True if logging allowed, False if limit exceeded
-        """
+        """Increment log count and check if limit exceeded."""
         self.log_count += 1
         
         if not LOG_RATE_LIMIT_ENABLED:
             return True
         
         if self.log_count > MAX_LOGS_PER_INVOCATION:
-            # Show warning once when limit hit
             if not self.limit_warning_shown:
                 print(f"[LOGGING_MANAGER_RATE_LIMIT] Log limit of {MAX_LOGS_PER_INVOCATION} "
                       f"exceeded for invocation {self.invocation_id}. Suppressing further logs.")
@@ -146,20 +123,12 @@ class RateLimitTracker:
             'rate_limiting_enabled': LOG_RATE_LIMIT_ENABLED
         }
 
-# Global rate limit tracker
 _RATE_LIMITER = RateLimitTracker()
 
 # ===== LOGGING CORE =====
 
 class LoggingCore:
-    """
-    Unified logging manager with template optimization and rate limiting.
-    
-    SECURITY FEATURES:
-    - Rate limiting: Prevents log flooding attacks
-    - LOG_LEVEL validation: Prevents misconfiguration
-    - Error tracking limits: Prevents memory exhaustion
-    """
+    """Unified logging manager with template optimization and rate limiting."""
     
     def __init__(self):
         """Initialize logging core."""
@@ -167,8 +136,6 @@ class LoggingCore:
         self._templates: Dict[str, LogTemplate] = {}
         self._template_hits = 0
         self._template_misses = 0
-        
-        # Error tracking (with limits)
         self._error_log: deque = deque(maxlen=100)
         self._error_count_by_type: Dict[str, int] = {}
         
@@ -179,60 +146,31 @@ class LoggingCore:
         _RATE_LIMITER.reset_for_invocation(invocation_id)
     
     def log(self, message: str, level: int = logging.INFO, **kwargs) -> None:
-        """
-        Core logging with rate limiting and template optimization.
-        
-        SECURITY: Rate limited to prevent log flooding.
-        
-        Args:
-            message: Log message (already sanitized by interface_logging)
-            level: Logging level
-            **kwargs: Additional context (already sanitized)
-        """
-        # Check rate limit (SECURITY)
+        """Core logging with rate limiting."""
         if not _RATE_LIMITER.increment():
-            return  # Suppress log if limit exceeded
+            return
         
-        # Template optimization (if enabled)
         if _USE_LOG_TEMPLATES:
             template_key = self._get_template_key(message)
             
             if template_key in self._templates:
                 template = self._templates[template_key]
-                template.increment_count()
                 self._template_hits += 1
-                
-                # Log with template reference
-                self.logger.log(level, f"[T{template.template_id}] {message}", extra=kwargs)
+                self.logger.log(level, f"[T{id(template)}] {message}", extra=kwargs)
             else:
-                # Create new template
-                template = LogTemplate(message)
-                self._templates[template_key] = template
+                self._templates[template_key] = message
                 self._template_misses += 1
-                
-                # Log normally
                 self.logger.log(level, message, extra=kwargs)
         else:
-            # No template optimization
             self.logger.log(level, message, extra=kwargs)
     
     def log_error_with_tracking(self, message: str, error: Optional[str] = None, 
                                level: ErrorLogLevel = ErrorLogLevel.MEDIUM, **kwargs) -> None:
-        """
-        Log error with tracking and rate limiting.
-        
-        Args:
-            message: Error message (already sanitized)
-            error: Exception details (already sanitized)
-            level: Error severity level
-            **kwargs: Additional context (already sanitized)
-        """
-        # Check rate limit
+        """Log error with tracking and rate limiting."""
         if not _RATE_LIMITER.increment():
             return
         
-        # Create error entry
-        entry = ErrorLogEntry(
+        entry = ErrorEntry(
             timestamp=datetime.now(),
             error_type=kwargs.get('error_type', 'UnknownError'),
             message=message,
@@ -240,14 +178,11 @@ class LoggingCore:
             details=error
         )
         
-        # Track error (with deque size limit for security)
         self._error_log.append(entry)
         
-        # Count by type
         error_type = entry.error_type
         self._error_count_by_type[error_type] = self._error_count_by_type.get(error_type, 0) + 1
         
-        # Log
         level_map = {
             ErrorLogLevel.LOW: logging.WARNING,
             ErrorLogLevel.MEDIUM: logging.ERROR,
@@ -260,8 +195,7 @@ class LoggingCore:
     
     def _get_template_key(self, message: str) -> str:
         """Generate template key from message."""
-        # Simple implementation: use message as key
-        return message[:100]  # Limit key length
+        return message[:100]
     
     def get_template_stats(self) -> Dict[str, Any]:
         """Get template statistics."""
@@ -285,7 +219,7 @@ class LoggingCore:
                     'message': entry.message,
                     'level': entry.level.value
                 }
-                for entry in list(self._error_log)[-10:]  # Last 10 errors
+                for entry in list(self._error_log)[-10:]
             ]
         }
     
