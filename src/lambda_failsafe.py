@@ -1,19 +1,12 @@
 """
-lambda_failsafe.py - Emergency Failsafe Handler (SIMPLIFIED)
-Version: 2025.10.20.TOKEN_ONLY
-Description: Direct passthrough to Home Assistant with ONLY token from SSM
+lambda_failsafe.py - Emergency Failsafe Handler (INDEPENDENT)
+Version: 2025.10.21.INDEPENDENT
+Description: Direct passthrough to Home Assistant, NO SUGA dependencies
 
-BREAKING CHANGE:
-- SSM retrieves ONLY the Home Assistant token
-- ALL other configuration from environment variables
-- Faster failsafe activation, simpler implementation
-
-CHANGELOG:
-- 2025.10.20.TOKEN_ONLY: SIMPLIFIED - Only token from SSM
-  - Uses simplified config_param_store.get_ha_token()
-  - All other config from environment
-  - Improved debug output
-  - Faster failsafe mode
+CRITICAL: This file must work independently of SUGA infrastructure
+- Simple in-memory cache (no gateway)
+- Direct boto3 SSM (no config_param_store)
+- Minimal dependencies (stdlib + boto3)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -75,12 +68,34 @@ class _Logger:
 _logger = _Logger()
 
 
+# ===== SIMPLE IN-MEMORY CACHE (NO GATEWAY DEPENDENCY) =====
+
+_TOKEN_CACHE = {'value': None, 'timestamp': 0}
+_CACHE_TTL = 300  # 5 minutes
+
+
+def _simple_cache_get(key: str) -> Optional[str]:
+    """Simple cache get - no gateway dependency."""
+    if key == 'ssm_token':
+        if _TOKEN_CACHE['value'] and (time.time() - _TOKEN_CACHE['timestamp'] < _CACHE_TTL):
+            return _TOKEN_CACHE['value']
+    return None
+
+
+def _simple_cache_set(key: str, value: str):
+    """Simple cache set - no gateway dependency."""
+    if key == 'ssm_token':
+        _TOKEN_CACHE['value'] = value
+        _TOKEN_CACHE['timestamp'] = time.time()
+
+
 # ===== TOKEN LOADING =====
 
 def _load_token_from_ssm() -> Optional[str]:
     """
     Load Home Assistant token from SSM Parameter Store.
     
+    INDEPENDENCE: Uses simple in-memory cache, NO gateway dependencies.
     Only used if USE_PARAMETER_STORE=true in failsafe mode.
     
     Returns:
@@ -91,20 +106,45 @@ def _load_token_from_ssm() -> Optional[str]:
     _print_debug("Attempting SSM token retrieval in failsafe mode")
     
     try:
-        # Lazy import config_param_store
-        from config_param_store import get_ha_token
+        # Check simple cache first
+        cached = _simple_cache_get('ssm_token')
+        if cached:
+            _elapsed = (time.perf_counter() - _start) * 1000
+            _print_timing(f"SSM token (CACHED): {_elapsed:.2f}ms")
+            _logger.info("Token loaded from failsafe cache")
+            return cached
         
-        token = get_ha_token(use_cache=True)
+        # Direct SSM retrieval - optimized, no gateway dependency
+        _print_debug("Cache miss, fetching from SSM")
+        
+        param_prefix = os.environ.get('PARAMETER_PREFIX', '/lambda-execution-engine')
+        param_path = f"{param_prefix}/home_assistant/token"
+        
+        _print_debug(f"SSM parameter path: {param_path}")
+        
+        # Try preloaded client first (fast), fallback to botocore (medium)
+        try:
+            from lambda_preload import _BOTO3_SSM_CLIENT
+            if _BOTO3_SSM_CLIENT is not None:
+                ssm = _BOTO3_SSM_CLIENT
+                _print_debug("Using preloaded SSM client")
+            else:
+                from botocore.session import Session
+                ssm = Session().create_client('ssm')
+                _print_debug("Using botocore SSM client")
+        except ImportError:
+            from botocore.session import Session
+            ssm = Session().create_client('ssm')
+            _print_debug("Using botocore SSM client (preload unavailable)")
+        response = ssm.get_parameter(Name=param_path, WithDecryption=True)
+        token = response['Parameter']['Value']
+        
+        # Cache it
+        _simple_cache_set('ssm_token', token)
         
         _elapsed = (time.perf_counter() - _start) * 1000
-        _print_timing(f"SSM token retrieval: {_elapsed:.2f}ms, success={token is not None}")
-        
-        if token:
-            _print_debug("Token retrieved from SSM")
-            _logger.info("Token loaded from SSM Parameter Store")
-        else:
-            _print_debug("SSM returned None")
-            _logger.warning("SSM token retrieval returned None")
+        _print_timing(f"SSM token retrieval: {_elapsed:.2f}ms, success=True")
+        _logger.info("Token loaded from SSM Parameter Store")
         
         return token
         
@@ -131,68 +171,45 @@ def _load_failsafe_config() -> Dict[str, Any]:
     
     Returns:
         Configuration dictionary
-        
-    Raises:
-        ValueError: If HOME_ASSISTANT_URL not configured
     """
     _start = time.perf_counter()
     _print_timing("===== LOAD_FAILSAFE_CONFIG START =====")
     _print_debug("Loading failsafe configuration")
     
-    use_parameter_store = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+    # Get token
+    use_param_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
     
-    # Load base URL from environment (ALWAYS from environment in failsafe)
-    base_url = os.getenv('HOME_ASSISTANT_URL')
-    if not base_url:
-        _print_debug("HOME_ASSISTANT_URL not set")
-        raise ValueError('HOME_ASSISTANT_URL not configured')
-    
-    _print_debug(f"Base URL: {base_url}")
-    
-    # Load SSL verification setting
-    verify_ssl_str = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
-    verify_ssl = verify_ssl_str != 'false'
-    _print_debug(f"SSL verification: {verify_ssl}")
-    
-    # Load token
-    fallback_token = None
-    
-    if use_parameter_store:
+    if use_param_store:
         _print_debug("USE_PARAMETER_STORE=true, attempting SSM")
-        fallback_token = _load_token_from_ssm()
+        token = _load_token_from_ssm()
+    else:
+        _print_debug("USE_PARAMETER_STORE=false, using environment")
+        token = None
     
-    # Fallback to environment if SSM failed or disabled
-    if fallback_token is None:
-        _print_debug("Loading token from environment")
-        fallback_token = os.getenv('HOME_ASSISTANT_TOKEN') or os.getenv('LONG_LIVED_ACCESS_TOKEN')
-        
-        if fallback_token:
-            _print_debug("Token found in environment")
-        else:
-            _print_debug("No token in environment")
+    # Fallback to environment variables
+    if not token:
+        _print_debug("Falling back to environment variables for token")
+        token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN')
     
+    # Build config
     config = {
-        'base_url': base_url,
-        'verify_ssl': verify_ssl,
-        'debug_mode': _is_debug_mode(),
-        'fallback_token': fallback_token,
-        'api_endpoint': f'{base_url}/api/alexa/smart_home',
-        'use_parameter_store': use_parameter_store
+        'api_endpoint': f"{os.environ.get('HOME_ASSISTANT_URL', 'http://homeassistant.local:8123')}/api/alexa/smart_home",
+        'fallback_token': token,
+        'verify_ssl': os.environ.get('HOME_ASSISTANT_VERIFY_SSL', 'true').lower() == 'true'
     }
     
     _elapsed = (time.perf_counter() - _start) * 1000
     _print_timing(f"===== LOAD_FAILSAFE_CONFIG COMPLETE: {_elapsed:.2f}ms =====")
-    
-    _logger.debug(f'Failsafe configuration loaded: base_url={base_url}, verify_ssl={verify_ssl}, ssm={use_parameter_store}, has_token={fallback_token is not None}')
+    _print_debug(f"Config loaded: url={config['api_endpoint']}, has_token={bool(token)}")
     
     return config
 
 
 # ===== TOKEN EXTRACTION =====
 
-def _extract_bearer_token(event: Dict[str, Any], fallback_token: Optional[str] = None) -> str:
+def _extract_bearer_token(event: Dict[str, Any], fallback_token: Optional[str]) -> str:
     """
-    Extract Bearer token from Alexa directive event.
+    Extract Bearer token from Alexa event or use fallback.
     
     Priority:
     1. directive.endpoint.scope.token (user-linked account)
@@ -333,7 +350,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _start = time.perf_counter()
     _print_timing("===== FAILSAFE HANDLER START =====")
     
-    _logger.info('âš ï¸ FAILSAFE MODE ACTIVATED - Bypassing Lambda Execution Engine')
+    _logger.info('⚠️ FAILSAFE MODE ACTIVATED - Bypassing Lambda Execution Engine')
     _print_debug("Failsafe mode handler invoked")
     
     try:
@@ -346,7 +363,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         _total_time = (time.perf_counter() - _start) * 1000
         _print_timing(f"===== FAILSAFE HANDLER COMPLETE: {_total_time:.2f}ms =====")
         
-        _logger.info(f'âœ"ï¸ Failsafe request successful ({_total_time:.0f}ms)')
+        _logger.info(f'✔️ Failsafe request successful ({_total_time:.0f}ms)')
         
         return response
         
@@ -355,7 +372,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         _print_timing(f"===== FAILSAFE HANDLER FAILED: {_error_time:.2f}ms =====")
         _print_debug(f"Failsafe handler exception: {e}")
         
-        _logger.error(f'â›"ï¸ Failsafe request failed: {e}')
+        _logger.error(f'❌ Failsafe request failed: {e}')
         
         # Return error response in Alexa format
         return {
@@ -373,5 +390,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
         }
 
+
+# Alias for backwards compatibility
+handler = lambda_handler
 
 # EOF
