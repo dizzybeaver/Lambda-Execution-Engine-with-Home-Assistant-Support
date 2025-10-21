@@ -114,16 +114,28 @@ def _load_token_from_ssm() -> Optional[str]:
             _logger.info("Token loaded from failsafe cache")
             return cached
         
-        # Direct SSM retrieval - bypass config_param_store to avoid gateway dependency
+        # Direct SSM retrieval - optimized, no gateway dependency
         _print_debug("Cache miss, fetching from SSM")
-        import boto3
         
         param_prefix = os.environ.get('PARAMETER_PREFIX', '/lambda-execution-engine')
         param_path = f"{param_prefix}/home_assistant/token"
         
         _print_debug(f"SSM parameter path: {param_path}")
         
-        ssm = boto3.client('ssm')
+        # Try preloaded client first (fast), fallback to botocore (medium)
+        try:
+            from lambda_preload import _BOTO3_SSM_CLIENT
+            if _BOTO3_SSM_CLIENT is not None:
+                ssm = _BOTO3_SSM_CLIENT
+                _print_debug("Using preloaded SSM client")
+            else:
+                from botocore.session import Session
+                ssm = Session().create_client('ssm')
+                _print_debug("Using botocore SSM client")
+        except ImportError:
+            from botocore.session import Session
+            ssm = Session().create_client('ssm')
+            _print_debug("Using botocore SSM client (preload unavailable)")
         response = ssm.get_parameter(Name=param_path, WithDecryption=True)
         token = response['Parameter']['Value']
         
