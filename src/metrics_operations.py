@@ -1,22 +1,17 @@
 """
 metrics_operations.py - Gateway implementation functions for metrics
-Version: 2025.10.15.02
-Description: Gateway-compatible implementation functions for metrics operations
-            FIXED: Moved _MANAGER import inside functions to avoid circular import
+Version: 2025.10.20.03
+Description: FIXED operation_name parameter mismatch in cache metric implementation
+
+CHANGELOG:
+- 2025.10.20.03: BUG FIX - Parameter name mismatch
+  - FIXED: _execute_record_cache_metric_implementation() signature
+  - Changed: operation: str â†' operation_name: str
+  - Reason: Gateway wrapper sends operation_name, not operation
+  - This fixes CloudWatch error: "missing 1 required positional argument: 'operation'"
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from typing import Dict, Any, Optional
@@ -48,15 +43,20 @@ def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
     return _MANAGER.execute_metric_operation(MetricOperation.GET_STATS)
 
 
-def _execute_record_operation_metric_implementation(operation: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
-    """Execute record operation metric."""
+def _execute_record_operation_metric_implementation(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
+    """
+    Execute record operation metric.
+    
+    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
+    to match gateway wrapper signature and avoid parameter conflicts.
+    """
     from metrics_core import _MANAGER
-    dimensions = {'operation': operation, 'success': str(success)}
+    dimensions = {'operation': operation_name, 'success': str(success)}
     if error_type:
         dimensions['error_type'] = error_type
-    _MANAGER.record_metric(f'operation.{operation}.count', 1.0, dimensions)
+    _MANAGER.record_metric(f'operation.{operation_name}.count', 1.0, dimensions)
     if duration_ms > 0:
-        _MANAGER.record_metric(f'operation.{operation}.duration_ms', duration_ms, dimensions)
+        _MANAGER.record_metric(f'operation.{operation_name}.duration_ms', duration_ms, dimensions)
     return True
 
 
@@ -68,10 +68,26 @@ def _execute_record_error_response_metric_implementation(error_type: str, severi
     return True
 
 
-def _execute_record_cache_metric_implementation(operation: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
-    """Execute record cache metric."""
+def _execute_record_cache_metric_implementation(operation_name: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
+    """
+    Execute record cache metric.
+    
+    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
+    to match gateway wrapper signature and avoid parameter conflicts.
+    
+    Args:
+        operation_name: Name of cache operation (e.g., 'get', 'set')
+        hit: Whether operation resulted in cache hit
+        miss: Whether operation resulted in cache miss
+        eviction: Whether operation caused eviction
+        duration_ms: Operation duration in milliseconds
+        **kwargs: Additional parameters (ignored)
+        
+    Returns:
+        True if metric recorded successfully
+    """
     from metrics_core import _MANAGER
-    dimensions = {'operation': operation}
+    dimensions = {'operation': operation_name}
     if hit:
         dimensions['result'] = 'hit'
         _MANAGER.record_metric('cache.hit', 1.0, dimensions)

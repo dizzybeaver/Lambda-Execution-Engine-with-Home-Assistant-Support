@@ -1,18 +1,24 @@
 """
 interface_metrics.py - Metrics Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
+Version: 2025.10.20.02
 Description: Router for Metrics interface with dispatch dictionary pattern
 
 CHANGELOG:
-- 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-  - Converted from elif chain (18+ operations) to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code from ~290 lines to ~240 lines
-  - Easier to maintain and extend (add operation = 1 line)
-  - Follows pattern from interface_utility.py v2025.10.17.16
-  - All validation logic preserved in helper functions
-  - Supports operation aliases (record/record_metric, etc.)
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation function
+  - Fixed _validate_operation_param() to expect 'operation_name' instead of 'operation'
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
+  - Matches gateway_wrappers.py and interface_logging.py parameter rename
+- 2025.10.17.16: Modernized with dispatch dictionary pattern
+  - Converted from elif chain to dispatch dictionary (O(1) lookup)
+  - Added comprehensive parameter validation
+  - Added import error protection
 - 2025.10.17.05: Added parameter validation for all operations
+
+CRITICAL BUG FIX (2025.10.20.02):
+Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
+         _validate_operation_param() checked for 'operation' in kwargs, creating conflict.
+Solution: Changed validation function to check for 'operation_name' instead of 'operation'.
+Impact: Fixes record_operation_metric() and record_cache_metric() parameter conflicts.
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -99,14 +105,19 @@ def _validate_record_metric_params(kwargs: Dict[str, Any], operation: str) -> No
 
 
 def _validate_operation_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """Validate operation parameter."""
-    if 'operation' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'operation'")
+    """
+    Validate operation_name parameter.
     
-    op_value = kwargs.get('operation')
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError(f"Metrics operation '{operation}' requires parameter 'operation_name'")
+    
+    op_value = kwargs.get('operation_name')
     if not isinstance(op_value, str) or not op_value.strip():
         raise ValueError(
-            f"Metrics operation '{operation}' parameter 'operation' must be non-empty string"
+            f"Metrics operation '{operation}' parameter 'operation_name' must be non-empty string"
         )
 
 
@@ -118,8 +129,8 @@ def _validate_error_type_param(kwargs: Dict[str, Any], operation: str) -> None:
 
 def _validate_api_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate API parameter."""
-    if 'api_endpoint' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'api_endpoint'")
+    if 'endpoint' not in kwargs:
+        raise ValueError(f"Metrics operation '{operation}' requires parameter 'endpoint'")
 
 
 def _validate_http_metric_params(kwargs: Dict[str, Any], operation: str) -> None:

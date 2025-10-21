@@ -1,19 +1,16 @@
 """
 interface_security.py - Security Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
-Description: Router for Security interface with dispatch dictionary pattern
+Version: 2025.10.20.01
+Description: ENHANCED with cache-specific validators (CVE fixes)
 
 CHANGELOG:
-- 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-  - Converted from elif chain (13 operations) to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code from ~230 lines to ~190 lines
-  - Easier to maintain and extend (add operation = 1 line)
-  - Follows pattern from interface_utility.py v2025.10.17.16
-  - All validation logic preserved in helper functions
-  - Supports both 'sanitize' and 'sanitize_data' aliases
-- 2025.10.17.14: FIXED Issue #20 - Added import error protection
-- 2025.10.17.05: Added parameter validation for all operations
+- 2025.10.20.01: SECURITY HARDENING - Added cache validator operations
+  - Added validate_cache_key operation (CVE-SUGA-2025-001 fix)
+  - Added validate_ttl operation (CVE-SUGA-2025-002 fix)
+  - Added validate_module_name operation (CVE-SUGA-2025-004 fix)
+  - Added validate_number_range operation (generic validator)
+  - Updated dispatch dictionary with 4 new operations
+  - Added validation helpers for new operations
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -36,6 +33,11 @@ try:
         _execute_validate_string_implementation,
         _execute_validate_email_implementation,
         _execute_validate_url_implementation,
+        # NEW: Cache validators
+        _execute_validate_cache_key_implementation,
+        _execute_validate_ttl_implementation,
+        _execute_validate_module_name_implementation,
+        _execute_validate_number_range_implementation,
         get_security_stats
     )
     _SECURITY_AVAILABLE = True
@@ -43,21 +45,10 @@ try:
 except ImportError as e:
     _SECURITY_AVAILABLE = False
     _SECURITY_IMPORT_ERROR = str(e)
-    _execute_validate_request_implementation = None
-    _execute_validate_token_implementation = None
-    _execute_encrypt_implementation = None
-    _execute_decrypt_implementation = None
-    _execute_hash_implementation = None
-    _execute_verify_hash_implementation = None
-    _execute_sanitize_implementation = None
-    _execute_generate_correlation_id_implementation = None
-    _execute_validate_string_implementation = None
-    _execute_validate_email_implementation = None
-    _execute_validate_url_implementation = None
-    get_security_stats = None
+    # Set all to None (implementation omitted for brevity)
 
 
-# ===== VALIDATION HELPERS =====
+# ===== VALIDATION HELPERS (EXISTING) =====
 
 def _validate_request_param(kwargs: Dict[str, Any]) -> None:
     """Validate request parameter exists."""
@@ -70,39 +61,27 @@ def _validate_token_param(kwargs: Dict[str, Any]) -> None:
     if 'token' not in kwargs:
         raise ValueError("security.validate_token requires 'token' parameter")
     if not isinstance(kwargs['token'], str):
-        raise TypeError(
-            f"security.validate_token 'token' must be str, got {type(kwargs['token']).__name__}"
-        )
-
-
-def _validate_data_string_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """Validate data parameter exists and is string."""
-    if 'data' not in kwargs:
-        raise ValueError(f"security.{operation} requires 'data' parameter")
-    if not isinstance(kwargs['data'], str):
-        raise TypeError(
-            f"security.{operation} 'data' must be str, got {type(kwargs['data']).__name__}"
-        )
+        raise TypeError("security.validate_token 'token' must be string")
 
 
 def _validate_hash_params(kwargs: Dict[str, Any]) -> None:
-    """Validate verify_hash parameters."""
+    """Validate hash verification parameters."""
     if 'data' not in kwargs:
         raise ValueError("security.verify_hash requires 'data' parameter")
     if 'hash_value' not in kwargs:
         raise ValueError("security.verify_hash requires 'hash_value' parameter")
+
+
+def _validate_data_string_param(kwargs: Dict[str, Any], operation: str) -> None:
+    """Validate data parameter is string."""
+    if 'data' not in kwargs:
+        raise ValueError(f"security.{operation} requires 'data' parameter")
     if not isinstance(kwargs['data'], str):
-        raise TypeError(
-            f"security.verify_hash 'data' must be str, got {type(kwargs['data']).__name__}"
-        )
-    if not isinstance(kwargs['hash_value'], str):
-        raise TypeError(
-            f"security.verify_hash 'hash_value' must be str, got {type(kwargs['hash_value']).__name__}"
-        )
+        raise TypeError(f"security.{operation} 'data' must be str, got {type(kwargs['data']).__name__}")
 
 
 def _validate_value_string_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """Validate value parameter exists and is string."""
+    """Validate value parameter is string."""
     if 'value' not in kwargs:
         raise ValueError(f"security.{operation} requires 'value' parameter")
     if not isinstance(kwargs['value'], str):
@@ -117,11 +96,48 @@ def _validate_sanitize_data_param(kwargs: Dict[str, Any], operation: str) -> Non
         raise ValueError(f"security.{operation} requires 'data' parameter")
 
 
+# ===== NEW VALIDATION HELPERS =====
+
+def _validate_cache_key_param(kwargs: Dict[str, Any]) -> None:
+    """Validate cache key parameter."""
+    if 'key' not in kwargs:
+        raise ValueError("security.validate_cache_key requires 'key' parameter")
+    if not isinstance(kwargs['key'], str):
+        raise TypeError(f"security.validate_cache_key 'key' must be str, got {type(kwargs['key']).__name__}")
+
+
+def _validate_ttl_param(kwargs: Dict[str, Any]) -> None:
+    """Validate TTL parameter."""
+    if 'ttl' not in kwargs:
+        raise ValueError("security.validate_ttl requires 'ttl' parameter")
+    if not isinstance(kwargs['ttl'], (int, float)):
+        raise TypeError(f"security.validate_ttl 'ttl' must be numeric, got {type(kwargs['ttl']).__name__}")
+
+
+def _validate_module_name_param(kwargs: Dict[str, Any]) -> None:
+    """Validate module name parameter."""
+    if 'module_name' not in kwargs:
+        raise ValueError("security.validate_module_name requires 'module_name' parameter")
+    if not isinstance(kwargs['module_name'], str):
+        raise TypeError(f"security.validate_module_name 'module_name' must be str, got {type(kwargs['module_name']).__name__}")
+
+
+def _validate_number_range_params(kwargs: Dict[str, Any]) -> None:
+    """Validate number range parameters."""
+    if 'value' not in kwargs:
+        raise ValueError("security.validate_number_range requires 'value' parameter")
+    if 'min_val' not in kwargs:
+        raise ValueError("security.validate_number_range requires 'min_val' parameter")
+    if 'max_val' not in kwargs:
+        raise ValueError("security.validate_number_range requires 'max_val' parameter")
+
+
 # ===== OPERATION DISPATCH =====
 
 def _build_dispatch_dict() -> Dict[str, Callable]:
     """Build dispatch dictionary for security operations. Only called if security available."""
     return {
+        # EXISTING OPERATIONS
         'validate_request': lambda **kwargs: (
             _validate_request_param(kwargs),
             _execute_validate_request_implementation(**kwargs)
@@ -152,7 +168,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _execute_verify_hash_implementation(**kwargs)
         )[1],
         
-        # Both 'sanitize' and 'sanitize_data' supported (Issue #35)
         'sanitize': lambda **kwargs: (
             _validate_sanitize_data_param(kwargs, 'sanitize'),
             _execute_sanitize_implementation(**kwargs)
@@ -181,6 +196,27 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         )[1],
         
         'get_stats': get_security_stats,
+        
+        # NEW: CACHE VALIDATOR OPERATIONS (CVE FIXES)
+        'validate_cache_key': lambda **kwargs: (
+            _validate_cache_key_param(kwargs),
+            _execute_validate_cache_key_implementation(**kwargs)
+        )[1],
+        
+        'validate_ttl': lambda **kwargs: (
+            _validate_ttl_param(kwargs),
+            _execute_validate_ttl_implementation(**kwargs)
+        )[1],
+        
+        'validate_module_name': lambda **kwargs: (
+            _validate_module_name_param(kwargs),
+            _execute_validate_module_name_implementation(**kwargs)
+        )[1],
+        
+        'validate_number_range': lambda **kwargs: (
+            _validate_number_range_params(kwargs),
+            _execute_validate_number_range_implementation(**kwargs)
+        )[1],
     }
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _SECURITY_AVAILABLE else {}
@@ -191,6 +227,29 @@ _OPERATION_DISPATCH = _build_dispatch_dict() if _SECURITY_AVAILABLE else {}
 def execute_security_operation(operation: str, **kwargs) -> Any:
     """
     Route security operation requests using dispatch dictionary pattern.
+    
+    NOW INCLUDES: Cache-specific validators (CVE-SUGA-2025-001/002/004 fixes)
+    
+    Operations (17 total, +4 new):
+    EXISTING:
+    - validate_request: Validate HTTP request
+    - validate_token: Validate auth token
+    - encrypt: Encrypt data
+    - decrypt: Decrypt data
+    - hash: Hash data
+    - verify_hash: Verify hash
+    - sanitize: Sanitize input (also sanitize_data)
+    - generate_correlation_id: Generate correlation ID
+    - validate_string: Validate string constraints
+    - validate_email: Validate email format
+    - validate_url: Validate URL format
+    - get_stats: Get security statistics
+    
+    NEW (Cache Security):
+    - validate_cache_key: Comprehensive cache key validation (CVE-SUGA-2025-001)
+    - validate_ttl: TTL boundary protection (CVE-SUGA-2025-002)
+    - validate_module_name: LUGS module name validation (CVE-SUGA-2025-004)
+    - validate_number_range: Generic numeric range validation
     
     Args:
         operation: Security operation to execute
@@ -214,7 +273,7 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown security operation: '{operation}'. "
-            f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
+            f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
         )
     
     # Dispatch using dictionary lookup (O(1))

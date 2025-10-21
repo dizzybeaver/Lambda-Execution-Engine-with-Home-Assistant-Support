@@ -1,303 +1,237 @@
 """
-config_param_store.py - AWS SSM Parameter Store Client (SELECTIVE IMPORTS)
-Version: 2025.10.19.SELECTIVE
-Description: Uses PRELOADED boto3 SSM client from lambda_preload module
+config_param_store.py - AWS Systems Manager Parameter Store Client (SIMPLIFIED)
+Version: 2025.10.20.TOKEN_ONLY
+Description: Retrieve ONLY the Home Assistant long-lived token from SSM
 
-CRITICAL CHANGE: Removed module-level `import boto3` (was 8,500ms!)
-NOW: Uses preloaded SSM client from lambda_preload.py (already initialized ~300ms during INIT)
+BREAKING CHANGE:
+- SSM now retrieves ONLY /home_assistant/token
+- ALL other configuration must be in Lambda environment variables
+- Simplifies architecture, reduces SSM calls, improves performance
 
-Performance Impact:
-- BEFORE: import boto3 at module level = 8,500ms during first request
-- AFTER: Uses _BOTO3_SSM_CLIENT from lambda_preload = 0ms (already loaded!)
-
-Design Decision: No lazy loading fallback
-Reason: Lazy loading defeats optimization. If preload fails, SSM is unavailable.
+CHANGELOG:
+- 2025.10.20.TOKEN_ONLY: SIMPLIFIED - Only token from SSM
+  - Removed support for all other parameters
+  - Single-purpose: retrieve HA token securely
+  - Everything else must be environment variables
+  - Reduces cold start overhead
+  - Eliminates unnecessary SSM API calls
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-# ===== IMPORTS =====
-
 import os
 import time
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional
 
-# Import preloaded SSM client (already initialized during Lambda INIT!)
-from lambda_preload import _BOTO3_SSM_CLIENT, _USE_PARAMETER_STORE
+# Lazy-loaded boto3 (only when SSM needed)
+_SSM_CLIENT = None
 
-from gateway import (
-    cache_get, cache_set, cache_delete,
-    log_debug, log_info, log_warning, log_error
-)
+# Gateway imports
+from gateway import cache_get, cache_set, cache_delete, log_info, log_error
 
-
-# ===== TIMING HELPERS =====
 
 def _is_debug_mode() -> bool:
     """Check if DEBUG_MODE is enabled."""
-    return os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 
-def _print_timing(message: str):
-    """Print timing message only if DEBUG_MODE=true."""
+def _is_debug_timings() -> bool:
+    """Check if DEBUG_TIMINGS is enabled."""
+    return os.getenv('DEBUG_TIMINGS', 'false').lower() == 'true'
+
+
+def _print_debug(msg: str):
+    """Print debug message only if DEBUG_MODE=true."""
     if _is_debug_mode():
-        print(f"[PARAM_STORE_TIMING] {message}")
+        print(f"[SSM_DEBUG] {msg}")
 
 
-# ===== CACHE SENTINEL DETECTION =====
-
-def _is_cache_sentinel(value: Any) -> bool:
-    """
-    Check if value is the _CACHE_MISS sentinel from cache_core.py.
-    
-    The cache module uses object() as a sentinel to distinguish
-    "no cache entry" from "cached None value". We need to detect
-    and handle this properly.
-    """
-    return type(value).__name__ == 'object' and str(value).startswith('<object object')
+def _print_timing(msg: str):
+    """Print timing message only if DEBUG_TIMINGS=true."""
+    if _is_debug_timings():
+        print(f"[SSM_TIMING] {msg}")
 
 
-def _sanitize_default(default: Any, key: str) -> Any:
-    """
-    NUCLEAR SAFETY: Ensure default is NEVER an object() instance.
-    
-    Handles both:
-    - Actual bugs (shouldn't happen)
-    - _CACHE_MISS sentinel from cache_core.py (expected)
-    """
-    if default is None:
-        return ''
-    
-    # Check if it's the cache sentinel or any object() instance
-    if _is_cache_sentinel(default):
-        log_debug(f"[SANITIZE] {key}: Detected cache sentinel, converting to empty string")
-        return ''
-    
-    # Validate it's a primitive type
-    if not isinstance(default, (str, int, float, bool, list, dict, tuple, set, type(None))):
-        log_warning(f"[SANITIZE] {key}: Non-primitive default type {type(default).__name__}, converting to empty string")
-        return ''
-    
-    return default
+# ===== CONFIGURATION =====
+
+_USE_PARAMETER_STORE = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
+_PARAMETER_PREFIX = os.getenv('PARAMETER_PREFIX', '/lambda-execution-engine')
+_CACHE_TTL = int(os.getenv('SSM_CACHE_TTL', '300'))  # 5 minutes default
 
 
-def _extract_string_from_value(value: Any, key: str) -> Optional[str]:
-    """BULLETPROOF string extraction from any value type."""
-    if value is None:
-        return None
+# ===== SSM CLIENT SINGLETON =====
+
+def _get_ssm_client():
+    """Get or create SSM client (lazy loaded)."""
+    global _SSM_CLIENT
     
-    # Check for object reference
-    if _is_cache_sentinel(value):
-        log_error(f"[EXTRACT] {key}: Detected cache sentinel in SSM response!")
-        return None
+    if _SSM_CLIENT is not None:
+        return _SSM_CLIENT
     
-    # Handle string
-    if isinstance(value, str):
-        if not value or value.isspace():
-            return None
-        return value
+    _print_debug("Initializing SSM client...")
+    _init_start = time.perf_counter()
     
-    # Handle boolean
-    if isinstance(value, bool):
-        return str(value).lower()
-    
-    # Handle numbers
-    if isinstance(value, (int, float)):
-        return str(value)
-    
-    # Unexpected type
     try:
-        result = str(value)
-        if not result or result.isspace():
-            return None
-        return result
-    except:
+        import boto3
+        _SSM_CLIENT = boto3.client('ssm')
+        
+        _init_time = (time.perf_counter() - _init_start) * 1000
+        _print_timing(f"SSM client initialized: {_init_time:.2f}ms")
+        _print_debug("SSM client ready")
+        
+        return _SSM_CLIENT
+        
+    except Exception as e:
+        _print_debug(f"SSM client initialization failed: {e}")
+        log_error(f"Failed to initialize SSM client: {e}")
         return None
 
 
-# ===== PARAMETER STORE CLIENT =====
+# ===== TOKEN RETRIEVAL =====
 
-class ParameterStoreClient:
-    """Client for AWS Systems Manager Parameter Store operations."""
+def get_ha_token(use_cache: bool = True) -> Optional[str]:
+    """
+    Get Home Assistant long-lived access token from SSM.
     
-    def __init__(self, prefix: str = '/lambda-execution-engine'):
-        self._prefix = prefix.rstrip('/')
-        self._ssm_client = None
-        self._cache_prefix = 'ssm_param_'
-        self._cache_ttl = 300
+    This is the ONLY parameter retrieved from SSM.
+    All other configuration must be in environment variables.
     
-    def _get_ssm_client(self):
-        """
-        Get SSM client - NO LAZY LOADING!
+    Args:
+        use_cache: Whether to use cached value (default: True)
         
-        DESIGN DECISION: Uses preloaded client only
-        Reason: Lazy loading causes 8,500ms penalty on first request, defeating optimization.
-        
-        boto3 SSM client is preloaded during Lambda INIT in lambda_preload.py.
-        If preload failed, SSM is unavailable - this returns None gracefully.
-        """
-        if not _USE_PARAMETER_STORE:
-            return None
-        
-        if self._ssm_client is None:
-            if _BOTO3_SSM_CLIENT is not None:
-                self._ssm_client = _BOTO3_SSM_CLIENT
-            else:
-                # Module-level initialization failed - SSM is unavailable
-                log_error("SSM client unavailable - preload failed!")
-                return None
-        
-        return self._ssm_client
+    Returns:
+        Token string if found, None otherwise
+    """
+    _op_start = time.perf_counter()
+    _print_timing("===== GET_HA_TOKEN START =====")
+    _print_debug("Retrieving Home Assistant token from SSM")
     
-    def _build_param_path(self, key: str) -> str:
-        """Build full parameter path from key."""
-        key = key.lstrip('/')
-        return f"{self._prefix}/{key}"
+    # Check if SSM is enabled
+    if not _USE_PARAMETER_STORE:
+        _print_debug("SSM disabled (USE_PARAMETER_STORE=false)")
+        _print_timing(f"SSM disabled - no token retrieval (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        return None
     
-    def get_parameter(self, key: str, default: Any = None,
-                     with_decryption: bool = True,
-                     use_cache: bool = True) -> Any:
-        """
-        Get parameter from SSM with timing diagnostics.
+    # Check cache first
+    cache_key = "ssm_ha_token"
+    if use_cache:
+        _cache_start = time.perf_counter()
+        _print_timing(f"Checking cache... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        _print_debug("Attempting cache retrieval")
         
-        This version shows exactly where time is spent:
-        - Cache operations
-        - SSM API calls (uses preloaded client - no loading overhead!)
-        - Value extraction and validation
-        """
-        _op_start = time.perf_counter()
-        _print_timing(f"===== GET_PARAMETER START: {key} =====")
+        cached = cache_get(cache_key)
+        _cache_time = (time.perf_counter() - _cache_start) * 1000
         
-        # CRITICAL: Sanitize default immediately (handles cache sentinels)
-        safe_default = _sanitize_default(default, key)
-        _print_timing(f"  Step 1: Default sanitized (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-        
-        # Check if SSM is enabled
-        if not _USE_PARAMETER_STORE:
-            _print_timing(f"  SSM DISABLED - returning default (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            return safe_default
-        
-        # Check cache
-        cache_key = f"{self._cache_prefix}{key}"
-        if use_cache:
-            _cache_start = time.perf_counter()
-            _print_timing(f"  Step 2: Checking cache... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            
-            cached = cache_get(cache_key)
-            _cache_time = (time.perf_counter() - _cache_start) * 1000
-            
-            if cached is not None and not _is_cache_sentinel(cached):
-                _print_timing(f"  *** CACHE HIT: {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
+        # Check if cached value is valid (not a sentinel)
+        if cached is not None:
+            # Check for _CacheMiss sentinel
+            cached_type = type(cached).__name__
+            if cached_type == '_CacheMiss':
+                _print_timing(f"Cache returned _CacheMiss sentinel: {_cache_time:.2f}ms")
+                _print_debug("Cache miss - will fetch from SSM")
+            elif isinstance(cached, str) and cached:
+                _print_timing(f"*** CACHE HIT: {_cache_time:.2f}ms (total: {(time.perf_counter() - _op_start) * 1000:.2f}ms) ***")
+                _print_debug("Token retrieved from cache")
                 return cached
             else:
-                _print_timing(f"  Cache miss: {_cache_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+                _print_timing(f"Cache returned invalid value (type={cached_type}): {_cache_time:.2f}ms")
+                _print_debug(f"Invalid cached value: {cached_type}")
+        else:
+            _print_timing(f"Cache miss (None): {_cache_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_debug("Cache returned None")
+    
+    # Build parameter path
+    param_path = f"{_PARAMETER_PREFIX}/home_assistant/token"
+    _print_debug(f"Parameter path: {param_path}")
+    _print_timing(f"Parameter path: {param_path} (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+    
+    try:
+        # Get SSM client
+        _print_timing(f"Getting SSM client... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        ssm = _get_ssm_client()
+        if ssm is None:
+            _print_timing(f"!!! SSM client unavailable (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_debug("SSM client unavailable")
+            return None
         
-        # Build path
-        param_path = self._build_param_path(key)
-        _print_timing(f"  Step 3: Parameter path: {param_path} (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        # Call SSM API
+        _ssm_start = time.perf_counter()
+        _print_timing(f"Calling SSM API... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        _print_debug("Calling SSM GetParameter API...")
         
-        try:
-            # Get SSM client (ALREADY PRELOADED - NO LOADING OVERHEAD!)
-            _print_timing(f"  Step 4: Getting SSM client... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            ssm = self._get_ssm_client()
-            if ssm is None:
-                _print_timing(f"  !!! SSM client unavailable (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                return safe_default
+        response = ssm.get_parameter(Name=param_path, WithDecryption=True)
+        
+        _ssm_time = (time.perf_counter() - _ssm_start) * 1000
+        _print_timing(f"SSM API call: {_ssm_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        _print_debug("SSM API call successful")
+        
+        # Extract value
+        _print_timing(f"Extracting token... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        
+        if not isinstance(response, dict):
+            _print_debug("Invalid response type from SSM")
+            return None
+        
+        param_data = response.get('Parameter')
+        if not isinstance(param_data, dict):
+            _print_debug("Invalid parameter data from SSM")
+            return None
+        
+        token = param_data.get('Value')
+        
+        # Validate token
+        _print_timing(f"Validating token... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+        
+        if not isinstance(token, str) or not token:
+            _print_debug("Invalid or empty token")
+            _print_timing(f"!!! Invalid token (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            return None
+        
+        log_info(f"[SSM GET] Token retrieved successfully (length={len(token)})")
+        _print_debug(f"Token retrieved (length={len(token)})")
+        
+        # Cache the token
+        if use_cache:
+            _cache_set_start = time.perf_counter()
+            _print_timing(f"Caching token... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
             
-            # Call SSM (client already initialized, no loading penalty!)
-            _ssm_start = time.perf_counter()
-            _print_timing(f"  Step 5: Calling SSM API... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            cache_set(cache_key, token, ttl=_CACHE_TTL)
             
-            response = ssm.get_parameter(Name=param_path, WithDecryption=with_decryption)
-            
-            _ssm_time = (time.perf_counter() - _ssm_start) * 1000
-            _print_timing(f"  SSM API: {_ssm_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            
-            # Extract value
-            _print_timing(f"  Step 6: Extracting value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            if not isinstance(response, dict):
-                _print_timing(f"  !!! Response not dict (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                return safe_default
-            
-            param_data = response.get('Parameter')
-            if not isinstance(param_data, dict):
-                _print_timing(f"  !!! Parameter not dict (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                return safe_default
-            
-            raw_value = param_data.get('Value')
-            _print_timing(f"  Step 7: Validating value... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            
-            value = _extract_string_from_value(raw_value, key)
-            if value is None:
-                _print_timing(f"  !!! Extraction returned None (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                return safe_default
-            
-            # Final validation
-            if not isinstance(value, str) or not value:
-                _print_timing(f"  !!! Final validation failed (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                return safe_default
-            
-            log_info(f"[SSM GET] {key}: SUCCESS (length={len(value)})")
-            
-            # Cache result
-            if use_cache:
-                _cache_set_start = time.perf_counter()
-                _print_timing(f"  Step 8: Caching result... (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-                
-                cache_set(cache_key, value, ttl=self._cache_ttl)
-                
-                _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
-                _print_timing(f"  Cached: {_cache_set_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
-            
-            _total_time = (time.perf_counter() - _op_start) * 1000
-            _print_timing(f"===== GET_PARAMETER COMPLETE: {_total_time:.2f}ms =====")
-            
-            return value
-            
-        except Exception as e:
-            _error_time = (time.perf_counter() - _op_start) * 1000
-            _print_timing(f"!!! EXCEPTION after {_error_time:.2f}ms: {e}")
-            log_error(f"[SSM GET] {key}: Exception - {e}")
-            if use_cache:
-                cache_delete(cache_key)
-            return safe_default
+            _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
+            _print_timing(f"Cached: {_cache_set_time:.2f}ms (elapsed: {(time.perf_counter() - _op_start) * 1000:.2f}ms)")
+            _print_debug(f"Token cached (TTL={_CACHE_TTL}s)")
+        
+        _total_time = (time.perf_counter() - _op_start) * 1000
+        _print_timing(f"===== GET_HA_TOKEN COMPLETE: {_total_time:.2f}ms =====")
+        
+        return token
+        
+    except Exception as e:
+        _error_time = (time.perf_counter() - _op_start) * 1000
+        _print_timing(f"!!! EXCEPTION after {_error_time:.2f}ms: {e}")
+        _print_debug(f"Exception retrieving token: {e}")
+        log_error(f"[SSM GET] Token retrieval failed: {e}")
+        
+        # Clear cache on error
+        if use_cache:
+            cache_delete(cache_key)
+        
+        return None
 
 
-# ===== MODULE-LEVEL SINGLETON =====
-
-_param_store_client = ParameterStoreClient()
-
-
-# ===== CONVENIENCE FUNCTIONS =====
-
-def get_parameter(key: str, default: Any = None, with_decryption: bool = True, 
-                  use_cache: bool = True) -> Any:
-    """Get parameter from SSM (handles cache sentinels correctly)."""
-    return _param_store_client.get_parameter(key, default, with_decryption, use_cache)
+def invalidate_token_cache():
+    """Invalidate cached Home Assistant token."""
+    _print_debug("Invalidating token cache")
+    cache_delete("ssm_ha_token")
+    log_info("[SSM CACHE] Token cache invalidated")
 
 
-def get_parameters(keys: List[str], default: Any = None, 
-                   with_decryption: bool = True) -> Dict[str, Any]:
-    """Batch get parameters from SSM."""
-    results = {}
-    for key in keys:
-        results[key] = get_parameter(key, default, with_decryption)
-    return results
-
-
-def invalidate_cache(key: Optional[str] = None):
-    """Invalidate SSM parameter cache."""
-    if key:
-        cache_key = f"ssm_param_{key}"
-        cache_delete(cache_key)
-
+# ===== PUBLIC API =====
 
 __all__ = [
-    'ParameterStoreClient',
-    'get_parameter',
-    'get_parameters', 
-    'invalidate_cache'
+    'get_ha_token',
+    'invalidate_token_cache'
 ]
 
 # EOF

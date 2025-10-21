@@ -1,14 +1,19 @@
 """
-lambda_failsafe.py - Emergency Failsafe Handler (SELECTIVE IMPORTS)
-Version: 2025.10.19.SELECTIVE
-Description: Standalone emergency backup handler using preloaded modules
+lambda_failsafe.py - Emergency Failsafe Handler (SIMPLIFIED)
+Version: 2025.10.20.TOKEN_ONLY
+Description: Direct passthrough to Home Assistant with ONLY token from SSM
 
-CRITICAL CHANGE: Uses preloaded urllib3 and boto3 from lambda_preload
-- NO module-level boto3 import (was causing 8,500ms delay!)
-- Uses _BOTO3_SSM_CLIENT from lambda_preload (already initialized)
-- Uses PoolManager and Timeout from lambda_preload (already loaded)
+BREAKING CHANGE:
+- SSM retrieves ONLY the Home Assistant token
+- ALL other configuration from environment variables
+- Faster failsafe activation, simpler implementation
 
-Performance: Imports in ~0ms (everything preloaded!)
+CHANGELOG:
+- 2025.10.20.TOKEN_ONLY: SIMPLIFIED - Only token from SSM
+  - Uses simplified config_param_store.get_ha_token()
+  - All other config from environment
+  - Improved debug output
+  - Faster failsafe mode
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -16,124 +21,170 @@ Licensed under Apache 2.0 (see LICENSE).
 
 import os
 import json
-import logging
-from typing import Dict, Any, Optional, Tuple
-
-# Import preloaded modules (already initialized during Lambda INIT!)
-from lambda_preload import PoolManager, Timeout, _BOTO3_SSM_CLIENT, _USE_PARAMETER_STORE
-
-
-# ===== LOGGING SETUP =====
-
-def _setup_logging() -> logging.Logger:
-    """Configure logging based on environment."""
-    debug_mode = bool(os.environ.get('DEBUG_MODE', os.environ.get('DEBUG')))
-    logger = logging.getLogger('HomeAssistant-Failsafe')
-    logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
-    return logger
+import time
+from typing import Dict, Any, Optional
+from urllib import request
+from urllib.error import URLError, HTTPError
 
 
-_logger = _setup_logging()
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
 
-# ===== SSM PARAMETER STORE SUPPORT =====
+def _is_debug_timings() -> bool:
+    """Check if DEBUG_TIMINGS is enabled."""
+    return os.getenv('DEBUG_TIMINGS', 'false').lower() == 'true'
 
-def _load_from_ssm(parameter_prefix: str, key: str) -> Optional[str]:
+
+def _print_debug(msg: str):
+    """Print debug message only if DEBUG_MODE=true."""
+    if _is_debug_mode():
+        print(f"[FAILSAFE_DEBUG] {msg}")
+
+
+def _print_timing(msg: str):
+    """Print timing message only if DEBUG_TIMINGS=true."""
+    if _is_debug_timings():
+        print(f"[FAILSAFE_TIMING] {msg}")
+
+
+# ===== LOGGING =====
+
+class _Logger:
+    """Minimal logger for failsafe mode."""
+    
+    @staticmethod
+    def debug(msg: str):
+        if _is_debug_mode():
+            print(f"[FAILSAFE] DEBUG: {msg}")
+    
+    @staticmethod
+    def info(msg: str):
+        print(f"[FAILSAFE] INFO: {msg}")
+    
+    @staticmethod
+    def warning(msg: str):
+        print(f"[FAILSAFE] WARNING: {msg}")
+    
+    @staticmethod
+    def error(msg: str):
+        print(f"[FAILSAFE] ERROR: {msg}")
+
+
+_logger = _Logger()
+
+
+# ===== TOKEN LOADING =====
+
+def _load_token_from_ssm() -> Optional[str]:
     """
-    Load parameter from AWS Systems Manager Parameter Store.
+    Load Home Assistant token from SSM Parameter Store.
     
-    Uses PRELOADED SSM client from lambda_preload (no import overhead!)
+    Only used if USE_PARAMETER_STORE=true in failsafe mode.
     
-    IAM Permissions Required:
-        Your Lambda execution role must have:
-        {
-          "Effect": "Allow",
-          "Action": ["ssm:GetParameter"],
-          "Resource": "arn:aws:ssm:REGION:ACCOUNT:parameter{parameter_prefix}/*"
-        }
-    
-    Args:
-        parameter_prefix: SSM parameter path prefix (e.g., /lambda-execution-engine)
-        key: Parameter key relative to prefix (e.g., home_assistant/url)
-        
     Returns:
-        Parameter value or None if not found/access denied
+        Token string or None
     """
+    _start = time.perf_counter()
+    _print_timing("Loading token from SSM...")
+    _print_debug("Attempting SSM token retrieval in failsafe mode")
+    
     try:
-        # Use preloaded SSM client (NO IMPORT OVERHEAD!)
-        if not _USE_PARAMETER_STORE or _BOTO3_SSM_CLIENT is None:
-            _logger.debug('SSM not available - preload disabled or failed')
-            return None
+        # Lazy import config_param_store
+        from config_param_store import get_ha_token
         
-        ssm = _BOTO3_SSM_CLIENT
-        param_path = f"{parameter_prefix}/{key}"
+        token = get_ha_token(use_cache=True)
         
-        _logger.debug('Reading SSM parameter: %s', param_path)
+        _elapsed = (time.perf_counter() - _start) * 1000
+        _print_timing(f"SSM token retrieval: {_elapsed:.2f}ms, success={token is not None}")
         
-        response = ssm.get_parameter(Name=param_path, WithDecryption=True)
-        value = response['Parameter']['Value']
+        if token:
+            _print_debug("Token retrieved from SSM")
+            _logger.info("Token loaded from SSM Parameter Store")
+        else:
+            _print_debug("SSM returned None")
+            _logger.warning("SSM token retrieval returned None")
         
-        _logger.debug('Successfully loaded parameter from SSM: %s', param_path)
-        return value
+        return token
         
     except Exception as e:
-        _logger.debug('Failed to load SSM parameter %s: %s', key, str(e))
+        _elapsed = (time.perf_counter() - _start) * 1000
+        _print_timing(f"SSM token retrieval failed: {_elapsed:.2f}ms")
+        _print_debug(f"SSM exception: {e}")
+        _logger.error(f"Failed to load token from SSM: {e}")
         return None
 
 
-# ===== CONFIGURATION MANAGEMENT =====
+# ===== CONFIGURATION =====
 
 def _load_failsafe_config() -> Dict[str, Any]:
     """
-    Load and validate failsafe configuration from SSM or environment variables.
+    Load failsafe configuration.
     
-    Configuration priority:
+    Configuration priority for token:
     1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
-    2. Environment variables
-    3. Defaults
+    2. HOME_ASSISTANT_TOKEN environment variable
+    3. LONG_LIVED_ACCESS_TOKEN environment variable (legacy)
+    
+    All other configuration from environment only.
+    
+    Returns:
+        Configuration dictionary
+        
+    Raises:
+        ValueError: If HOME_ASSISTANT_URL not configured
     """
-    use_parameter_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
-    parameter_prefix = os.environ.get('PARAMETER_PREFIX', '/lambda-execution-engine')
+    _start = time.perf_counter()
+    _print_timing("===== LOAD_FAILSAFE_CONFIG START =====")
+    _print_debug("Loading failsafe configuration")
     
-    # Load base URL
-    base_url = None
-    if use_parameter_store:
-        base_url = _load_from_ssm(parameter_prefix, 'home_assistant/url')
+    use_parameter_store = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
     
-    if base_url is None:
-        base_url = os.environ.get('HOME_ASSISTANT_URL')
-    
+    # Load base URL from environment (ALWAYS from environment in failsafe)
+    base_url = os.getenv('HOME_ASSISTANT_URL')
     if not base_url:
+        _print_debug("HOME_ASSISTANT_URL not set")
         raise ValueError('HOME_ASSISTANT_URL not configured')
     
+    _print_debug(f"Base URL: {base_url}")
+    
     # Load SSL verification setting
-    verify_ssl_str = os.environ.get('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
+    verify_ssl_str = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
     verify_ssl = verify_ssl_str != 'false'
+    _print_debug(f"SSL verification: {verify_ssl}")
     
-    # Debug mode
-    debug_mode = bool(os.environ.get('DEBUG_MODE', os.environ.get('DEBUG')))
-    
-    # Fallback token for debug mode only
-    # Try SSM first, then environment variables
+    # Load token
     fallback_token = None
-    if debug_mode:
-        if use_parameter_store:
-            fallback_token = _load_from_ssm(parameter_prefix, 'home_assistant/token')
+    
+    if use_parameter_store:
+        _print_debug("USE_PARAMETER_STORE=true, attempting SSM")
+        fallback_token = _load_token_from_ssm()
+    
+    # Fallback to environment if SSM failed or disabled
+    if fallback_token is None:
+        _print_debug("Loading token from environment")
+        fallback_token = os.getenv('HOME_ASSISTANT_TOKEN') or os.getenv('LONG_LIVED_ACCESS_TOKEN')
         
-        if fallback_token is None:
-            fallback_token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN')
+        if fallback_token:
+            _print_debug("Token found in environment")
+        else:
+            _print_debug("No token in environment")
     
     config = {
         'base_url': base_url,
         'verify_ssl': verify_ssl,
-        'debug_mode': debug_mode,
+        'debug_mode': _is_debug_mode(),
         'fallback_token': fallback_token,
         'api_endpoint': f'{base_url}/api/alexa/smart_home',
         'use_parameter_store': use_parameter_store
     }
     
-    _logger.debug('Failsafe configuration loaded: base_url=%s, verify_ssl=%s, ssm=%s', 
-                  base_url, verify_ssl, use_parameter_store)
+    _elapsed = (time.perf_counter() - _start) * 1000
+    _print_timing(f"===== LOAD_FAILSAFE_CONFIG COMPLETE: {_elapsed:.2f}ms =====")
+    
+    _logger.debug(f'Failsafe configuration loaded: base_url={base_url}, verify_ssl={verify_ssl}, ssm={use_parameter_store}, has_token={fallback_token is not None}')
+    
     return config
 
 
@@ -143,221 +194,184 @@ def _extract_bearer_token(event: Dict[str, Any], fallback_token: Optional[str] =
     """
     Extract Bearer token from Alexa directive event.
     
-    Token can be located in multiple places depending on directive type:
-    - directive.endpoint.scope (most directives)
-    - directive.payload.grantee (AcceptGrant/Linking directive)
-    - directive.payload.scope (Discovery directive)
+    Priority:
+    1. directive.endpoint.scope.token (user-linked account)
+    2. directive.payload.scope.token (discovery phase)
+    3. fallback_token (from SSM or environment)
     
     Args:
-        event: Alexa directive event
-        fallback_token: Optional fallback token for debug mode
+        event: Alexa Smart Home event
+        fallback_token: Fallback token if not in event
         
     Returns:
-        Bearer token string
+        Bearer token
         
     Raises:
-        AssertionError: If token cannot be found or is invalid
+        ValueError: If no token found
     """
-    directive = event.get('directive')
-    assert directive is not None, 'Malformatted request - missing directive'
+    _print_debug("Extracting bearer token from event")
     
-    # Try multiple locations for scope
-    scope = directive.get('endpoint', {}).get('scope')
+    directive = event.get('directive', {})
     
-    if scope is None:
-        # Try grantee for Linking directive
-        scope = directive.get('payload', {}).get('grantee')
-    
-    if scope is None:
-        # Try payload scope for Discovery directive
-        scope = directive.get('payload', {}).get('scope')
-    
-    assert scope is not None, 'Malformatted request - missing endpoint.scope'
-    assert scope.get('type') == 'BearerToken', 'Only BearerToken authentication is supported'
-    
+    # Try endpoint scope
+    endpoint = directive.get('endpoint', {})
+    scope = endpoint.get('scope', {})
     token = scope.get('token')
     
-    # Use fallback token only in debug mode if no token found
-    if token is None and fallback_token:
-        _logger.warning('Using fallback token for debug purposes')
-        token = fallback_token
+    if token:
+        _print_debug("Token found in directive.endpoint.scope")
+        return token
     
-    assert token is not None, 'Missing bearer token'
+    # Try payload scope
+    payload = directive.get('payload', {})
+    scope = payload.get('scope', {})
+    token = scope.get('token')
     
-    return token
+    if token:
+        _print_debug("Token found in directive.payload.scope")
+        return token
+    
+    # Use fallback token (from SSM or environment)
+    if fallback_token:
+        _print_debug("Using fallback token from configuration")
+        _logger.warning('Using fallback token (no token in Alexa event)')
+        return fallback_token
+    
+    _print_debug("No token found anywhere")
+    raise ValueError('No Bearer token found in event or configuration')
 
 
-# ===== HTTP CLIENT =====
+# ===== HTTP REQUEST =====
 
-def _create_http_client(verify_ssl: bool, connect_timeout: float = 2.0, read_timeout: float = 10.0):
+def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Create configured HTTP client using PRELOADED urllib3 classes.
-    
-    Uses PoolManager and Timeout from lambda_preload (NO IMPORT OVERHEAD!)
+    Forward Alexa directive directly to Home Assistant.
     
     Args:
-        verify_ssl: Whether to verify SSL certificates
-        connect_timeout: Connection timeout in seconds
-        read_timeout: Read timeout in seconds
+        event: Alexa Smart Home event
+        config: Failsafe configuration
         
     Returns:
-        Configured urllib3.PoolManager instance
+        Home Assistant response
     """
-    cert_reqs = 'CERT_REQUIRED' if verify_ssl else 'CERT_NONE'
-    
-    # Use preloaded classes (NO IMPORT OVERHEAD!)
-    http = PoolManager(
-        cert_reqs=cert_reqs,
-        timeout=Timeout(connect=connect_timeout, read=read_timeout),
-        maxsize=5,
-        retries=False
-    )
-    
-    _logger.debug('HTTP client created: verify_ssl=%s, timeouts=(%s, %s)', verify_ssl, connect_timeout, read_timeout)
-    return http
-
-
-# ===== ERROR RESPONSE BUILDER =====
-
-def _build_alexa_error_response(error_type: str, message: str, message_id: str = 'error') -> Dict[str, Any]:
-    """
-    Build standardized Alexa error response.
-    
-    Args:
-        error_type: Alexa error type (INVALID_AUTHORIZATION_CREDENTIAL, INTERNAL_ERROR, etc.)
-        message: Human-readable error message
-        message_id: Message ID for tracking
-        
-    Returns:
-        Alexa-formatted error response
-    """
-    return {
-        'event': {
-            'header': {
-                'namespace': 'Alexa',
-                'name': 'ErrorResponse',
-                'messageId': message_id,
-                'payloadVersion': '3'
-            },
-            'payload': {
-                'type': error_type,
-                'message': message
-            }
-        }
-    }
-
-
-# ===== HOME ASSISTANT REQUEST =====
-
-def _make_ha_request(http, api_endpoint: str, token: str, event: Dict[str, Any]):
-    """
-    Make HTTP request to Home Assistant Alexa API.
-    
-    Args:
-        http: Configured urllib3 HTTP client
-        api_endpoint: Full API endpoint URL
-        token: Bearer token for authentication
-        event: Full Alexa event to forward
-        
-    Returns:
-        HTTP response from Home Assistant
-        
-    Raises:
-        Exception: If request fails
-    """
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-    }
-    
-    body = json.dumps(event).encode('utf-8')
-    
-    _logger.debug('Making request to Home Assistant: %s', api_endpoint)
-    
-    response = http.request(
-        'POST',
-        api_endpoint,
-        headers=headers,
-        body=body
-    )
-    
-    _logger.debug('Home Assistant response: status=%d', response.status)
-    return response
-
-
-# ===== RESPONSE PARSER =====
-
-def _parse_ha_response(response, message_id: str = 'error') -> Dict[str, Any]:
-    """
-    Parse Home Assistant response and handle errors.
-    
-    Args:
-        response: urllib3 HTTPResponse object
-        message_id: Message ID for error responses
-        
-    Returns:
-        Parsed response dict or error response
-    """
-    if response.status != 200:
-        _logger.error('Home Assistant error: HTTP %d', response.status)
-        return _build_alexa_error_response(
-            'INTERNAL_ERROR',
-            f'Home Assistant returned HTTP {response.status}',
-            message_id
-        )
+    _start = time.perf_counter()
+    _print_timing("===== FORWARD_TO_HOME_ASSISTANT START =====")
+    _print_debug("Forwarding request to Home Assistant")
     
     try:
-        response_data = json.loads(response.data.decode('utf-8'))
-        _logger.debug('Successfully parsed Home Assistant response')
+        # Extract token
+        token = _extract_bearer_token(event, config.get('fallback_token'))
+        _print_debug(f"Token extracted (length={len(token)})")
+        
+        # Prepare request
+        url = config['api_endpoint']
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        body = json.dumps(event).encode('utf-8')
+        
+        _print_debug(f"Request URL: {url}")
+        _print_timing("Sending HTTP request...")
+        
+        # Create request
+        req = request.Request(url, data=body, headers=headers, method='POST')
+        
+        # Make HTTP call
+        _http_start = time.perf_counter()
+        with request.urlopen(req, timeout=30) as response:
+            response_body = response.read().decode('utf-8')
+            response_data = json.loads(response_body)
+        
+        _http_time = (time.perf_counter() - _http_start) * 1000
+        _print_timing(f"HTTP request: {_http_time:.2f}ms")
+        _print_debug(f"Response received: status=200")
+        
+        _total_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FORWARD_TO_HOME_ASSISTANT COMPLETE: {_total_time:.2f}ms =====")
+        
         return response_data
+        
+    except HTTPError as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"HTTP error after {_error_time:.2f}ms: status={e.code}")
+        _print_debug(f"HTTP error: {e.code} {e.reason}")
+        _logger.error(f'HTTP error forwarding to HA: {e.code} {e.reason}')
+        raise
+        
+    except URLError as e:
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"URL error after {_error_time:.2f}ms")
+        _print_debug(f"URL error: {e.reason}")
+        _logger.error(f'URL error forwarding to HA: {e.reason}')
+        raise
+        
     except Exception as e:
-        _logger.error('Failed to parse Home Assistant response: %s', str(e))
-        return _build_alexa_error_response(
-            'INTERNAL_ERROR',
-            f'Failed to parse response: {str(e)}',
-            message_id
-        )
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"Exception after {_error_time:.2f}ms: {e}")
+        _print_debug(f"Exception: {e}")
+        _logger.error(f'Error forwarding to HA: {e}')
+        raise
 
 
 # ===== MAIN HANDLER =====
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Emergency failsafe Lambda handler - direct Home Assistant passthrough.
+    Failsafe Lambda handler.
     
-    This handler bypasses all LEE infrastructure and forwards requests
-    directly to Home Assistant. Use only in emergency situations.
+    Emergency mode: bypass all LEE/SUGA infrastructure, forward directly to HA.
+    
+    Args:
+        event: Alexa Smart Home event
+        context: Lambda context
+        
+    Returns:
+        Alexa Smart Home response
     """
-    _logger.info('FAILSAFE MODE: Direct Home Assistant passthrough')
-    _logger.debug('Event: %s', json.dumps(event))
+    _start = time.perf_counter()
+    _print_timing("===== FAILSAFE HANDLER START =====")
+    
+    _logger.info('âš ï¸ FAILSAFE MODE ACTIVATED - Bypassing Lambda Execution Engine')
+    _print_debug("Failsafe mode handler invoked")
     
     try:
         # Load configuration
         config = _load_failsafe_config()
         
-        # Extract bearer token
-        token = _extract_bearer_token(event, config['fallback_token'])
+        # Forward to Home Assistant
+        response = _forward_to_home_assistant(event, config)
         
-        # Create HTTP client (uses preloaded urllib3!)
-        http = _create_http_client(config['verify_ssl'])
+        _total_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FAILSAFE HANDLER COMPLETE: {_total_time:.2f}ms =====")
         
-        # Forward request to Home Assistant
-        response = _make_ha_request(http, config['api_endpoint'], token, event)
+        _logger.info(f'âœ"ï¸ Failsafe request successful ({_total_time:.0f}ms)')
         
-        # Parse and return response
-        message_id = event.get('directive', {}).get('header', {}).get('messageId', 'unknown')
-        result = _parse_ha_response(response, message_id)
-        
-        _logger.info('FAILSAFE: Request completed successfully')
-        return result
-        
-    except AssertionError as e:
-        _logger.error('FAILSAFE: Validation error - %s', str(e))
-        return _build_alexa_error_response('INVALID_DIRECTIVE', str(e))
+        return response
         
     except Exception as e:
-        _logger.error('FAILSAFE: Unexpected error - %s', str(e), exc_info=True)
-        return _build_alexa_error_response('INTERNAL_ERROR', f'Failsafe error: {str(e)}')
+        _error_time = (time.perf_counter() - _start) * 1000
+        _print_timing(f"===== FAILSAFE HANDLER FAILED: {_error_time:.2f}ms =====")
+        _print_debug(f"Failsafe handler exception: {e}")
+        
+        _logger.error(f'â›"ï¸ Failsafe request failed: {e}')
+        
+        # Return error response in Alexa format
+        return {
+            'event': {
+                'header': {
+                    'namespace': 'Alexa',
+                    'name': 'ErrorResponse',
+                    'messageId': event.get('directive', {}).get('header', {}).get('messageId', 'unknown'),
+                    'payloadVersion': '3'
+                },
+                'payload': {
+                    'type': 'INTERNAL_ERROR',
+                    'message': f'Failsafe mode error: {str(e)}'
+                }
+            }
+        }
 
 
 # EOF

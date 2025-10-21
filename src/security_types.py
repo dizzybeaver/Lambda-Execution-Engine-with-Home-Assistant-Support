@@ -1,7 +1,14 @@
 """
 security_types.py - Security type definitions and enums
-Version: 2025.10.14.01
+Version: 2025.10.20.01
 Description: Security operation types and validation patterns
+
+CHANGELOG:
+- 2025.10.20.01: Added 4 new cache security operations
+  - VALIDATE_CACHE_KEY
+  - VALIDATE_TTL  
+  - VALIDATE_MODULE_NAME
+  - VALIDATE_NUMBER_RANGE
 
 Copyright 2025 Joseph Hersey
 
@@ -23,6 +30,7 @@ from enum import Enum
 
 class SecurityOperation(Enum):
     """Security operations enumeration."""
+    # Existing operations
     VALIDATE_REQUEST = "validate_request"
     VALIDATE_TOKEN = "validate_token"
     VALIDATE_STRING = "validate_string"
@@ -34,6 +42,11 @@ class SecurityOperation(Enum):
     VERIFY_HASH = "verify_hash"
     SANITIZE = "sanitize"
     GENERATE_CORRELATION_ID = "generate_correlation_id"
+    # NEW: Cache security operations (CVE fixes)
+    VALIDATE_CACHE_KEY = "validate_cache_key"
+    VALIDATE_TTL = "validate_ttl"
+    VALIDATE_MODULE_NAME = "validate_module_name"
+    VALIDATE_NUMBER_RANGE = "validate_number_range"
 
 
 class ValidationPattern(Enum):

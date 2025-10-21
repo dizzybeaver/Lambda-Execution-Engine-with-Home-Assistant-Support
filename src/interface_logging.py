@@ -1,9 +1,14 @@
 """
 interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
+Version: 2025.10.20.02
 Description: Router for Logging interface with dispatch dictionary pattern
 
 CHANGELOG:
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation functions
+  - Fixed _validate_operation_start_params() to expect 'operation_name'
+  - Fixed _validate_operation_success_params() to expect 'operation_name'
+  - Fixed _validate_operation_failure_params() to expect 'operation_name'
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
 - 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
   - Converted from elif chain (7 operations) to dispatch dictionary
   - O(1) operation lookup vs O(n) elif chain
@@ -13,6 +18,12 @@ CHANGELOG:
   - All validation logic preserved in helper functions
 - 2025.10.17.15: FIXED Issue #20 - Added import error protection
 - 2025.10.16.04: Bug fixes - Added error handling, parameter validation
+
+CRITICAL BUG FIX (2025.10.20.02):
+Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
+         Validation functions checked for 'operation' in kwargs, creating conflict.
+Solution: Changed validation functions to check for 'operation_name' instead of 'operation'.
+Impact: Matches gateway_wrappers.py parameter rename (operation → operation_name).
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -55,23 +66,38 @@ def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
 
 
 def _validate_operation_start_params(kwargs: Dict[str, Any]) -> None:
-    """Validate log_operation_start parameters."""
-    if 'operation' not in kwargs:
-        raise ValueError("logging.log_operation_start requires 'operation' parameter")
+    """
+    Validate log_operation_start parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_start requires 'operation_name' parameter")
 
 
 def _validate_operation_success_params(kwargs: Dict[str, Any]) -> None:
-    """Validate log_operation_success parameters."""
-    if 'operation' not in kwargs:
-        raise ValueError("logging.log_operation_success requires 'operation' parameter")
+    """
+    Validate log_operation_success parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_success requires 'operation_name' parameter")
     if 'duration_ms' not in kwargs:
         raise ValueError("logging.log_operation_success requires 'duration_ms' parameter")
 
 
 def _validate_operation_failure_params(kwargs: Dict[str, Any]) -> None:
-    """Validate log_operation_failure parameters."""
-    if 'operation' not in kwargs:
-        raise ValueError("logging.log_operation_failure requires 'operation' parameter")
+    """
+    Validate log_operation_failure parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_failure requires 'operation_name' parameter")
     if 'error' not in kwargs:
         raise ValueError("logging.log_operation_failure requires 'error' parameter")
 

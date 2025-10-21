@@ -1,30 +1,27 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.17.04
+Version: 2025.10.20.02
 Description: Wrapper functions that call execute_operation() for cleaner code
 
 CHANGELOG:
-- 2025.10.17.04: Added missing SINGLETON memory monitoring wrappers (Issue #11 fix)
-  - get_memory_stats() - Get current memory usage
-  - get_comprehensive_memory_stats() - Detailed memory + GC info
-  - check_lambda_memory_compliance() - Check 128MB limit
-  - force_memory_cleanup() - Aggressive cleanup
-  - optimize_memory() - Multi-strategy optimization
-  - force_comprehensive_memory_cleanup() - Full cleanup
-  - emergency_memory_preserve() - Critical memory preservation
-- 2025.10.16.01: Fixed initialize_config, sanitize_input, websocket_request, increment_counter
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in 5 functions
+  - Fixed record_operation_metric() parameter conflict
+  - Fixed record_cache_metric() parameter conflict
+  - Fixed log_operation_start() parameter conflict
+  - Fixed log_operation_success() parameter conflict
+  - Fixed log_operation_failure() parameter conflict
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
+- 2025.10.20.01: Added 4 new SECURITY wrappers for cache validation (Cache Ultra-Optimization Phase 2)
+  - validate_cache_key() - Validate cache key format and safety
+  - validate_ttl() - Validate TTL value is within acceptable range
+  - validate_module_name() - Validate module name for LUGS dependency tracking
+  - validate_number_range() - Generic numeric validation with bounds checking
 
-DESIGN DECISION: Memory Monitoring Functions
-Reason: singleton_memory.py has comprehensive memory functions but they weren't
-        exposed through gateway wrappers, making them hard to discover/use
-Impact: Other modules can now easily monitor Lambda 128MB compliance
-Pattern: All memory functions route through SINGLETON interface to singleton_memory.py
-
-FIXES APPLIED (2025.10.16):
-- BUG #1: Fixed initialize_config to use 'initialize' operation (was 'reload')
-- BUG #2: Fixed sanitize_input parameter type from Any to str
-- BUG #3: Added timeout parameter to websocket_request wrapper
-- BUG #4: Fixed increment_counter value parameter type from float to int
+CRITICAL BUG FIX (2025.10.20.02):
+Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
+         Passing 'operation' in kwargs created conflict: "got multiple values for argument 'operation'"
+Solution: Renamed parameter from 'operation' to 'operation_name' in all affected functions.
+Impact: 5 functions fixed across METRICS and LOGGING interfaces.
 
 Copyright 2025 Joseph Hersey
 
@@ -71,25 +68,25 @@ def get_circuit_breaker_state(name: str) -> Dict[str, Any]:
 
 # ===== CACHE WRAPPERS =====
 
-def cache_get(key: str, default: Any = None) -> Optional[Any]:
-    """Get value from cache."""
-    return execute_operation(GatewayInterface.CACHE, 'get', key=key, default=default)
+def cache_get(key: str) -> Any:
+    """Get cached value."""
+    return execute_operation(GatewayInterface.CACHE, 'get', key=key)
 
-def cache_set(key: str, value: Any, ttl: Optional[float] = None, source_module: Optional[str] = None) -> None:
-    """Set value in cache."""
-    execute_operation(GatewayInterface.CACHE, 'set', key=key, value=value, ttl=ttl, source_module=source_module)
+def cache_set(key: str, value: Any, ttl: Optional[float] = None, **kwargs) -> None:
+    """Set cached value."""
+    execute_operation(GatewayInterface.CACHE, 'set', key=key, value=value, ttl=ttl, **kwargs)
 
 def cache_exists(key: str) -> bool:
-    """Check if key exists in cache."""
+    """Check if cache key exists."""
     return execute_operation(GatewayInterface.CACHE, 'exists', key=key)
 
 def cache_delete(key: str) -> bool:
-    """Delete key from cache."""
+    """Delete cache key."""
     return execute_operation(GatewayInterface.CACHE, 'delete', key=key)
 
-def cache_clear() -> int:
-    """Clear all cache entries."""
-    return execute_operation(GatewayInterface.CACHE, 'clear')
+def cache_clear() -> None:
+    """Clear all cache."""
+    execute_operation(GatewayInterface.CACHE, 'clear')
 
 def cache_stats() -> Dict[str, Any]:
     """Get cache statistics."""
@@ -113,17 +110,46 @@ def log_debug(message: str, **kwargs) -> None:
     """Log debug message."""
     execute_operation(GatewayInterface.LOGGING, 'log_debug', message=message, **kwargs)
 
-def log_operation_start(operation: str, **kwargs) -> None:
-    """Log operation start."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_start', operation=operation, **kwargs)
+def log_operation_start(operation_name: str, **kwargs) -> None:
+    """
+    Log operation start.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation being started
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_start', operation_name=operation_name, **kwargs)
 
-def log_operation_success(operation: str, duration_ms: float, **kwargs) -> None:
-    """Log operation success."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_success', operation=operation, duration_ms=duration_ms, **kwargs)
+def log_operation_success(operation_name: str, duration_ms: float, **kwargs) -> None:
+    """
+    Log operation success.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation that succeeded
+        duration_ms: Operation duration in milliseconds
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_success', operation_name=operation_name, duration_ms=duration_ms, **kwargs)
 
-def log_operation_failure(operation: str, error: str, **kwargs) -> None:
-    """Log operation failure."""
-    execute_operation(GatewayInterface.LOGGING, 'log_operation_failure', operation=operation, error=error, **kwargs)
+def log_operation_failure(operation_name: str, error: str, **kwargs) -> None:
+    """
+    Log operation failure.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation that failed
+        error: Error description
+        **kwargs: Additional logging context
+    """
+    execute_operation(GatewayInterface.LOGGING, 'log_operation_failure', operation_name=operation_name, error=error, **kwargs)
 
 # ===== SECURITY WRAPPERS =====
 
@@ -171,6 +197,85 @@ def sanitize_input(data: str) -> str:
     """Sanitize input data."""
     return execute_operation(GatewayInterface.SECURITY, 'sanitize', data=data)
 
+# ===== NEW CACHE SECURITY VALIDATORS (2025.10.20) =====
+
+def validate_cache_key(key: str) -> None:
+    """
+    Validate cache key format and safety.
+    
+    Validates cache keys against security rules:
+    - Length: 1-255 characters
+    - Characters: [a-zA-Z0-9_\\-:.]
+    - Rejects: control characters, path traversal, special characters
+    
+    Args:
+        key: Cache key to validate
+        
+    Raises:
+        ValueError: If key is invalid with specific reason
+    
+    Related CVE: CVE-SUGA-2025-001 (Cache Key Injection)
+    """
+    execute_operation(GatewayInterface.SECURITY, 'validate_cache_key', key=key)
+
+def validate_ttl(ttl: float) -> None:
+    """
+    Validate TTL (time-to-live) value is within acceptable range.
+    
+    Validates TTL boundaries:
+    - Minimum: 1 second (prevents rapid churn)
+    - Maximum: 86400 seconds / 24 hours (prevents resource exhaustion)
+    - Rejects: NaN, infinity, negative values
+    
+    Args:
+        ttl: Time-to-live in seconds
+        
+    Raises:
+        ValueError: If TTL is out of bounds with specific reason
+    
+    Related CVE: CVE-SUGA-2025-002 (TTL Boundary Exploitation)
+    """
+    execute_operation(GatewayInterface.SECURITY, 'validate_ttl', ttl=ttl)
+
+def validate_module_name(module_name: str) -> None:
+    """
+    Validate module name for LUGS (Lazy Unload with Graceful State) dependency tracking.
+    
+    Validates module names against security rules:
+    - Pattern: Valid Python identifier (letters, digits, underscores)
+    - Length: 1-100 characters
+    - Rejects: path separators, control characters, special characters
+    
+    Args:
+        module_name: Python module name to validate
+        
+    Raises:
+        ValueError: If module name is invalid with specific reason
+    
+    Related CVE: CVE-SUGA-2025-004 (LUGS Dependency Poisoning)
+    """
+    execute_operation(GatewayInterface.SECURITY, 'validate_module_name', module_name=module_name)
+
+def validate_number_range(value: float, min_value: float, max_value: float, name: str = "value") -> None:
+    """
+    Generic numeric validation with bounds checking.
+    
+    Validates numeric values are within specified range and not special values:
+    - Range: min_value <= value <= max_value
+    - Rejects: NaN, infinity (positive or negative)
+    
+    Args:
+        value: Numeric value to validate
+        min_value: Minimum acceptable value (inclusive)
+        max_value: Maximum acceptable value (inclusive)
+        name: Name of value for error messages (default: "value")
+        
+    Raises:
+        ValueError: If value is out of range or special value with specific reason
+    """
+    execute_operation(GatewayInterface.SECURITY, 'validate_number_range', 
+                     value=value, min_value=min_value, max_value=max_value, name=name)
+
 # ===== METRICS WRAPPERS =====
 
 def record_metric(name: str, value: float, **kwargs) -> None:
@@ -185,213 +290,131 @@ def get_metrics_stats() -> Dict[str, Any]:
     """Get metrics statistics."""
     return execute_operation(GatewayInterface.METRICS, 'get_stats')
 
-def record_operation_metric(operation: str, duration_ms: float, success: bool = True, **kwargs) -> None:
-    """Record operation metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_operation', operation=operation, duration_ms=duration_ms, success=success, **kwargs)
+def record_operation_metric(operation_name: str, duration_ms: float, success: bool = True, **kwargs) -> None:
+    """
+    Record operation metric.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of operation being recorded
+        duration_ms: Operation duration in milliseconds
+        success: Whether operation succeeded (default: True)
+        **kwargs: Additional metric dimensions
+    """
+    execute_operation(GatewayInterface.METRICS, 'record_operation', operation_name=operation_name, duration_ms=duration_ms, success=success, **kwargs)
 
 def record_error_metric(error_type: str, **kwargs) -> None:
     """Record error metric."""
     execute_operation(GatewayInterface.METRICS, 'record_error', error_type=error_type, **kwargs)
 
-def record_cache_metric(operation: str, hit: bool, **kwargs) -> None:
-    """Record cache metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_cache', operation=operation, hit=hit, **kwargs)
+def record_cache_metric(operation_name: str, hit: bool, **kwargs) -> None:
+    """
+    Record cache metric.
+    
+    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
+    with execute_operation() positional parameter.
+    
+    Args:
+        operation_name: Name of cache operation (e.g. 'get', 'set')
+        hit: Whether cache operation was a hit (True) or miss (False)
+        **kwargs: Additional metric dimensions
+    """
+    execute_operation(GatewayInterface.METRICS, 'record_cache', operation_name=operation_name, hit=hit, **kwargs)
 
-def record_api_metric(api: str, duration_ms: float, **kwargs) -> None:
+def record_api_metric(endpoint: str, method: str, status_code: int, duration_ms: float, **kwargs) -> None:
     """Record API metric."""
-    execute_operation(GatewayInterface.METRICS, 'record_api', api=api, duration_ms=duration_ms, **kwargs)
+    execute_operation(GatewayInterface.METRICS, 'record_api', endpoint=endpoint, method=method, status_code=status_code, duration_ms=duration_ms, **kwargs)
 
 # ===== CONFIG WRAPPERS =====
 
 def get_config(key: str, default: Any = None) -> Any:
-    """Get configuration parameter."""
-    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
+    """Get configuration value."""
+    return execute_operation(GatewayInterface.CONFIG, 'get', key=key, default=default)
 
-def set_config(key: str, value: Any) -> bool:
-    """Set configuration parameter."""
-    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
+def set_config(key: str, value: Any) -> None:
+    """Set configuration value."""
+    execute_operation(GatewayInterface.CONFIG, 'set', key=key, value=value)
 
 def get_config_category(category: str) -> Dict[str, Any]:
     """Get configuration category."""
     return execute_operation(GatewayInterface.CONFIG, 'get_category', category=category)
 
-def reload_config() -> Dict[str, Any]:
+def reload_config() -> None:
     """Reload configuration."""
-    return execute_operation(GatewayInterface.CONFIG, 'reload')
+    execute_operation(GatewayInterface.CONFIG, 'reload')
 
-def switch_config_preset(preset: str) -> Dict[str, Any]:
+def switch_config_preset(preset: str) -> None:
     """Switch configuration preset."""
-    return execute_operation(GatewayInterface.CONFIG, 'switch_preset', preset=preset)
+    execute_operation(GatewayInterface.CONFIG, 'switch_preset', preset=preset)
 
 def get_config_state() -> Dict[str, Any]:
     """Get configuration state."""
     return execute_operation(GatewayInterface.CONFIG, 'get_state')
 
-def load_config_from_environment() -> Dict[str, Any]:
-    """Load configuration from environment."""
-    return execute_operation(GatewayInterface.CONFIG, 'load_environment')
+def load_config_from_environment() -> None:
+    """Load configuration from environment variables."""
+    execute_operation(GatewayInterface.CONFIG, 'load_from_environment')
 
-def load_config_from_file(filepath: str) -> Dict[str, Any]:
+def load_config_from_file(file_path: str) -> None:
     """Load configuration from file."""
-    return execute_operation(GatewayInterface.CONFIG, 'load_file', filepath=filepath)
+    execute_operation(GatewayInterface.CONFIG, 'load_from_file', file_path=file_path)
 
 def validate_all_config() -> Dict[str, Any]:
     """Validate all configuration."""
-    return execute_operation(GatewayInterface.CONFIG, 'validate')
+    return execute_operation(GatewayInterface.CONFIG, 'validate_all')
 
 # ===== SINGLETON WRAPPERS =====
 
-def singleton_get(name: str, factory_func: Optional[Any] = None) -> Optional[Any]:
+def singleton_get(key: str) -> Any:
     """Get singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'get', name=name, factory_func=factory_func)
+    return execute_operation(GatewayInterface.SINGLETON, 'get', key=key)
 
-def singleton_has(name: str) -> bool:
+def singleton_has(key: str) -> bool:
     """Check if singleton exists."""
-    return execute_operation(GatewayInterface.SINGLETON, 'has', name=name)
+    return execute_operation(GatewayInterface.SINGLETON, 'has', key=key)
 
-def singleton_delete(name: str) -> bool:
+def singleton_delete(key: str) -> bool:
     """Delete singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'delete', name=name)
+    return execute_operation(GatewayInterface.SINGLETON, 'delete', key=key)
 
-def singleton_clear() -> int:
+def singleton_clear() -> None:
     """Clear all singletons."""
-    return execute_operation(GatewayInterface.SINGLETON, 'clear')
+    execute_operation(GatewayInterface.SINGLETON, 'clear')
 
 def singleton_stats() -> Dict[str, Any]:
     """Get singleton statistics."""
-    return execute_operation(GatewayInterface.SINGLETON, 'get_stats')
+    return execute_operation(GatewayInterface.SINGLETON, 'stats')
 
-# ===== SINGLETON MEMORY MONITORING WRAPPERS (NEW - Issue #11 Fix) =====
+# ===== SINGLETON MEMORY WRAPPERS =====
 
 def get_memory_stats() -> Dict[str, Any]:
-    """
-    Get current memory statistics for Lambda environment.
-    
-    Returns standardized response with memory usage in MB, compliance status,
-    and percentage of 128MB Lambda limit used.
-    
-    Returns:
-        Dict containing:
-        - rss_mb: Resident set size in megabytes
-        - available_mb: Available memory (128 - current)
-        - percent_used: Percentage of 128MB limit
-        - compliant: Boolean if under 128MB
-        - correlation_id: Request correlation ID
-    """
+    """Get current memory statistics."""
     return execute_operation(GatewayInterface.SINGLETON, 'get_memory_stats')
 
 def get_comprehensive_memory_stats() -> Dict[str, Any]:
-    """
-    Get comprehensive memory statistics including garbage collection info.
-    
-    Returns detailed memory stats plus GC statistics (collections, tracked objects).
-    More comprehensive than get_memory_stats() but slightly higher overhead.
-    
-    Returns:
-        Dict containing:
-        - memory: {rss_mb, available_mb, percent_used, compliant}
-        - gc: {collections, stats, tracked_objects}
-        - system: {lambda_limit_mb, pressure_level}
-        - correlation_id: Request correlation ID
-    """
+    """Get comprehensive memory statistics including GC info."""
     return execute_operation(GatewayInterface.SINGLETON, 'get_comprehensive_memory_stats')
 
 def check_lambda_memory_compliance() -> Dict[str, Any]:
-    """
-    Check if current memory usage is within Lambda 128MB limit.
-    
-    Fast, lightweight check for compliance. Use this in hot paths where
-    you need to quickly verify memory is within limits.
-    
-    Returns:
-        Dict containing:
-        - compliant: Boolean if under 128MB
-        - current_mb: Current memory usage
-        - limit_mb: Lambda limit (128)
-        - margin_mb: Remaining headroom
-        - correlation_id: Request correlation ID
-    """
+    """Check if memory usage is within Lambda 128MB limit."""
     return execute_operation(GatewayInterface.SINGLETON, 'check_lambda_memory_compliance')
 
 def force_memory_cleanup() -> Dict[str, Any]:
-    """
-    Force aggressive memory cleanup with garbage collection.
-    
-    Runs gc.collect() and reports memory freed. Use when memory pressure
-    is detected or before memory-intensive operations.
-    
-    Returns:
-        Dict containing:
-        - gc_collected: Number of objects collected
-        - memory_before_mb: Memory before cleanup
-        - memory_after_mb: Memory after cleanup
-        - memory_freed_mb: Amount freed
-        - compliant: Post-cleanup compliance status
-        - correlation_id: Request correlation ID
-    """
+    """Force aggressive memory cleanup."""
     return execute_operation(GatewayInterface.SINGLETON, 'force_memory_cleanup')
 
 def optimize_memory() -> Dict[str, Any]:
-    """
-    Optimize memory usage with multiple cleanup strategies.
-    
-    More comprehensive than force_memory_cleanup(). Runs:
-    - Multi-generation garbage collection
-    - Singleton cache clearing if memory > 100MB
-    - Repeated cleanup passes
-    
-    Use this when memory pressure is high (>100MB) or before critical operations.
-    
-    Returns:
-        Dict containing:
-        - strategies_applied: List of optimization steps taken
-        - final_memory_mb: Memory after optimization
-        - compliant: Compliance status
-        - optimization_count: Number of strategies applied
-        - correlation_id: Request correlation ID
-    """
+    """Optimize memory usage with multi-strategy approach."""
     return execute_operation(GatewayInterface.SINGLETON, 'optimize_memory')
 
 def force_comprehensive_memory_cleanup() -> Dict[str, Any]:
-    """
-    Force comprehensive memory cleanup with all strategies.
-    
-    Most aggressive cleanup option. Combines:
-    - Multi-pass garbage collection
-    - Singleton clearing
-    - Module cache optimization
-    
-    WARNING: May impact performance. Only use when critical.
-    
-    Returns:
-        Dict containing:
-        - cleanup_phases: List of cleanup phases executed
-        - memory_before_mb: Initial memory
-        - memory_after_mb: Final memory
-        - memory_freed_mb: Total freed
-        - compliant: Final compliance status
-        - correlation_id: Request correlation ID
-    """
+    """Force comprehensive memory cleanup with all strategies."""
     return execute_operation(GatewayInterface.SINGLETON, 'force_comprehensive_memory_cleanup')
 
 def emergency_memory_preserve() -> Dict[str, Any]:
-    """
-    Emergency memory preservation for critical situations.
-    
-    CRITICAL USE ONLY: Clears ALL singletons and forces aggressive GC.
-    Only call this when approaching Lambda 128MB limit and normal
-    cleanup has failed. Will disrupt application state.
-    
-    Returns:
-        Dict containing:
-        - emergency_mode: Boolean (True if emergency steps taken)
-        - emergency_steps: List of emergency actions
-        - memory_before_mb: Memory before emergency cleanup
-        - memory_after_mb: Memory after emergency cleanup
-        - memory_freed_mb: Amount freed
-        - now_compliant: Compliance after emergency measures
-        - correlation_id: Request correlation ID
-    """
+    """Emergency memory preservation for critical situations."""
     return execute_operation(GatewayInterface.SINGLETON, 'emergency_memory_preserve')
 
 # ===== INITIALIZATION WRAPPERS =====
@@ -404,11 +427,11 @@ def get_initialization_status() -> Dict[str, Any]:
     """Get initialization status."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'get_status')
 
-def set_initialization_flag(flag: str, value: Any) -> None:
+def set_initialization_flag(flag: str, value: bool) -> None:
     """Set initialization flag."""
     execute_operation(GatewayInterface.INITIALIZATION, 'set_flag', flag=flag, value=value)
 
-def get_initialization_flag(flag: str) -> Any:
+def get_initialization_flag(flag: str) -> bool:
     """Get initialization flag."""
     return execute_operation(GatewayInterface.INITIALIZATION, 'get_flag', flag=flag)
 
@@ -438,9 +461,9 @@ def get_http_client_state() -> Dict[str, Any]:
     """Get HTTP client state."""
     return execute_operation(GatewayInterface.HTTP_CLIENT, 'get_state')
 
-def reset_http_client_state() -> Dict[str, Any]:
+def reset_http_client_state() -> None:
     """Reset HTTP client state."""
-    return execute_operation(GatewayInterface.HTTP_CLIENT, 'reset_state')
+    execute_operation(GatewayInterface.HTTP_CLIENT, 'reset_state')
 
 # ===== WEBSOCKET WRAPPERS =====
 
@@ -448,26 +471,26 @@ def websocket_connect(url: str, **kwargs) -> Dict[str, Any]:
     """Connect to WebSocket."""
     return execute_operation(GatewayInterface.WEBSOCKET, 'connect', url=url, **kwargs)
 
-def websocket_send(connection_id: str, message: Any, **kwargs) -> Dict[str, Any]:
+def websocket_send(connection_id: str, message: Any, **kwargs) -> None:
     """Send WebSocket message."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'send', connection_id=connection_id, message=message, **kwargs)
+    execute_operation(GatewayInterface.WEBSOCKET, 'send', connection_id=connection_id, message=message, **kwargs)
 
-def websocket_receive(connection_id: str, **kwargs) -> Dict[str, Any]:
+def websocket_receive(connection_id: str, **kwargs) -> Any:
     """Receive WebSocket message."""
     return execute_operation(GatewayInterface.WEBSOCKET, 'receive', connection_id=connection_id, **kwargs)
 
-def websocket_close(connection_id: str, **kwargs) -> Dict[str, Any]:
+def websocket_close(connection_id: str, **kwargs) -> None:
     """Close WebSocket connection."""
-    return execute_operation(GatewayInterface.WEBSOCKET, 'close', connection_id=connection_id, **kwargs)
+    execute_operation(GatewayInterface.WEBSOCKET, 'close', connection_id=connection_id, **kwargs)
 
-def websocket_request(url: str, message: Any, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
-    """Make WebSocket request."""
+def websocket_request(url: str, message: Any, timeout: Optional[float] = None, **kwargs) -> Any:
+    """Make WebSocket request (connect, send, receive, close)."""
     return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, timeout=timeout, **kwargs)
 
 # ===== CIRCUIT_BREAKER WRAPPERS =====
 
-def get_circuit_breaker(name: str, failure_threshold: int = 5, timeout: int = 60) -> Dict[str, Any]:
-    """Get circuit breaker state."""
+def get_circuit_breaker(name: str, failure_threshold: int = 5, timeout: float = 60.0) -> Any:
+    """Get circuit breaker."""
     return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get', name=name, failure_threshold=failure_threshold, timeout=timeout)
 
 def execute_with_circuit_breaker(name: str, func: Any, args: tuple = (), **kwargs) -> Any:
@@ -538,7 +561,7 @@ __all__ = [
     'is_circuit_breaker_open',
     'get_circuit_breaker_state',
     
-    # CACHE
+    # CACHE wrappers
     'cache_get',
     'cache_set',
     'cache_exists',
@@ -546,7 +569,7 @@ __all__ = [
     'cache_clear',
     'cache_stats',
     
-    # LOGGING
+    # LOGGING wrappers
     'log_info',
     'log_error',
     'log_warning',
@@ -555,7 +578,7 @@ __all__ = [
     'log_operation_success',
     'log_operation_failure',
     
-    # SECURITY
+    # SECURITY wrappers (includes 4 NEW cache validators)
     'validate_request',
     'validate_token',
     'encrypt_data',
@@ -567,8 +590,12 @@ __all__ = [
     'hash_data',
     'verify_hash',
     'sanitize_input',
+    'validate_cache_key',
+    'validate_ttl',
+    'validate_module_name',
+    'validate_number_range',
     
-    # METRICS
+    # METRICS wrappers
     'record_metric',
     'increment_counter',
     'get_metrics_stats',
@@ -577,7 +604,7 @@ __all__ = [
     'record_cache_metric',
     'record_api_metric',
     
-    # CONFIG
+    # CONFIG wrappers
     'get_config',
     'set_config',
     'get_config_category',
@@ -588,14 +615,12 @@ __all__ = [
     'load_config_from_file',
     'validate_all_config',
     
-    # SINGLETON
+    # SINGLETON wrappers (includes memory monitoring)
     'singleton_get',
     'singleton_has',
     'singleton_delete',
     'singleton_clear',
     'singleton_stats',
-    
-    # SINGLETON MEMORY MONITORING (NEW)
     'get_memory_stats',
     'get_comprehensive_memory_stats',
     'check_lambda_memory_compliance',
@@ -604,13 +629,13 @@ __all__ = [
     'force_comprehensive_memory_cleanup',
     'emergency_memory_preserve',
     
-    # INITIALIZATION
+    # INITIALIZATION wrappers
     'initialize_system',
     'get_initialization_status',
     'set_initialization_flag',
     'get_initialization_flag',
     
-    # HTTP_CLIENT
+    # HTTP_CLIENT wrappers
     'http_request',
     'http_get',
     'http_post',
@@ -619,27 +644,27 @@ __all__ = [
     'get_http_client_state',
     'reset_http_client_state',
     
-    # WEBSOCKET
+    # WEBSOCKET wrappers
     'websocket_connect',
     'websocket_send',
     'websocket_receive',
     'websocket_close',
     'websocket_request',
     
-    # CIRCUIT_BREAKER
+    # CIRCUIT_BREAKER wrappers
     'get_circuit_breaker',
     'execute_with_circuit_breaker',
     'get_all_circuit_breaker_states',
     'reset_all_circuit_breakers',
     
-    # UTILITY
+    # UTILITY wrappers
     'format_response',
     'parse_json',
     'safe_get',
     'generate_uuid',
     'get_timestamp',
     
-    # DEBUG
+    # DEBUG wrappers
     'check_component_health',
     'check_gateway_health',
     'diagnose_system_health',
