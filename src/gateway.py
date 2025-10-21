@@ -1,21 +1,13 @@
 """
 gateway.py - Universal Lambda Gateway (Consolidated Module)
-Version: 2025.10.14.02
+Version: 2025.10.21.03
 Description: Single entry point consolidating gateway_core and gateway_wrappers
 
+CHANGELOG:
+- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports (CVE-LOG-001 completion)
+
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 # Import all from gateway_core
@@ -74,6 +66,11 @@ from gateway_wrappers import (
     hash_data,
     verify_hash,
     sanitize_input,
+    sanitize_for_log,  # NEW 2025.10.21.03 - CVE-LOG-001 fix completion
+    validate_cache_key,
+    validate_ttl,
+    validate_module_name,
+    validate_number_range,
     
     # METRICS wrappers
     record_metric,
@@ -101,6 +98,13 @@ from gateway_wrappers import (
     singleton_delete,
     singleton_clear,
     singleton_stats,
+    get_memory_stats,
+    get_comprehensive_memory_stats,
+    check_lambda_memory_compliance,
+    force_memory_cleanup,
+    optimize_memory,
+    force_comprehensive_memory_cleanup,
+    emergency_memory_preserve,
     
     # INITIALIZATION wrappers
     initialize_system,
@@ -203,6 +207,11 @@ __all__ = [
     'hash_data',
     'verify_hash',
     'sanitize_input',
+    'sanitize_for_log',  # NEW 2025.10.21.03 - CVE-LOG-001 fix completion
+    'validate_cache_key',
+    'validate_ttl',
+    'validate_module_name',
+    'validate_number_range',
     
     # Generated Wrappers - METRICS (from gateway_wrappers)
     'record_metric',
@@ -230,6 +239,13 @@ __all__ = [
     'singleton_delete',
     'singleton_clear',
     'singleton_stats',
+    'get_memory_stats',
+    'get_comprehensive_memory_stats',
+    'check_lambda_memory_compliance',
+    'force_memory_cleanup',
+    'optimize_memory',
+    'force_comprehensive_memory_cleanup',
+    'emergency_memory_preserve',
     
     # Generated Wrappers - INITIALIZATION (from gateway_wrappers)
     'initialize_system',
