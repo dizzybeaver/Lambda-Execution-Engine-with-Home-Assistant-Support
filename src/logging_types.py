@@ -1,7 +1,12 @@
+# Filename: logging_types.py
 """
 logging_types.py - Logging type definitions and enumerations
-Version: 2025.10.14.01
+Version: 2025.10.21.02
 Description: Type definitions for unified logging system
+
+CHANGELOG:
+- 2025.10.21.02: Fixed ErrorEntry dataclass for logging_manager compatibility
+- 2025.10.14.01: Initial comprehensive type definitions
 
 Copyright 2025 Joseph Hersey
 
@@ -66,17 +71,18 @@ class ErrorLogLevel(Enum):
 
 @dataclass
 class ErrorEntry:
-    """Simple error entry with metadata."""
-    timestamp: float
+    """Simple error entry with metadata - used by logging_manager.py"""
+    timestamp: datetime
     error_type: str
     message: str
-    stack_trace: Optional[str] = None
+    level: ErrorLogLevel
+    details: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
 
 
 @dataclass
 class ErrorLogEntry:
-    """Structured error response log entry."""
+    """Structured error response log entry - used by error response logging."""
     id: str
     timestamp: float
     datetime: datetime
@@ -92,42 +98,16 @@ class ErrorLogEntry:
     @staticmethod
     def determine_severity(error_response: Dict[str, Any]) -> ErrorLogLevel:
         """Determine severity from error response."""
-        status_code = error_response.get('statusCode', 500)
+        error_code = error_response.get('error', {}).get('code', '')
         
-        if status_code >= 500:
+        if 'critical' in error_code.lower() or 'fatal' in error_code.lower():
+            return ErrorLogLevel.CRITICAL
+        elif 'error' in error_code.lower():
             return ErrorLogLevel.HIGH
-        elif status_code in [401, 403]:
-            return ErrorLogLevel.MEDIUM
-        elif status_code == 429:
+        elif 'warning' in error_code.lower():
             return ErrorLogLevel.MEDIUM
         else:
             return ErrorLogLevel.LOW
-            
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert entry to dictionary."""
-        return {
-            'id': self.id,
-            'timestamp': self.timestamp,
-            'datetime': self.datetime.isoformat(),
-            'correlation_id': self.correlation_id,
-            'source_module': self.source_module,
-            'error_type': self.error_type,
-            'severity': self.severity.value,
-            'status_code': self.status_code,
-            'error_response': self.error_response,
-            'lambda_context': self.lambda_context_info,
-            'additional_context': self.additional_context
-        }
 
-
-# ===== EXPORTS =====
-
-__all__ = [
-    'LogOperation',
-    'LogTemplate',
-    'ErrorLogLevel',
-    'ErrorEntry',
-    'ErrorLogEntry',
-]
 
 # EOF
