@@ -197,6 +197,14 @@ def sanitize_input(data: str) -> str:
     """Sanitize input data."""
     return execute_operation(GatewayInterface.SECURITY, 'sanitize', data=data)
 
+def sanitize_for_log(data: Any) -> Any:
+    """
+    Sanitize data for safe logging - removes PII and sensitive fields.
+    
+    Related CVE: CVE-LOG-001 (Sensitive Data Exposure in Logs)
+    """
+    return execute_operation(GatewayInterface.SECURITY, 'sanitize', data=data)
+
 # ===== NEW CACHE SECURITY VALIDATORS (2025.10.20) =====
 
 def validate_cache_key(key: str) -> None:
@@ -589,6 +597,7 @@ __all__ = [
     'validate_url',
     'hash_data',
     'verify_hash',
+    'sanitize_for_log',
     'sanitize_input',
     'validate_cache_key',
     'validate_ttl',
