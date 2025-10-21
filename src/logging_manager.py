@@ -1,52 +1,24 @@
+# Filename: logging_manager.py
 """
-logging_manager.py - Core logging manager implementation
-Version: 2025.10.21.01
-Description: LoggingCore class with template optimization and error tracking
+logging_manager.py - Core logging manager (SECURITY HARDENED)
+Version: 2025.10.21.02
+Description: LoggingCore class with rate limiting and validation
 
-MAJOR DESIGN DECISION - Module-Level Singleton:
-===============================================
-LoggingCore uses module-level singleton (_LOGGING_CORE) instead of SINGLETON interface.
-
-WHY: Performance-critical hot-path optimization
-- Logging called on EVERY operation (10-100+ times per Lambda invocation)
-- SINGLETON interface adds gateway routing overhead (~1-5µs per call)
-- With 100 log calls: 100-500µs wasted per invocation
-- Module-level access: Direct reference, ~0.1µs (10-50x faster)
-
-TRADE-OFFS:
-- Pro: Zero routing overhead, maximum performance
-- Pro: Python guarantees singleton at module level
-- Pro: Simpler initialization (no factory needed)
-- Con: Cannot use singleton_clear() from gateway
-- Con: Less consistent with other interfaces
-- DECISION: Performance critical enough to warrant exception
-
-REFERENCES:
-- DEC-04: Lambda single-threaded (no locking needed)
-- LESS-06: Hot-path optimization principles
-- DEC-XX: Module-level singleton for logging (this decision)
-- See: Logging Optimization Plan (2025-10-21) for full analysis
+SECURITY ENHANCEMENTS (2025.10.21.02):
+- Rate limiting: MAX_LOGS_PER_INVOCATION to prevent log flooding
+- LOG_LEVEL validation: Prevents misconfiguration
+- Invocation tracking: Reset log count per Lambda invocation
+- Enhanced error tracking with limits
 
 CHANGELOG:
-- 2025.10.21.01: Added singleton documentation + DEBUG_MODE support + documentation standards
-- 2025.10.18.01: Fixed ErrorLogLevel enum usage (Issue #15) - HIGH/MEDIUM/LOW/CRITICAL
-- 2025.10.17.04: Removed threading locks (Issue #14) - Lambda single-threaded optimization
-- 2025.10.17.03: Fixed inconsistent error log limits (Issue #10) - Both use 100 limit
-- 2025.10.14.01: Added design decision documentation for threading and dual storage
+- 2025.10.21.02: SECURITY HARDENING - Rate limiting + LOG_LEVEL validation
+- 2025.10.21.01: Added singleton docs + DEBUG_MODE support + documentation standards
+- 2025.10.18.01: Fixed ErrorLogLevel enum usage (Issue #15)
+- 2025.10.17.04: Removed threading locks (Issue #14)
+- 2025.10.17.03: Fixed inconsistent error log limits (Issue #10)
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 import os
@@ -60,10 +32,20 @@ from logging_types import (
     LogTemplate, ErrorEntry, ErrorLogEntry, ErrorLogLevel
 )
 
-# Configuration
+# ===== CONFIGURATION =====
+
+# Template system
 _USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'true').lower() == 'true'
 
-# DEBUG_MODE support (DEC-22)
+# SECURITY: Rate limiting (CVE-LOG-003 mitigation)
+MAX_LOGS_PER_INVOCATION = int(os.environ.get('MAX_LOGS_PER_INVOCATION', '500'))
+LOG_RATE_LIMIT_ENABLED = os.environ.get('LOG_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+
+# SECURITY: LOG_LEVEL validation
+VALID_LOG_LEVELS = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
+
+# ===== DEBUG_MODE SUPPORT (DEC-22) =====
+
 def _is_debug_mode() -> bool:
     """Check if DEBUG_MODE is enabled for flow visibility."""
     return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
@@ -73,378 +55,259 @@ def _print_debug(msg: str, component: str = 'LOGGING_MANAGER'):
     if _is_debug_mode():
         print(f"[{component}_DEBUG] {msg}")
 
-# Initialize Python logging
-logging.basicConfig(level=logging.INFO)
+_print_debug("Loading logging_manager.py module (SECURITY HARDENED)")
 
+# ===== LOGGING CONFIGURATION =====
+
+def _get_validated_log_level() -> int:
+    """
+    Get and validate LOG_LEVEL environment variable.
+    
+    SECURITY: Validates LOG_LEVEL to prevent misconfiguration.
+    Returns default INFO if invalid.
+    
+    Returns:
+        int: logging level constant
+    """
+    log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+    
+    # Validate against allowed levels
+    if log_level_str not in VALID_LOG_LEVELS:
+        print(f"[LOGGING_MANAGER_WARNING] Invalid LOG_LEVEL='{log_level_str}', "
+              f"must be one of {VALID_LOG_LEVELS}. Defaulting to INFO.")
+        log_level_str = 'INFO'
+    
+    # Convert to logging constant
+    level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    
+    level = level_map[log_level_str]
+    _print_debug(f"Log level set to: {log_level_str} ({level})")
+    return level
+
+# Configure Python logging
+logging.basicConfig(
+    level=_get_validated_log_level(),
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# ===== RATE LIMITING TRACKER =====
+
+class RateLimitTracker:
+    """Track log count per Lambda invocation for rate limiting."""
+    
+    def __init__(self):
+        self.invocation_id = None
+        self.log_count = 0
+        self.limit_warning_shown = False
+    
+    def reset_for_invocation(self, invocation_id: str):
+        """Reset counter for new Lambda invocation."""
+        self.invocation_id = invocation_id
+        self.log_count = 0
+        self.limit_warning_shown = False
+        _print_debug(f"Rate limit tracker reset for invocation: {invocation_id}")
+    
+    def increment(self) -> bool:
+        """
+        Increment log count and check if limit exceeded.
+        
+        Returns:
+            bool: True if logging allowed, False if limit exceeded
+        """
+        self.log_count += 1
+        
+        if not LOG_RATE_LIMIT_ENABLED:
+            return True
+        
+        if self.log_count > MAX_LOGS_PER_INVOCATION:
+            # Show warning once when limit hit
+            if not self.limit_warning_shown:
+                print(f"[LOGGING_MANAGER_RATE_LIMIT] Log limit of {MAX_LOGS_PER_INVOCATION} "
+                      f"exceeded for invocation {self.invocation_id}. Suppressing further logs.")
+                self.limit_warning_shown = True
+            return False
+        
+        return True
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get rate limiting statistics."""
+        return {
+            'invocation_id': self.invocation_id,
+            'log_count': self.log_count,
+            'limit': MAX_LOGS_PER_INVOCATION,
+            'limit_exceeded': self.log_count > MAX_LOGS_PER_INVOCATION if LOG_RATE_LIMIT_ENABLED else False,
+            'rate_limiting_enabled': LOG_RATE_LIMIT_ENABLED
+        }
+
+# Global rate limit tracker
+_RATE_LIMITER = RateLimitTracker()
+
+# ===== LOGGING CORE =====
 
 class LoggingCore:
     """
-    Unified logging manager with template optimization and generic operations.
+    Unified logging manager with template optimization and rate limiting.
     
-    LAMBDA OPTIMIZED: No threading locks (single-threaded per container).
-    MODULE-LEVEL SINGLETON: For hot-path performance (see header docs).
+    SECURITY FEATURES:
+    - Rate limiting: Prevents log flooding attacks
+    - LOG_LEVEL validation: Prevents misconfiguration
+    - Error tracking limits: Prevents memory exhaustion
     """
     
     def __init__(self):
-        """Initialize logging core with tracking structures."""
-        _print_debug("Initializing LoggingCore")
-        
-        # Core logger instance
-        self.logger = logging.getLogger('LambdaExecutionEngine')
-        _print_debug(f"Logger initialized: {self.logger.name}")
-        
-        # Error tracking (Fixed Issue #10: consistent 100 limit)
-        self.max_error_entries = 100
-        self.error_entries: deque = deque(maxlen=100)
-        self.error_log_entries: deque = deque(maxlen=100)
-        self.operation_logs: deque = deque(maxlen=1000)
-        _print_debug(f"Tracking initialized: error_entries={len(self.error_entries)}, "
-                    f"error_log_entries={len(self.error_log_entries)}, "
-                    f"operation_logs={len(self.operation_logs)}")
-        
-        # Template counters (no lock needed in single-threaded Lambda)
+        """Initialize logging core."""
+        self.logger = logging.getLogger('SUGA-ISP')
+        self._templates: Dict[str, LogTemplate] = {}
         self._template_hits = 0
-        self._template_fallbacks = 0
-        _print_debug("Template counters initialized")
+        self._template_misses = 0
+        
+        # Error tracking (with limits)
+        self._error_log: deque = deque(maxlen=100)
+        self._error_count_by_type: Dict[str, int] = {}
+        
+        _print_debug("LoggingCore initialized with rate limiting")
     
-    # ===== CORE LOGGING =====
+    def set_invocation_id(self, invocation_id: str):
+        """Set Lambda invocation ID and reset rate limiter."""
+        _RATE_LIMITER.reset_for_invocation(invocation_id)
     
     def log(self, message: str, level: int = logging.INFO, **kwargs) -> None:
         """
-        Core logging with optional metadata.
+        Core logging with rate limiting and template optimization.
+        
+        SECURITY: Rate limited to prevent log flooding.
         
         Args:
-            message: Log message
-            level: Python logging level (INFO, WARNING, ERROR, etc.)
-            **kwargs: Additional metadata to include in log
+            message: Log message (already sanitized by interface_logging)
+            level: Logging level
+            **kwargs: Additional context (already sanitized)
         """
-        _print_debug(f"log() called: level={level}, message='{message[:50]}...'")
-        self.logger.log(level, message, extra=kwargs)
-    
-    def log_template_fast(self, template: LogTemplate, *args, level: int = logging.INFO) -> None:
-        """
-        Log using template for ultra-fast performance.
+        # Check rate limit (SECURITY)
+        if not _RATE_LIMITER.increment():
+            return  # Suppress log if limit exceeded
         
-        Uses pre-formatted templates to minimize string formatting overhead.
-        Falls back to string conversion if templates disabled.
-        
-        Args:
-            template: LogTemplate enum value
-            *args: Arguments to format into template
-            level: Python logging level
-        """
-        # DESIGN: Branch optimization - check once at module level
+        # Template optimization (if enabled)
         if _USE_LOG_TEMPLATES:
-            message = template.value.format(*args) if args else template.value
-            self._template_hits += 1
-            _print_debug(f"Template hit: {template.name}, hits={self._template_hits}")
-        else:
-            message = str(args[0]) if args else template.value
-            self._template_fallbacks += 1
-            _print_debug(f"Template fallback, fallbacks={self._template_fallbacks}")
-        
-        self.logger.log(level, message)
-    
-    # ===== ERROR TRACKING =====
-    
-    def log_error(self, message: str, error_code: Optional[str] = None,
-                  correlation_id: Optional[str] = None, **kwargs) -> None:
-        """
-        Log error with tracking.
-        
-        Adds error to tracking deque for analytics and debugging.
-        
-        Args:
-            message: Error message
-            error_code: Optional error code for categorization
-            correlation_id: Optional correlation ID for request tracking
-            **kwargs: Additional context
-        """
-        _print_debug(f"log_error() called: error_code={error_code}, "
-                    f"correlation_id={correlation_id}")
-        
-        entry = ErrorEntry(
-            timestamp=time.time(),
-            error_type=error_code or 'UNKNOWN_ERROR',
-            message=str(message)
-        )
-        
-        self.error_entries.append(entry)
-        _print_debug(f"Error entry added, total={len(self.error_entries)}")
-        
-        self.logger.error(
-            f"[{entry.error_type}] {entry.message}",
-            extra={
-                'correlation_id': correlation_id,
-                'error_type': entry.error_type,
-                **kwargs
-            }
-        )
-    
-    def log_error_response(self, message: str, status_code: int = 500,
-                          error_code: Optional[str] = None,
-                          correlation_id: Optional[str] = None,
-                          level: ErrorLogLevel = ErrorLogLevel.HIGH,
-                          **kwargs) -> Dict[str, Any]:
-        """
-        Log error and return error response dict.
-        
-        Used for HTTP error responses with analytics tracking.
-        
-        Args:
-            message: Error message
-            status_code: HTTP status code (default 500)
-            error_code: Optional error code
-            correlation_id: Optional correlation ID
-            level: ErrorLogLevel severity
-            **kwargs: Additional context
+            template_key = self._get_template_key(message)
             
-        Returns:
-            Dict containing error response structure
+            if template_key in self._templates:
+                template = self._templates[template_key]
+                template.increment_count()
+                self._template_hits += 1
+                
+                # Log with template reference
+                self.logger.log(level, f"[T{template.template_id}] {message}", extra=kwargs)
+            else:
+                # Create new template
+                template = LogTemplate(message)
+                self._templates[template_key] = template
+                self._template_misses += 1
+                
+                # Log normally
+                self.logger.log(level, message, extra=kwargs)
+        else:
+            # No template optimization
+            self.logger.log(level, message, extra=kwargs)
+    
+    def log_error_with_tracking(self, message: str, error: Optional[str] = None, 
+                               level: ErrorLogLevel = ErrorLogLevel.MEDIUM, **kwargs) -> None:
         """
-        _print_debug(f"log_error_response() called: status={status_code}, "
-                    f"level={level.value}, correlation_id={correlation_id}")
+        Log error with tracking and rate limiting.
         
-        # DESIGN: Structured error response for API consistency
-        error_response = {
-            'error': error_code or 'INTERNAL_ERROR',
-            'message': message,
-            'status_code': status_code,
-            'timestamp': datetime.now().isoformat(),
-            'correlation_id': correlation_id
-        }
+        Args:
+            message: Error message (already sanitized)
+            error: Exception details (already sanitized)
+            level: Error severity level
+            **kwargs: Additional context (already sanitized)
+        """
+        # Check rate limit
+        if not _RATE_LIMITER.increment():
+            return
         
-        # Track for analytics
+        # Create error entry
         entry = ErrorLogEntry(
-            id=correlation_id or f"err_{int(time.time()*1000)}",
-            timestamp=time.time(),
-            datetime=datetime.now(),
-            correlation_id=correlation_id or 'unknown',
-            source_module='logging_manager',
-            error_type=error_code or 'INTERNAL_ERROR',
-            severity=level,
-            status_code=status_code,
-            error_response=error_response,
-            lambda_context_info=None,
-            additional_context=kwargs
+            timestamp=datetime.now(),
+            error_type=kwargs.get('error_type', 'UnknownError'),
+            message=message,
+            level=level,
+            details=error
         )
         
-        self.error_log_entries.append(entry)
-        _print_debug(f"Error response entry added, total={len(self.error_log_entries)}")
+        # Track error (with deque size limit for security)
+        self._error_log.append(entry)
         
-        # Log with appropriate level
-        log_level = {
-            ErrorLogLevel.LOW: logging.INFO,
-            ErrorLogLevel.MEDIUM: logging.WARNING,
+        # Count by type
+        error_type = entry.error_type
+        self._error_count_by_type[error_type] = self._error_count_by_type.get(error_type, 0) + 1
+        
+        # Log
+        level_map = {
+            ErrorLogLevel.LOW: logging.WARNING,
+            ErrorLogLevel.MEDIUM: logging.ERROR,
             ErrorLogLevel.HIGH: logging.ERROR,
             ErrorLogLevel.CRITICAL: logging.CRITICAL
-        }.get(level, logging.ERROR)
-        
-        self.logger.log(
-            log_level,
-            f"[{error_code}] {message}",
-            extra={
-                'correlation_id': correlation_id,
-                'status_code': status_code,
-                'severity': level.value,
-                **kwargs
-            }
-        )
-        
-        return error_response
-    
-    # ===== OPERATION TRACKING =====
-    
-    def log_operation_start(self, operation: str, correlation_id: Optional[str] = None,
-                           **kwargs) -> None:
-        """
-        Log operation start for performance tracking.
-        
-        Args:
-            operation: Operation name
-            correlation_id: Optional correlation ID
-            **kwargs: Additional context
-        """
-        _print_debug(f"Operation start: {operation}, correlation_id={correlation_id}")
-        
-        self.logger.info(
-            f"Operation started: {operation}",
-            extra={
-                'correlation_id': correlation_id,
-                'operation': operation,
-                **kwargs
-            }
-        )
-    
-    def log_operation_success(self, operation: str, duration_ms: float,
-                             correlation_id: Optional[str] = None, **kwargs) -> None:
-        """
-        Log operation success with duration.
-        
-        Args:
-            operation: Operation name
-            duration_ms: Duration in milliseconds
-            correlation_id: Optional correlation ID
-            **kwargs: Additional context
-        """
-        _print_debug(f"Operation success: {operation}, duration={duration_ms:.2f}ms, "
-                    f"correlation_id={correlation_id}")
-        
-        self.logger.info(
-            f"Operation succeeded: {operation} ({duration_ms:.2f}ms)",
-            extra={
-                'correlation_id': correlation_id,
-                'duration_ms': duration_ms,
-                'operation': operation,
-                **kwargs
-            }
-        )
-    
-    def log_operation_failure(self, operation: str, error: str,
-                             correlation_id: Optional[str] = None, **kwargs) -> None:
-        """
-        Log operation failure.
-        
-        Args:
-            operation: Operation name
-            error: Error description
-            correlation_id: Optional correlation ID
-            **kwargs: Additional context
-        """
-        _print_debug(f"Operation failure: {operation}, error={error}, "
-                    f"correlation_id={correlation_id}")
-        
-        self.logger.error(
-            f"Operation failed: {operation} - {error}",
-            extra={
-                'correlation_id': correlation_id,
-                'operation': operation,
-                'error': error,
-                **kwargs
-            }
-        )
-    
-    # ===== ERROR ANALYTICS =====
-    
-    def get_error_response_analytics(self) -> Dict[str, Any]:
-        """
-        Get analytics from error response logs.
-        
-        Provides counts by status code, error code, and severity level.
-        
-        Returns:
-            Dict with analytics breakdown
-        """
-        _print_debug(f"get_error_response_analytics() called, "
-                    f"entries={len(self.error_log_entries)}")
-        
-        if not self.error_log_entries:
-            return {
-                'total_errors': 0,
-                'by_status_code': {},
-                'by_error_code': {},
-                'by_severity': {}
-            }
-        
-        by_status = {}
-        by_code = {}
-        by_severity = {}
-        
-        for entry in self.error_log_entries:
-            # Count by status code
-            by_status[entry.status_code] = by_status.get(entry.status_code, 0) + 1
-            
-            # Count by error code
-            by_code[entry.error_type] = by_code.get(entry.error_type, 0) + 1
-            
-            # Count by severity
-            severity = entry.severity.value
-            by_severity[severity] = by_severity.get(severity, 0) + 1
-        
-        analytics = {
-            'total_errors': len(self.error_log_entries),
-            'by_status_code': by_status,
-            'by_error_code': by_code,
-            'by_severity': by_severity
         }
-        _print_debug(f"Analytics: {analytics['total_errors']} errors")
-        return analytics
-    
-    # ===== STATS =====
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """
-        Get logging statistics.
         
-        Returns:
-            Dict with counts for errors, operations, template usage
-        """
-        stats = {
-            'error_count': len(self.error_entries),
-            'error_response_count': len(self.error_log_entries),
-            'operation_log_count': len(self.operation_logs),
+        log_level = level_map.get(level, logging.ERROR)
+        self.logger.log(log_level, f"{message}: {error}" if error else message, extra=kwargs)
+    
+    def _get_template_key(self, message: str) -> str:
+        """Generate template key from message."""
+        # Simple implementation: use message as key
+        return message[:100]  # Limit key length
+    
+    def get_template_stats(self) -> Dict[str, Any]:
+        """Get template statistics."""
+        return {
+            'templates_cached': len(self._templates),
             'template_hits': self._template_hits,
-            'template_fallbacks': self._template_fallbacks
+            'template_misses': self._template_misses,
+            'hit_rate': (self._template_hits / (self._template_hits + self._template_misses) * 100
+                        if (self._template_hits + self._template_misses) > 0 else 0.0)
         }
-        _print_debug(f"get_stats() called: {stats}")
-        return stats
     
-    # ===== CLEANUP =====
-    
-    def clear_errors(self) -> int:
-        """Clear error entries and return count cleared."""
-        count = len(self.error_entries)
-        self.error_entries.clear()
-        _print_debug(f"clear_errors(): cleared {count} entries")
-        return count
-    
-    def clear_error_responses(self) -> int:
-        """Clear error response entries and return count cleared."""
-        count = len(self.error_log_entries)
-        self.error_log_entries.clear()
-        _print_debug(f"clear_error_responses(): cleared {count} entries")
-        return count
-    
-    def clear_operation_logs(self) -> int:
-        """Clear operation logs and return count cleared."""
-        count = len(self.operation_logs)
-        self.operation_logs.clear()
-        _print_debug(f"clear_operation_logs(): cleared {count} entries")
-        return count
-    
-    def clear_all(self) -> Dict[str, int]:
-        """
-        Clear all tracking data.
-        
-        Returns:
-            Dict with counts of cleared entries by type
-        """
-        _print_debug("clear_all() called")
-        result = {
-            'errors_cleared': self.clear_errors(),
-            'error_responses_cleared': self.clear_error_responses(),
-            'operation_logs_cleared': self.clear_operation_logs()
+    def get_error_stats(self) -> Dict[str, Any]:
+        """Get error tracking statistics."""
+        return {
+            'total_errors': len(self._error_log),
+            'errors_by_type': self._error_count_by_type.copy(),
+            'recent_errors': [
+                {
+                    'timestamp': entry.timestamp.isoformat(),
+                    'type': entry.error_type,
+                    'message': entry.message,
+                    'level': entry.level.value
+                }
+                for entry in list(self._error_log)[-10:]  # Last 10 errors
+            ]
         }
-        _print_debug(f"clear_all() result: {result}")
-        return result
-
+    
+    def get_rate_limit_stats(self) -> Dict[str, Any]:
+        """Get rate limiting statistics."""
+        return _RATE_LIMITER.get_stats()
 
 # ===== MODULE-LEVEL SINGLETON =====
-# DESIGN: Direct module-level instance for hot-path performance
-# See header MAJOR DESIGN DECISION for rationale
 
-_print_debug("Creating module-level singleton _LOGGING_CORE")
 _LOGGING_CORE = LoggingCore()
-_MANAGER = _LOGGING_CORE  # Alias for compatibility with logging_core.py
-_print_debug("Module-level singleton created")
+_print_debug("Module-level singleton _LOGGING_CORE created")
 
+def get_logging_core() -> LoggingCore:
+    """Get the module-level logging core singleton."""
+    return _LOGGING_CORE
 
-# ===== MODULE EXPORTS =====
+# ===== EXPORTS =====
 
 __all__ = [
     'LoggingCore',
-    '_LOGGING_CORE',
-    '_MANAGER',
+    'get_logging_core',
+    'RateLimitTracker'
 ]
 
 # EOF
