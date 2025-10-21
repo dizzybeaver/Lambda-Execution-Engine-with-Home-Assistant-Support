@@ -1,34 +1,28 @@
+# Filename: interface_logging.py
 """
-logging_core.py - Unified logging interface (gateway-facing)
-Version: 2025.10.20.02
-Description: Gateway compatibility layer for logging subsystem
-            SUGA-ISP COMPLIANT: Uses gateway services, no duplicate implementations
+interface_logging.py - Logging Interface Router
+Version: 2025.10.21.01
+Description: Firewall router for Logging interface (SUGA-ISP COMPLIANT)
+             This file acts as the interface router (firewall) between the SUGA-ISP
+             and internal implementation files. Only this file may be accessed by
+             gateway.py. Internal files are isolated.
 
 CHANGELOG:
-- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in implementation functions
-  - Fixed _execute_log_operation_start_implementation(operation_name, ...)
-  - Fixed _execute_log_operation_success_implementation(operation_name, ...)
-  - Fixed _execute_log_operation_failure_implementation(operation_name, ...)
-  - Resolves RuntimeError: "got multiple values for argument 'operation'"
-- 2025.10.16.05: Bug Fixes Applied
-  - Standardized error parameter to Union[str, Exception] for flexibility
-  - Standardized all correlation_id to Optional[str] = None
-  - Uses gateway.generate_correlation_id (no UUID duplication)
-  - Removed unnecessary fallback logic (Lambda always has gateway)
-  - Added type hints for better error detection
-  - Improved parameter consistency across all functions
-
-CRITICAL BUG FIX (2025.10.20.02):
-Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
-         Implementation functions had 'operation' parameter, creating conflict in kwargs.
-Solution: Renamed parameter from 'operation' to 'operation_name' in all affected functions.
-Impact: Matches interface_logging.py validation and gateway_wrappers.py parameter names.
-
-SUGA-ISP Compliance:
-- Uses gateway for correlation ID generation (no reimplementation)
-- Direct import from gateway (Lambda environment guarantee)
-- Minimal memory footprint for AWS Lambda Free Tier
-- No duplicate functionality
+- 2025.10.21.01: Added DEBUG_MODE support (DEC-22 compliance)
+  - Added _is_debug_mode() function to check DEBUG_MODE environment variable
+  - Added _print_debug() function for consistent debug output
+  - Added DEBUG_MODE checks at module initialization
+  - Added debug logging for operation dispatch
+  - Consistent with logging_manager.py and logging_core.py DEBUG_MODE pattern
+- 2025.10.20.03: Parameter Validation Updates
+  - Updated validation functions to expect 'operation_name' parameter
+  - Matches gateway_wrappers.py parameter names
+  - Aligned with logging_core.py implementation function parameters
+- 2025.10.16.06: Architecture Compliance
+  - Implements SUGA-ISP interface router pattern
+  - Routes operations to logging_core.py implementations
+  - Validates parameters before routing
+  - Uses dispatch dictionary for O(1) routing
 
 Copyright 2025 Joseph Hersey
 
@@ -45,185 +39,183 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-import logging
-from typing import Dict, Any, Optional, Union
+import os
+from typing import Any, Dict, Callable
 
-# ✅ ALLOWED: Import from split modules within same interface
-from logging_types import (
-    LogOperation,
-    LogTemplate,
-    ErrorLogLevel,
-    ErrorEntry,
-    ErrorLogEntry,
-)
+# ===== DEBUG_MODE SUPPORT (DEC-22) =====
 
-from logging_manager import _MANAGER
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE environment variable is set to 'true'."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
-from logging_operations import execute_logging_operation
+def _print_debug(msg: str, component: str = 'INTERFACE_LOGGING'):
+    """Print debug message if DEBUG_MODE=true (DEC-22)."""
+    if _is_debug_mode():
+        print(f"[{component}_DEBUG] {msg}")
 
-# ✅ CROSS-INTERFACE: Must use gateway for security operations
-from gateway import execute_operation, GatewayInterface
+# Module initialization debug
+_print_debug("Loading interface_logging.py module")
 
 
-# ===== COMPATIBILITY LAYER FOR GATEWAY =====
+# ===== IMPORTS =====
 
-def _execute_log_info_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+try:
+    from logging_core import (
+        _execute_log_info_implementation,
+        _execute_log_error_implementation,
+        _execute_log_warning_implementation,
+        _execute_log_debug_implementation,
+        _execute_log_operation_start_implementation,
+        _execute_log_operation_success_implementation,
+        _execute_log_operation_failure_implementation,
+    )
+    _LOGGING_AVAILABLE = True
+    _LOGGING_IMPORT_ERROR = None
+    _print_debug("logging_core imported successfully")
+except ImportError as e:
+    _LOGGING_AVAILABLE = False
+    _LOGGING_IMPORT_ERROR = str(e)
+    _print_debug(f"logging_core import failed: {e}")
+
+
+# ===== PARAMETER VALIDATION =====
+
+def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
+    """Validate message parameter exists."""
+    if 'message' not in kwargs:
+        raise ValueError(f"logging.{operation} requires 'message' parameter")
+
+
+def _validate_operation_start_params(kwargs: Dict[str, Any]) -> None:
     """
-    Execute log info operation.
+    Validate log_operation_start parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_start requires 'operation_name' parameter")
+
+
+def _validate_operation_success_params(kwargs: Dict[str, Any]) -> None:
+    """
+    Validate log_operation_success parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_success requires 'operation_name' parameter")
+    if 'duration_ms' not in kwargs:
+        raise ValueError("logging.log_operation_success requires 'duration_ms' parameter")
+
+
+def _validate_operation_failure_params(kwargs: Dict[str, Any]) -> None:
+    """
+    Validate log_operation_failure parameters.
+    
+    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
+    to match gateway_wrappers.py parameter rename.
+    """
+    if 'operation_name' not in kwargs:
+        raise ValueError("logging.log_operation_failure requires 'operation_name' parameter")
+    if 'error' not in kwargs:
+        raise ValueError("logging.log_operation_failure requires 'error' parameter")
+
+
+# ===== OPERATION DISPATCH =====
+
+def _build_dispatch_dict() -> Dict[str, Callable]:
+    """Build dispatch dictionary for logging operations. Only called if logging available."""
+    _print_debug("Building operation dispatch dictionary")
+    dispatch = {
+        'log_info': lambda **kwargs: (
+            _validate_message_param(kwargs, 'log_info'),
+            _execute_log_info_implementation(**kwargs)
+        )[1],
+        
+        'log_error': lambda **kwargs: (
+            _validate_message_param(kwargs, 'log_error'),
+            _execute_log_error_implementation(**kwargs)
+        )[1],
+        
+        'log_warning': lambda **kwargs: (
+            _validate_message_param(kwargs, 'log_warning'),
+            _execute_log_warning_implementation(**kwargs)
+        )[1],
+        
+        'log_debug': lambda **kwargs: (
+            _validate_message_param(kwargs, 'log_debug'),
+            _execute_log_debug_implementation(**kwargs)
+        )[1],
+        
+        'log_operation_start': lambda **kwargs: (
+            _validate_operation_start_params(kwargs),
+            _execute_log_operation_start_implementation(**kwargs)
+        )[1],
+        
+        'log_operation_success': lambda **kwargs: (
+            _validate_operation_success_params(kwargs),
+            _execute_log_operation_success_implementation(**kwargs)
+        )[1],
+        
+        'log_operation_failure': lambda **kwargs: (
+            _validate_operation_failure_params(kwargs),
+            _execute_log_operation_failure_implementation(**kwargs)
+        )[1],
+    }
+    _print_debug(f"Dispatch dictionary built with {len(dispatch)} operations")
+    return dispatch
+
+_OPERATION_DISPATCH = _build_dispatch_dict() if _LOGGING_AVAILABLE else {}
+
+
+# ===== MAIN ROUTER FUNCTION =====
+
+def execute_logging_operation(operation: str, **kwargs) -> Any:
+    """
+    Route logging operation requests using dispatch dictionary pattern.
     
     Args:
-        message: Log message
-        extra: Additional context data
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    return execute_logging_operation(LogOperation.LOG_INFO, message, extra=extra)
-
-
-def _execute_log_error_implementation(message: str, error: Optional[Exception] = None, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
-    """
-    Execute log error operation.
-    
-    BUG FIX: Changed error parameter to Union[str, Exception] for flexibility
-    
-    Args:
-        message: Log message
-        error: Exception object or error string (optional)
-        extra: Additional context data
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    return execute_logging_operation(LogOperation.LOG_ERROR, message, error=error, extra=extra)
-
-
-def _execute_log_warning_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
-    """
-    Execute log warning operation.
-    
-    Args:
-        message: Log message
-        extra: Additional context data
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    return execute_logging_operation(LogOperation.LOG_WARNING, message, extra=extra)
-
-
-def _execute_log_debug_implementation(message: str, extra: Optional[Dict[str, Any]] = None, **kwargs) -> None:
-    """
-    Execute log debug operation.
-    
-    Args:
-        message: Log message
-        extra: Additional context data
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    return execute_logging_operation(LogOperation.LOG_DEBUG, message, extra=extra)
-
-
-def _execute_log_operation_start_implementation(operation_name: str, correlation_id: Optional[str] = None, **kwargs) -> None:
-    """
-    Execute log operation start.
-    
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
-    
-    Args:
-        operation_name: Operation name (renamed from 'operation')
-        correlation_id: Optional correlation ID
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    execute_logging_operation(LogOperation.LOG_OPERATION_START, operation_name, correlation_id)
-
-
-def _execute_log_operation_success_implementation(operation_name: str, duration_ms: float, correlation_id: Optional[str] = None, result: Any = None, **kwargs) -> None:
-    """
-    Execute log operation success.
-    
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
-    
-    Args:
-        operation_name: Operation name (renamed from 'operation')
-        duration_ms: Operation duration in milliseconds
-        correlation_id: Optional correlation ID
-        result: Optional operation result
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    execute_logging_operation(LogOperation.LOG_OPERATION_SUCCESS, operation_name, duration_ms, correlation_id, result)
-
-
-def _execute_log_operation_failure_implementation(operation_name: str, error: Union[str, Exception], correlation_id: Optional[str] = None, **kwargs) -> None:
-    """
-    Execute log operation failure.
-    
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
-    
-    BUG FIX: Changed error parameter to Union[str, Exception] for flexibility
-    
-    Args:
-        operation_name: Operation name (renamed from 'operation')
-        error: Error description (string) or Exception object
-        correlation_id: Optional correlation ID
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    # Convert Exception to string if needed for consistency with logging_manager
-    error_str = str(error) if isinstance(error, Exception) else error
-    execute_logging_operation(LogOperation.LOG_OPERATION_FAILURE, operation_name, error_str, correlation_id)
-
-
-# ===== ERROR RESPONSE TRACKING =====
-
-def _log_error_response_internal(status_code: int, error_message: str, correlation_id: Optional[str] = None, **kwargs) -> None:
-    """
-    Internal function to log error responses for analytics.
-    
-    Args:
-        status_code: HTTP status code
-        error_message: Error message
-        correlation_id: Optional correlation ID
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    _MANAGER.log_error_response(status_code, error_message, correlation_id)
-
-
-def _get_error_response_analytics_internal(**kwargs) -> Dict[str, Any]:
-    """
-    Internal function to get error response analytics.
-    
-    Args:
-        **kwargs: Additional parameters (ignored for compatibility)
+        operation: The logging operation to execute
+        **kwargs: Operation-specific parameters
         
     Returns:
-        Error analytics dictionary
+        Operation result from internal implementation
+        
+    Raises:
+        RuntimeError: If Logging interface unavailable
+        ValueError: If operation is unknown or parameters invalid
     """
-    return _MANAGER.get_error_response_analytics()
-
-
-def _clear_error_response_logs_internal(**kwargs) -> None:
-    """
-    Internal function to clear error response logs.
+    _print_debug(f"execute_logging_operation() called: operation='{operation}'")
     
-    Args:
-        **kwargs: Additional parameters (ignored for compatibility)
-    """
-    _MANAGER.clear_error_responses()
-
-
-# ===== MODULE EXPORTS =====
-
-__all__ = [
-    # Gateway-facing implementations
-    '_execute_log_info_implementation',
-    '_execute_log_error_implementation',
-    '_execute_log_warning_implementation',
-    '_execute_log_debug_implementation',
-    '_execute_log_operation_start_implementation',
-    '_execute_log_operation_success_implementation',
-    '_execute_log_operation_failure_implementation',
+    # Check Logging availability
+    if not _LOGGING_AVAILABLE:
+        error_msg = (
+            f"Logging interface unavailable: {_LOGGING_IMPORT_ERROR}. "
+            "This may indicate missing logging_core module or circular import."
+        )
+        _print_debug(f"ERROR: {error_msg}")
+        raise RuntimeError(error_msg)
     
-    # Internal error response tracking
-    '_log_error_response_internal',
-    '_get_error_response_analytics_internal',
-    '_clear_error_response_logs_internal',
-]
+    # Validate operation exists
+    if operation not in _OPERATION_DISPATCH:
+        error_msg = (
+            f"Unknown logging operation: '{operation}'. "
+            f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
+        )
+        _print_debug(f"ERROR: {error_msg}")
+        raise ValueError(error_msg)
+    
+    # Dispatch using dictionary lookup (O(1))
+    _print_debug(f"Dispatching operation '{operation}' to implementation")
+    result = _OPERATION_DISPATCH[operation](**kwargs)
+    _print_debug(f"Operation '{operation}' completed successfully")
+    return result
+
+
+__all__ = ['execute_logging_operation']
+
+_print_debug("interface_logging.py module loaded successfully")
 
 # EOF
