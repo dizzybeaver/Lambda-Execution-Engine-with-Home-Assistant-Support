@@ -3,6 +3,9 @@ gateway_wrappers_debug.py - DEBUG Interface Wrappers
 Version: 2025.10.22.02
 Description: Convenience wrappers for DEBUG interface operations
 
+CHANGELOG:
+- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface debug operations
+
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
@@ -180,6 +183,177 @@ def benchmark_http_client_operations() -> Dict[str, Any]:
     return execute_operation(GatewayInterface.DEBUG, 'benchmark_http_client_operations')
 
 
+# ===== WEBSOCKET DEBUG OPERATIONS (2025.10.22.02) =====
+
+def check_websocket_health() -> Dict[str, Any]:
+    """
+    Check WEBSOCKET interface health and compliance.
+    
+    Verifies:
+    - SINGLETON registration
+    - Rate limiting effectiveness (300 ops/sec)
+    - No threading locks (AP-08)
+    - Reset operation availability
+    - Core operations availability
+    - Statistics tracking
+    
+    Returns:
+        Dict with health status and detailed checks
+        
+    REF: AP-08, DEC-04, LESS-18, LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'check_websocket_health')
+
+
+def diagnose_websocket_performance() -> Dict[str, Any]:
+    """
+    Diagnose WEBSOCKET interface performance characteristics.
+    
+    Analyzes:
+    - Connection patterns and statistics
+    - Message send/receive ratios
+    - Error rates and types
+    - Rate limiting impact
+    - Performance recommendations
+    
+    Returns:
+        Dict with performance diagnostics
+        
+    REF: LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_websocket_performance')
+
+
+def validate_websocket_configuration() -> Dict[str, Any]:
+    """
+    Validate WEBSOCKET interface configuration and compliance.
+    
+    Validates:
+    - SINGLETON registration compliance
+    - Threading lock compliance (CRITICAL)
+    - Rate limiting configuration (300 ops/sec)
+    - Reset operation availability
+    - Core operations availability
+    - Interface router availability
+    
+    Returns:
+        Dict with validation results and compliance status
+        
+    REF: AP-08, DEC-04, LESS-18, LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'validate_websocket_configuration')
+
+
+def benchmark_websocket_operations() -> Dict[str, Any]:
+    """
+    Benchmark WEBSOCKET interface operations.
+    
+    Benchmarks:
+    - Manager retrieval (50 ops)
+    - get_stats (200 ops)
+    - reset (10 ops)
+    - Rate limit checking (50 ops)
+    
+    Total: 310 operations
+    
+    NOTE: Tests infrastructure only, not actual network performance.
+          WebSocket operations depend on external network conditions.
+    
+    Returns:
+        Dict with benchmark results for each operation
+        
+    REF: LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_websocket_operations')
+
+
+# ===== CIRCUIT_BREAKER DEBUG OPERATIONS (2025.10.22.02) =====
+
+def check_circuit_breaker_health() -> Dict[str, Any]:
+    """
+    Check CIRCUIT_BREAKER interface health and compliance.
+    
+    Verifies:
+    - SINGLETON registration
+    - Rate limiting effectiveness (1000 ops/sec)
+    - No threading locks (AP-08, DEC-04) - CRITICAL
+    - Reset operation availability
+    - Core operations availability
+    - Statistics tracking
+    - Circuit breaker functionality
+    
+    Returns:
+        Dict with health status and detailed checks
+        
+    REF: AP-08, DEC-04, LESS-18, LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'check_circuit_breaker_health')
+
+
+def diagnose_circuit_breaker_performance() -> Dict[str, Any]:
+    """
+    Diagnose CIRCUIT_BREAKER interface performance characteristics.
+    
+    Analyzes:
+    - Operation statistics across all breakers
+    - Circuit breaker states and patterns
+    - Success/failure/rejection rates
+    - Rate limiting impact
+    - Performance recommendations
+    
+    Returns:
+        Dict with performance diagnostics
+        
+    REF: LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_circuit_breaker_performance')
+
+
+def validate_circuit_breaker_configuration() -> Dict[str, Any]:
+    """
+    Validate CIRCUIT_BREAKER interface configuration and compliance.
+    
+    Validates:
+    - SINGLETON registration compliance
+    - Threading lock compliance (CRITICAL)
+    - Rate limiting configuration (1000 ops/sec)
+    - Reset operation availability
+    - Core operations availability
+    - Manager and breaker class structure
+    
+    Returns:
+        Dict with validation results and compliance status
+        
+    REF: AP-08, DEC-04, LESS-18, LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'validate_circuit_breaker_configuration')
+
+
+def benchmark_circuit_breaker_operations() -> Dict[str, Any]:
+    """
+    Benchmark CIRCUIT_BREAKER interface operations.
+    
+    Benchmarks:
+    - Manager retrieval (50 ops)
+    - Circuit breaker creation (100 ops)
+    - get_all_states (100 ops)
+    - get_stats (200 ops)
+    - reset (10 ops)
+    - Rate limit checking (50 ops)
+    
+    Total: 510 operations
+    
+    NOTE: Tests infrastructure only, not actual protected function calls.
+          Overhead depends on protected function complexity.
+    
+    Returns:
+        Dict with benchmark results for each operation
+        
+    REF: LESS-21
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_circuit_breaker_operations')
+
+
 __all__ = [
     # General debug operations
     'check_component_health',
@@ -199,4 +373,16 @@ __all__ = [
     'diagnose_http_client_performance',
     'validate_http_client_configuration',
     'benchmark_http_client_operations',
+    
+    # WEBSOCKET debug operations
+    'check_websocket_health',
+    'diagnose_websocket_performance',
+    'validate_websocket_configuration',
+    'benchmark_websocket_operations',
+    
+    # CIRCUIT_BREAKER debug operations
+    'check_circuit_breaker_health',
+    'diagnose_circuit_breaker_performance',
+    'validate_circuit_breaker_configuration',
+    'benchmark_circuit_breaker_operations',
 ]
