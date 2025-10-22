@@ -3,6 +3,9 @@ gateway_wrappers_circuit_breaker.py - CIRCUIT_BREAKER Interface Wrappers
 Version: 2025.10.22.02
 Description: Convenience wrappers for CIRCUIT_BREAKER interface operations
 
+CHANGELOG:
+- 2025.10.22.02: Added get_stats and reset wrapper functions
+
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
@@ -42,6 +45,16 @@ def reset_all_circuit_breakers() -> None:
     execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'reset_all')
 
 
+def get_circuit_breaker_stats() -> Dict[str, Any]:
+    """Get circuit breaker manager statistics."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'get_stats')
+
+
+def reset_circuit_breaker_manager() -> Dict[str, Any]:
+    """Reset circuit breaker manager state."""
+    return execute_operation(GatewayInterface.CIRCUIT_BREAKER, 'reset')
+
+
 __all__ = [
     'is_circuit_breaker_open',
     'get_circuit_breaker_state',
@@ -49,4 +62,6 @@ __all__ = [
     'execute_with_circuit_breaker',
     'get_all_circuit_breaker_states',
     'reset_all_circuit_breakers',
+    'get_circuit_breaker_stats',
+    'reset_circuit_breaker_manager',
 ]
