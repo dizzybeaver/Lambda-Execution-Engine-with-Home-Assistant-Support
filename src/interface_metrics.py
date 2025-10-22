@@ -49,6 +49,7 @@ try:
         _execute_get_circuit_breaker_metrics_implementation,
         _execute_record_dispatcher_timing_implementation,
         _execute_get_dispatcher_stats_implementation,
+        _execute_reset_metrics_implementation
         _execute_get_operation_metrics_implementation
     )
     _METRICS_AVAILABLE = True
@@ -238,6 +239,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         # Get operation metrics
         'get_operation_metrics': _execute_get_operation_metrics_implementation,
+        # Reset operations (for testing/debugging)
+        'reset': lambda **kwargs: _execute_reset_metrics_implementation(),
+        'reset_metrics': lambda **kwargs: _execute_reset_metrics_implementation(),
+        'clear_metrics': lambda **kwargs: _execute_reset_metrics_implementation(),
     }
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _METRICS_AVAILABLE else {}
