@@ -1,15 +1,18 @@
 """
 utility_core.py - Core Utility Implementation (Internal)
-Version: 2025.10.21.01
-Description: PHASE 2 TASK 2.6 - Added time_operation() for centralized timing functionality
+Version: 2025.10.22.01
+Description: SharedUtilityCore class with SINGLETON pattern, rate limiting, NO threading locks
 
 CHANGELOG:
-- 2025.10.21.01: PHASE 2 TASK 2.6 - Move timing to UTILITY interface
-  - Added: time_operation() function for executing and timing operations
-  - Purpose: Centralize timing logic, eliminate METRICS duplication
-  - Pattern: Execute function, return (result, duration_ms) tuple
-
-SUGA-ISP: Internal module - only accessed via interface_utility.py
+- 2025.10.22.01: Phase 1 + 3 optimizations (Session 6)
+  - REMOVED threading locks (CRITICAL FIX - was violating AP-08, DEC-04)
+  - ADDED SINGLETON pattern with get_utility_manager()
+  - ADDED rate limiting (1000 ops/sec)
+  - ADDED reset() operation for lifecycle management
+  - ADDED get_stats() operation
+  - REPLACED Lock with rate limiting (DoS protection)
+  - Compliance: AP-08, DEC-04, LESS-17, LESS-18, LESS-21
+- 2025.10.16.04: Core utility implementation
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -18,9 +21,9 @@ Licensed under the Apache License, Version 2.0
 import json
 import time
 import uuid
-import threading
 import traceback
-from typing import Dict, Any, Optional, List, Callable, Tuple
+from typing import Dict, Any, Optional, List
+from collections import deque
 import logging as stdlib_logging
 
 from utility_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
@@ -28,48 +31,17 @@ from utility_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
 logger = stdlib_logging.getLogger(__name__)
 
 
-# ===== TIMING UTILITY =====
-
-def time_operation(
-    func: Callable,
-    *args,
-    **kwargs
-) -> Tuple[Any, float]:
-    """
-    Execute operation and return result with duration.
-    
-    Centralized timing utility that eliminates timing duplication across interfaces.
-    Used by METRICS and other interfaces for consistent timing measurements.
-    
-    Args:
-        func: Function to execute and time
-        *args: Positional arguments for func
-        **kwargs: Keyword arguments for func
-        
-    Returns:
-        Tuple of (result, duration_ms) where:
-        - result: Return value from func
-        - duration_ms: Execution time in milliseconds
-        
-    Example:
-        >>> result, duration = time_operation(expensive_function, arg1, arg2)
-        >>> print(f"Completed in {duration:.2f}ms")
-    """
-    start = time.perf_counter()
-    result = func(*args, **kwargs)
-    duration_ms = (time.perf_counter() - start) * 1000
-    return result, duration_ms
-
-
 # ===== CONSOLIDATED UTILITY CORE =====
 
 class SharedUtilityCore:
     """
     Core utility manager with data operations, validation, and performance tracking.
+    
+    CRITICAL: NO threading locks - Lambda is single-threaded (DEC-04, AP-08)
+    Uses rate limiting for DoS protection instead of locks (LESS-21)
     """
     
     def __init__(self):
-        self._lock = threading.Lock()
         self._metrics = {}
         self._cache_enabled = True
         self._cache_ttl = 300
@@ -83,49 +55,82 @@ class SharedUtilityCore:
             'id_pool_reuse': 0,
             'lugs_integrations': 0
         }
+        
+        # Rate limiting (1000 ops/sec for infrastructure - LESS-21)
+        self._rate_limiter = deque(maxlen=1000)
+        self._rate_limit_window_ms = 1000
+        self._rate_limited_count = 0
+    
+    def _check_rate_limit(self) -> bool:
+        """
+        Check rate limit (1000 ops/sec).
+        
+        Returns:
+            True if within rate limit, False if rate limited
+        """
+        now = time.time() * 1000
+        
+        # Remove timestamps outside window
+        while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
+            self._rate_limiter.popleft()
+        
+        # Check if at limit
+        if len(self._rate_limiter) >= 1000:
+            self._rate_limited_count += 1
+            return False
+        
+        # Add timestamp
+        self._rate_limiter.append(now)
+        return True
     
     # ===== TRACKING =====
     
     def _start_operation_tracking(self, operation_type: str):
         """Start tracking an operation."""
-        with self._lock:
-            if operation_type not in self._metrics:
-                self._metrics[operation_type] = UtilityMetrics(operation_type=operation_type)
+        if not self._check_rate_limit():
+            return
+        
+        if operation_type not in self._metrics:
+            self._metrics[operation_type] = UtilityMetrics(operation_type=operation_type)
     
     def _complete_operation_tracking(self, operation_type: str, 
                                     duration_ms: float, success: bool = True,
                                     cache_hit: bool = False, used_template: bool = False):
         """Complete tracking for an operation."""
-        with self._lock:
-            metrics = self._metrics.get(operation_type)
-            if not metrics:
-                return
-            
-            metrics.call_count += 1
-            
-            if success:
-                metrics.total_duration_ms += duration_ms
-                metrics.avg_duration_ms = metrics.total_duration_ms / metrics.call_count
-            else:
-                metrics.error_count += 1
-            
-            if cache_hit:
-                metrics.cache_hits += 1
-            elif operation_type in ['parse_json', 'parse_json_safely']:
-                metrics.cache_misses += 1
-            
-            if used_template:
-                metrics.template_usage += 1
-                self._stats['template_hits'] += 1
+        if not self._check_rate_limit():
+            return
+        
+        metrics = self._metrics.get(operation_type)
+        if not metrics:
+            return
+        
+        metrics.call_count += 1
+        
+        if success:
+            metrics.total_duration_ms += duration_ms
+            metrics.avg_duration_ms = metrics.total_duration_ms / metrics.call_count
+        else:
+            metrics.error_count += 1
+        
+        if cache_hit:
+            metrics.cache_hits += 1
+        elif operation_type in ['parse_json', 'parse_json_safely']:
+            metrics.cache_misses += 1
+        
+        if used_template:
+            metrics.template_usage += 1
+            self._stats['template_hits'] += 1
     
     # ===== UUID AND TIMESTAMP =====
     
     def generate_uuid(self) -> str:
-        """Generate UUID with pool optimization and thread safety."""
-        with self._lock:
-            if self._id_pool:
-                self._stats['id_pool_reuse'] += 1
-                return self._id_pool.pop()
+        """Generate UUID with pool optimization."""
+        if not self._check_rate_limit():
+            return str(uuid.uuid4())
+        
+        if self._id_pool:
+            self._stats['id_pool_reuse'] += 1
+            return self._id_pool.pop()
         
         return str(uuid.uuid4())
     
@@ -152,25 +157,26 @@ class SharedUtilityCore:
     
     def parse_json_safely(self, json_str: str, use_cache: bool = True) -> Optional[Dict[str, Any]]:
         """Parse JSON safely with optional caching and size limits."""
+        if not self._check_rate_limit():
+            return None
+        
         cache_key = hash(json_str)
         
         if use_cache:
-            with self._lock:
-                if cache_key in self._json_cache:
-                    return self._json_cache[cache_key]
+            if cache_key in self._json_cache:
+                return self._json_cache[cache_key]
         
         try:
             parsed = json.loads(json_str)
             
             if use_cache:
-                with self._lock:
-                    if len(self._json_cache) >= DEFAULT_MAX_JSON_CACHE_SIZE:
-                        if self._json_cache_order:
-                            oldest_key = self._json_cache_order.pop(0)
-                            self._json_cache.pop(oldest_key, None)
-                    
-                    self._json_cache[cache_key] = parsed
-                    self._json_cache_order.append(cache_key)
+                if len(self._json_cache) >= DEFAULT_MAX_JSON_CACHE_SIZE:
+                    if self._json_cache_order:
+                        oldest_key = self._json_cache_order.pop(0)
+                        self._json_cache.pop(oldest_key, None)
+                
+                self._json_cache[cache_key] = parsed
+                self._json_cache_order.append(cache_key)
             
             return parsed
             
@@ -352,84 +358,95 @@ class SharedUtilityCore:
     
     def cleanup_cache(self, max_age_seconds: int = 3600) -> int:
         """Clean up old cached utility data."""
+        if not self._check_rate_limit():
+            return 0
+        
         try:
-            with self._lock:
-                cleared = len(self._json_cache)
-                self._json_cache.clear()
-                self._json_cache_order.clear()
-                self._stats['lugs_integrations'] += 1
-                return cleared
+            cleared = len(self._json_cache)
+            self._json_cache.clear()
+            self._json_cache_order.clear()
+            self._stats['lugs_integrations'] += 1
+            return cleared
         except Exception as e:
             logger.error(f"Cache cleanup error: {str(e)}")
             return 0
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get utility performance statistics."""
-        with self._lock:
-            operation_stats = {}
+        if not self._check_rate_limit():
+            return {'error': 'Rate limit exceeded'}
+        
+        operation_stats = {}
+        
+        for op_type, metrics in self._metrics.items():
+            cache_hit_rate = 0.0
+            if metrics.cache_hits + metrics.cache_misses > 0:
+                cache_hit_rate = metrics.cache_hits / (metrics.cache_hits + metrics.cache_misses) * 100
             
-            for op_type, metrics in self._metrics.items():
-                cache_hit_rate = 0.0
-                if metrics.cache_hits + metrics.cache_misses > 0:
-                    cache_hit_rate = metrics.cache_hits / (metrics.cache_hits + metrics.cache_misses) * 100
-                
-                error_rate = 0.0
-                if metrics.call_count > 0:
-                    error_rate = metrics.error_count / metrics.call_count * 100
-                
-                template_usage_rate = 0.0
-                if metrics.call_count > 0:
-                    template_usage_rate = metrics.template_usage / metrics.call_count * 100
-                
-                operation_stats[op_type] = {
-                    "call_count": metrics.call_count,
-                    "avg_duration_ms": round(metrics.avg_duration_ms, 2),
-                    "cache_hit_rate_percent": round(cache_hit_rate, 2),
-                    "error_rate_percent": round(error_rate, 2),
-                    "template_usage_percent": round(template_usage_rate, 2),
-                    "cache_hits": metrics.cache_hits,
-                    "cache_misses": metrics.cache_misses,
-                    "error_count": metrics.error_count,
-                    "template_usage": metrics.template_usage
-                }
+            error_rate = 0.0
+            if metrics.call_count > 0:
+                error_rate = metrics.error_count / metrics.call_count * 100
             
-            return {
-                "overall_stats": self._stats,
-                "operation_stats": operation_stats,
-                "id_pool_size": len(self._id_pool),
-                "json_cache_size": len(self._json_cache),
-                "json_cache_limit": DEFAULT_MAX_JSON_CACHE_SIZE,
-                "cache_enabled": self._cache_enabled,
+            template_usage_rate = 0.0
+            if metrics.call_count > 0:
+                template_usage_rate = metrics.template_usage / metrics.call_count * 100
+            
+            operation_stats[op_type] = {
+                "call_count": metrics.call_count,
+                "avg_duration_ms": round(metrics.avg_duration_ms, 2),
+                "cache_hit_rate_percent": round(cache_hit_rate, 2),
+                "error_rate_percent": round(error_rate, 2),
+                "template_usage_percent": round(template_usage_rate, 2),
+                "cache_hits": metrics.cache_hits,
+                "cache_misses": metrics.cache_misses,
+                "error_count": metrics.error_count,
+                "template_usage": metrics.template_usage
             }
+        
+        return {
+            "overall_stats": self._stats,
+            "operation_stats": operation_stats,
+            "id_pool_size": len(self._id_pool),
+            "json_cache_size": len(self._json_cache),
+            "json_cache_limit": DEFAULT_MAX_JSON_CACHE_SIZE,
+            "cache_enabled": self._cache_enabled,
+            "rate_limited_count": self._rate_limited_count
+        }
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get utility statistics (alias for get_performance_stats)."""
+        return self.get_performance_stats()
     
     def optimize_performance(self) -> Dict[str, Any]:
         """Optimize utility performance based on usage patterns."""
-        with self._lock:
-            optimizations = []
+        if not self._check_rate_limit():
+            return {'error': 'Rate limit exceeded'}
+        
+        optimizations = []
+        
+        for op_type, metrics in self._metrics.items():
+            if metrics.avg_duration_ms > 100:
+                optimizations.append(f"High latency detected for {op_type}")
             
-            for op_type, metrics in self._metrics.items():
-                if metrics.avg_duration_ms > 100:
-                    optimizations.append(f"High latency detected for {op_type}")
-                
-                cache_hit_rate = 0.0
-                if metrics.cache_hits + metrics.cache_misses > 0:
-                    cache_hit_rate = metrics.cache_hits / (metrics.cache_hits + metrics.cache_misses) * 100
-                
-                if cache_hit_rate < 50 and metrics.cache_misses > 10:
-                    optimizations.append(f"Low cache hit rate for {op_type}")
+            cache_hit_rate = 0.0
+            if metrics.cache_hits + metrics.cache_misses > 0:
+                cache_hit_rate = metrics.cache_hits / (metrics.cache_hits + metrics.cache_misses) * 100
             
-            if not self._id_pool or len(self._id_pool) < 10:
-                for _ in range(20):
-                    self._id_pool.append(str(uuid.uuid4()))
-                optimizations.append("Replenished ID pool")
-            
-            if len(self._json_cache) > (DEFAULT_MAX_JSON_CACHE_SIZE * 0.9):
-                optimizations.append("JSON cache approaching limit")
-            
-            return {
-                "optimizations_applied": optimizations,
-                "timestamp": int(time.time())
-            }
+            if cache_hit_rate < 50 and metrics.cache_misses > 10:
+                optimizations.append(f"Low cache hit rate for {op_type}")
+        
+        if not self._id_pool or len(self._id_pool) < 10:
+            for _ in range(20):
+                self._id_pool.append(str(uuid.uuid4()))
+            optimizations.append("Replenished ID pool")
+        
+        if len(self._json_cache) > (DEFAULT_MAX_JSON_CACHE_SIZE * 0.9):
+            optimizations.append("JSON cache approaching limit")
+        
+        return {
+            "optimizations_applied": optimizations,
+            "timestamp": int(time.time())
+        }
     
     def configure_caching(self, enabled: bool, ttl: int = 300) -> bool:
         """Configure utility caching settings."""
@@ -439,13 +456,80 @@ class SharedUtilityCore:
             return True
         except Exception:
             return False
+    
+    def reset(self) -> bool:
+        """
+        Reset UTILITY manager state (lifecycle management).
+        
+        Returns:
+            True if reset successful, False if rate limited
+        """
+        if not self._check_rate_limit():
+            return False
+        
+        try:
+            # Reset metrics
+            self._metrics.clear()
+            self._stats = {
+                'template_hits': 0,
+                'template_fallbacks': 0,
+                'cache_optimizations': 0,
+                'id_pool_reuse': 0,
+                'lugs_integrations': 0
+            }
+            
+            # Reset caches
+            self._json_cache.clear()
+            self._json_cache_order.clear()
+            self._id_pool.clear()
+            
+            # Reset rate limiter
+            self._rate_limiter.clear()
+            self._rate_limited_count = 0
+            
+            return True
+        except Exception:
+            return False
+
+
+# Global utility manager instance
+_manager_core = None
+
+
+def get_utility_manager() -> SharedUtilityCore:
+    """
+    Get the utility manager instance (SINGLETON pattern - LESS-18).
+    
+    Returns:
+        SharedUtilityCore instance
+    """
+    global _manager_core
+    
+    try:
+        # Try to use gateway's SINGLETON system if available
+        from gateway import singleton_get, singleton_register
+        
+        manager = singleton_get('utility_manager')
+        if manager is None:
+            # Create and register
+            if _manager_core is None:
+                _manager_core = SharedUtilityCore()
+            singleton_register('utility_manager', _manager_core)
+            manager = _manager_core
+        
+        return manager
+    except (ImportError, Exception):
+        # Fallback: use module-level singleton
+        if _manager_core is None:
+            _manager_core = SharedUtilityCore()
+        return _manager_core
 
 
 # ===== MODULE EXPORTS =====
 
 __all__ = [
     'SharedUtilityCore',
-    'time_operation',
+    'get_utility_manager',
 ]
 
 # EOF
