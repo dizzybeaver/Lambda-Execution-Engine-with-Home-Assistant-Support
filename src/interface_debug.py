@@ -1,10 +1,10 @@
 """
 interface_debug.py - Debug Interface Router
-Version: 2025.10.22.02
+Version: 2025.10.22.03
 Description: Router/Firewall for debug interface with import protection
 
 CHANGELOG:
-- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER debug operations
+- 2025.10.22.03: Added INITIALIZATION, UTILITY, SINGLETON, SYSTEM debug operations
 - 2025.10.17.15: FIXED Issue #20 - Added import error protection
   - Added try/except wrapper for debug_core imports
   - Sets _DEBUG_AVAILABLE flag on success/failure
@@ -33,15 +33,9 @@ except ImportError as e:
 _VALID_DEBUG_OPERATIONS = [
     'check_component_health',
     'check_gateway_health',
-    'check_websocket_health',
-    'check_circuit_breaker_health',
     'diagnose_system_health',
-    'diagnose_websocket_performance',
-    'diagnose_circuit_breaker_performance',
     'run_debug_tests',
     'validate_system_architecture',
-    'validate_websocket_configuration',
-    'validate_circuit_breaker_configuration',
     'get_system_stats',
     'get_optimization_stats',
     'get_dispatcher_stats',
@@ -55,8 +49,56 @@ _VALID_DEBUG_OPERATIONS = [
     'run_performance_profile',
     'run_memory_profile',
     'check_memory_usage',
-    'benchmark_websocket_operations',
-    'benchmark_circuit_breaker_operations'
+    
+    # INITIALIZATION interface operations (12 total - 4 ops × 3 aliases)
+    'check_initialization_health',
+    'initialization_health',
+    'health_initialization',
+    'diagnose_initialization_performance',
+    'initialization_performance',
+    'performance_initialization',
+    'validate_initialization_configuration',
+    'initialization_configuration',
+    'configuration_initialization',
+    'benchmark_initialization_operations',
+    'initialization_benchmark',
+    'benchmark_initialization',
+    
+    # UTILITY interface operations (12 total - 4 ops × 3 aliases)
+    'check_utility_health',
+    'utility_health',
+    'health_utility',
+    'diagnose_utility_performance',
+    'utility_performance',
+    'performance_utility',
+    'validate_utility_configuration',
+    'utility_configuration',
+    'configuration_utility',
+    'benchmark_utility_operations',
+    'utility_benchmark',
+    'benchmark_utility',
+    
+    # SINGLETON interface operations (12 total - 4 ops × 3 aliases)
+    'check_singleton_health',
+    'singleton_health',
+    'health_singleton',
+    'diagnose_singleton_performance',
+    'singleton_performance',
+    'performance_singleton',
+    'validate_singleton_configuration',
+    'singleton_configuration',
+    'configuration_singleton',
+    'benchmark_singleton_operations',
+    'singleton_benchmark',
+    'benchmark_singleton',
+    
+    # SYSTEM-WIDE DEBUG OPERATIONS (6 total - 2 ops × 3 aliases)
+    'check_system_health',
+    'system_health',
+    'health_system',
+    'validate_system_configuration',
+    'system_configuration',
+    'configuration_system',
 ]
 
 
