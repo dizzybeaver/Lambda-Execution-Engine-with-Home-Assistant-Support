@@ -204,6 +204,21 @@ def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
     from metrics_core import _MANAGER
     return _MANAGER.get_operation_metrics()
 
+def _execute_reset_metrics_implementation(**kwargs) -> bool:
+    """
+    Execute reset metrics operation.
+    
+    Resets all metrics to initial state. Useful for testing and debugging.
+    
+    Returns:
+        bool: True if reset successful
+        
+    Example:
+        result = _execute_reset_metrics_implementation()
+        # All metrics cleared
+    """
+    from metrics_core import _MANAGER
+    return _MANAGER.reset_metrics()
 
 # ===== HELPER FUNCTIONS =====
 
@@ -242,6 +257,7 @@ __all__ = [
     '_execute_record_dispatcher_timing_implementation',
     '_execute_get_dispatcher_stats_implementation',
     '_execute_get_operation_metrics_implementation',
+    '_execute_reset_metrics_implementation',
     'execute_metrics_operation',
     'get_metrics_summary',
 ]
