@@ -40,22 +40,11 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'GENERATE_HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
         'HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
         
-        # METRICS-specific health and diagnostics (Phase 3)
-        'CHECK_METRICS_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_metrics_health'])._check_metrics_health(**kwargs),
-        'METRICS_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_metrics_health'])._check_metrics_health(**kwargs),
+        # CACHE DEBUG OPERATIONS (Phase 3)
+        'CHECK_CACHE_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
+        'CACHE_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
+        'HEALTH_CACHE': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
         
-        'DIAGNOSE_METRICS_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
-        'METRICS_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
-        'METRICS_DIAGNOSTICS': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
-        
-        'VALIDATE_METRICS_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
-        'VALIDATE_METRICS': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
-        'METRICS_VALIDATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
-        
-        'BENCHMARK_METRICS_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
-        'BENCHMARK_METRICS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
-        'METRICS_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
-      
         # Diagnostic operations
         'DIAGNOSE_SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
         'SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
@@ -66,6 +55,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'DIAGNOSE_MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         'MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         
+        'DIAGNOSE_CACHE_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
+        'CACHE_DIAGNOSTICS': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
+        'DIAGNOSE_CACHE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
+        
         # Validation operations
         'VALIDATE_SYSTEM_ARCHITECTURE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_architecture'])._validate_system_architecture(**kwargs),
         'SYSTEM_ARCHITECTURE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_architecture'])._validate_system_architecture(**kwargs),
@@ -75,6 +68,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         'VALIDATE_GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
         'GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
+        
+        'VALIDATE_CACHE_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
+        'CACHE_VALIDATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
+        'VALIDATE_CACHE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
         
         'RUN_CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
         'CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
@@ -110,6 +107,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         # Performance operations
         'RUN_PERFORMANCE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_run_performance_benchmark'])._run_performance_benchmark(**kwargs),
         'PERFORMANCE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_run_performance_benchmark'])._run_performance_benchmark(**kwargs),
+        
+        'BENCHMARK_CACHE_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
+        'CACHE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
+        'BENCHMARK_CACHE': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
         
         'COMPARE_DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
         'DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
