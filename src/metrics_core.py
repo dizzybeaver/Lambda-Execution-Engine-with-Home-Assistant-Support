@@ -432,6 +432,59 @@ class MetricsCore:
                 'call_counts': dict(self._dispatcher_call_counts)
             }
 
+    def reset_metrics(self) -> bool:
+        """
+        Reset all metrics to initial state.
+        
+        Useful for testing and debugging. Clears all:
+        - Metrics data
+        - Counters
+        - Gauges
+        - Histograms
+        - Response metrics
+        - HTTP metrics
+        - Circuit breaker metrics
+        - Dispatcher timings
+        
+        Returns:
+            bool: True if reset successful
+            
+        Example:
+            manager.reset_metrics()
+            # All metrics cleared
+        """
+        try:
+            with self._lock:
+                self._metrics.clear()
+                self._counters.clear()
+                self._gauges.clear()
+                self._histograms.clear()
+                
+                # Reset stats
+                self._stats = {
+                    'total_metrics': 0,
+                    'unique_metrics': 0,
+                    'counters': 0,
+                    'gauges': 0,
+                    'histograms': 0
+                }
+                
+                # Reset response metrics
+                self._response_metrics = ResponseMetrics()
+                
+                # Reset HTTP metrics
+                self._http_metrics = HTTPClientMetrics()
+                
+                # Reset circuit breakers
+                self._circuit_breaker_metrics.clear()
+                
+                # Reset dispatcher timings
+                self._dispatcher_timings.clear()
+                self._dispatcher_call_counts.clear()
+                
+                return True
+        except Exception:
+            return False
 
 # ===== SINGLETON INSTANCE =====
 
