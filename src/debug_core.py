@@ -1,17 +1,27 @@
 """
 debug_core.py - Debug Operation Dispatcher
-Version: 2025.10.22.01
+Version: 2025.10.22.02
 Description: Dispatch dictionary pattern for debug operations
+
+CHANGES (2025.10.22.02):
+- Added 4 CONFIG operations (12 dispatch entries with aliases)
+  - CHECK_CONFIG_HEALTH / CONFIG_HEALTH / HEALTH_CONFIG
+  - DIAGNOSE_CONFIG_PERFORMANCE / CONFIG_PERFORMANCE / PERFORMANCE_CONFIG
+  - VALIDATE_CONFIG_CONFIGURATION / CONFIG_CONFIGURATION / CONFIGURATION_CONFIG
+  - BENCHMARK_CONFIG_OPERATIONS / CONFIG_BENCHMARK / BENCHMARK_CONFIG
 
 CHANGES (2025.10.22.01):
 - Added 4 LOGGING operations (12 dispatch entries with aliases)
-  - CHECK_LOGGING_HEALTH / LOGGING_HEALTH / HEALTH_LOGGING
-  - DIAGNOSE_LOGGING_PERFORMANCE / LOGGING_PERFORMANCE / PERFORMANCE_LOGGING
-  - VALIDATE_LOGGING_CONFIGURATION / LOGGING_CONFIGURATION / CONFIGURATION_LOGGING
-  - BENCHMARK_LOGGING_OPERATIONS / LOGGING_BENCHMARK / BENCHMARK_LOGGING
 
 CHANGELOG:
 - 2025.10.17.18: MODERNIZED with dispatch dictionary pattern (Issue #47)
+  - Converted from ~30+ elif chain to dispatch dictionary
+  - O(1) operation lookup vs O(n) elif chain
+  - Reduced code complexity significantly
+  - Easier to add new debug operations (1 line vs 5+ lines)
+  - Supports operation aliases (uppercase conversion preserved)
+  - All lazy imports preserved (modules loaded only when needed)
+- 2025.10.16.01: Fixed ALL import paths - removed 'debug.' prefix
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -37,16 +47,59 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'CHECK_GATEWAY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_gateway_health'])._check_gateway_health(**kwargs),
         'GATEWAY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_gateway_health'])._check_gateway_health(**kwargs),
         
+        'GENERATE_HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
+        'HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
+        
+        # LOGGING operations (12 entries: 4 operations × 3 aliases each)
         'CHECK_LOGGING_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
         'LOGGING_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
         'HEALTH_LOGGING': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
         
+        'DIAGNOSE_LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        'LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        'PERFORMANCE_LOGGING': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        
+        'VALIDATE_LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        'LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        'CONFIGURATION_LOGGING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        
+        'BENCHMARK_LOGGING_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        'LOGGING_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        'BENCHMARK_LOGGING': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        
+        # SECURITY operations (12 entries: 4 operations × 3 aliases each)
         'CHECK_SECURITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
         'SECURITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
         'HEALTH_SECURITY': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
         
-        'GENERATE_HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
-        'HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
+        'DIAGNOSE_SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
+        'SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
+        'PERFORMANCE_SECURITY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
+        
+        'VALIDATE_SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
+        'SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
+        'CONFIGURATION_SECURITY': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
+        
+        'BENCHMARK_SECURITY_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
+        'SECURITY_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
+        'BENCHMARK_SECURITY': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
+        
+        # CONFIG operations (12 entries: 4 operations × 3 aliases each)
+        'CHECK_CONFIG_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_config_health'])._check_config_health(**kwargs),
+        'CONFIG_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_config_health'])._check_config_health(**kwargs),
+        'HEALTH_CONFIG': lambda **kwargs: __import__('debug_health', fromlist=['_check_config_health'])._check_config_health(**kwargs),
+        
+        'DIAGNOSE_CONFIG_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_config_performance'])._diagnose_config_performance(**kwargs),
+        'CONFIG_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_config_performance'])._diagnose_config_performance(**kwargs),
+        'PERFORMANCE_CONFIG': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_config_performance'])._diagnose_config_performance(**kwargs),
+        
+        'VALIDATE_CONFIG_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_config_configuration'])._validate_config_configuration(**kwargs),
+        'CONFIG_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_config_configuration'])._validate_config_configuration(**kwargs),
+        'CONFIGURATION_CONFIG': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_config_configuration'])._validate_config_configuration(**kwargs),
+        
+        'BENCHMARK_CONFIG_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_config_operations'])._benchmark_config_operations(**kwargs),
+        'CONFIG_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_config_operations'])._benchmark_config_operations(**kwargs),
+        'BENCHMARK_CONFIG': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_config_operations'])._benchmark_config_operations(**kwargs),
         
         # Diagnostic operations
         'DIAGNOSE_SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
@@ -58,14 +111,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'DIAGNOSE_MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         'MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         
-        'DIAGNOSE_LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
-        'LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
-        'PERFORMANCE_LOGGING': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
-        
-        'DIAGNOSE_SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
-        'SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
-        'PERFORMANCE_SECURITY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
-        
         # Validation operations
         'VALIDATE_SYSTEM_ARCHITECTURE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_architecture'])._validate_system_architecture(**kwargs),
         'SYSTEM_ARCHITECTURE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_architecture'])._validate_system_architecture(**kwargs),
@@ -75,14 +120,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         'VALIDATE_GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
         'GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
-        
-        'VALIDATE_LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
-        'LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
-        'CONFIGURATION_LOGGING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
-        
-        'VALIDATE_SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
-        'SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
-        'CONFIGURATION_SECURITY': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
         
         'RUN_CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
         'CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
@@ -121,14 +158,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         'COMPARE_DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
         'DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
-        
-        'BENCHMARK_LOGGING_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
-        'LOGGING_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
-        'BENCHMARK_LOGGING': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
-        
-        'BENCHMARK_SECURITY_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
-        'SECURITY_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
-        'BENCHMARK_SECURITY': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
         
         'GET_PERFORMANCE_REPORT': lambda **kwargs: __import__('debug_performance', fromlist=['_get_performance_report'])._get_performance_report(**kwargs),
         'PERFORMANCE_REPORT': lambda **kwargs: __import__('debug_performance', fromlist=['_get_performance_report'])._get_performance_report(**kwargs),
