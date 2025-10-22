@@ -47,7 +47,19 @@ _VALID_DEBUG_OPERATIONS = [
     'measure_execution_times',
     'run_performance_profile',
     'run_memory_profile',
-    'check_memory_usage'
+    'check_memory_usage',
+     # METRICS Phase 3 operations
+    'check_metrics_health',
+    'metrics_health',
+    'diagnose_metrics_performance',
+    'metrics_performance',
+    'metrics_diagnostics',
+    'validate_metrics_configuration',
+    'validate_metrics',
+    'metrics_validation',
+    'benchmark_metrics_operations',
+    'benchmark_metrics',
+    'metrics_benchmark'
 ]
 
 
