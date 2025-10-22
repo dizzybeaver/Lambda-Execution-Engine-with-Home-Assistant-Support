@@ -1,9 +1,10 @@
 """
 interface_singleton.py - Singleton Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.18.01
+Version: 2025.10.22.03
 Description: Firewall router for Singleton interface with parameter validation and import protection
 
 CHANGELOG:
+- 2025.10.22.03: Added reset operation dispatch
 - 2025.10.18.01: FIXED Issue #26 - Parameter name standardization (CRITICAL FIX)
   - Changed 'key' parameter to 'name' throughout validation functions
   - Renamed _validate_key_param() to _validate_name_param()
@@ -49,7 +50,8 @@ try:
         _execute_has_implementation,
         _execute_delete_implementation,
         _execute_clear_implementation,
-        _execute_get_stats_implementation
+        _execute_get_stats_implementation,
+        _execute_reset_implementation
     )
     _SINGLETON_AVAILABLE = True
     _SINGLETON_IMPORT_ERROR = None
@@ -62,10 +64,11 @@ except ImportError as e:
     _execute_delete_implementation = None
     _execute_clear_implementation = None
     _execute_get_stats_implementation = None
+    _execute_reset_implementation = None
 
 
 _VALID_SINGLETON_OPERATIONS = [
-    'get', 'set', 'has', 'delete', 'clear', 'stats', 'get_stats'
+    'get', 'set', 'has', 'delete', 'clear', 'stats', 'get_stats', 'reset'
 ]
 
 
@@ -130,6 +133,9 @@ def execute_singleton_operation(operation: str, **kwargs) -> Any:
     
     elif operation == 'stats' or operation == 'get_stats':
         return _execute_get_stats_implementation(**kwargs)
+    
+    elif operation == 'reset':
+        return _execute_reset_implementation(**kwargs)
     
     else:
         raise ValueError(
