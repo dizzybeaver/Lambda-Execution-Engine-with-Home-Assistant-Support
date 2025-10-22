@@ -1,7 +1,9 @@
 """
 debug_validation.py - Debug Validation Operations
-Version: 2025.10.14.01
+Version: 2025.10.21.01
 Description: System validation operations for debug subsystem
+CHANGELOG:
+- 2025.10.21.01: Added _validate_metrics_configuration() for METRICS Phase 3
 
 Copyright 2025 Joseph Hersey
 
@@ -19,6 +21,7 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
+import inspect
 
 
 def _validate_system_architecture(**kwargs) -> Dict[str, Any]:
@@ -86,6 +89,88 @@ def _validate_gateway_routing(**kwargs) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
+def _validate_metrics_configuration(**kwargs) -> Dict[str, Any]:
+    """
+    Validate METRICS configuration and compliance.
+    
+    Checks:
+    - No threading locks (DEC-04, AP-08)
+    - SINGLETON registration (INT-06)
+    - Security validations enabled
+    - Memory limits configured
+    - Rate limiting present
+    
+    Returns:
+        Dict with:
+        - valid: bool (no critical issues)
+        - issues: list of critical violations
+        - warnings: list of non-critical issues
+        - checks_passed: int
+        - checks_total: int
+        
+    Example:
+        result = _validate_metrics_configuration()
+        # {
+        #     'valid': True,
+        #     'issues': [],
+        #     'warnings': ['⚠️ Not registered with SINGLETON'],
+        #     'checks_passed': 4,
+        #     'checks_total': 5
+        # }
+    """
+    issues = []
+    warnings = []
+    checks_total = 5
+    
+    try:
+        from metrics_core import MetricsCore, _MANAGER
+        
+        # Check 1: No threading locks (AP-08, DEC-04)
+        if hasattr(_MANAGER, '_lock'):
+            issues.append("❌ Threading lock present (AP-08, DEC-04)")
+        
+        # Check 2: SINGLETON registration (INT-06)
+        try:
+            from gateway import singleton_get
+            if singleton_get('metrics_core_manager') is None:
+                warnings.append("⚠️ Not registered with SINGLETON (INT-06)")
+        except:
+            warnings.append("⚠️ Could not verify SINGLETON registration")
+        
+        # Check 3: Security validations (name validation)
+        try:
+            import metrics_operations
+            code = inspect.getsource(metrics_operations)
+            if 'validate_metric_name' not in code:
+                warnings.append("⚠️ Name validation missing in operations")
+        except:
+            warnings.append("⚠️ Could not verify security validations")
+        
+        # Check 4: Rate limiting present
+        if not hasattr(_MANAGER, '_rate_limiter'):
+            warnings.append("⚠️ Rate limiting not configured")
+        
+        # Check 5: Memory limits configured
+        if not hasattr(_MANAGER, 'MAX_VALUES_PER_METRIC'):
+            warnings.append("⚠️ Memory limits not configured")
+        
+        checks_passed = checks_total - len(issues) - len(warnings)
+        
+        return {
+            'valid': len(issues) == 0,
+            'issues': issues,
+            'warnings': warnings,
+            'checks_passed': checks_passed,
+            'checks_total': checks_total,
+            'summary': f"{checks_passed}/{checks_total} checks passed"
+        }
+    except Exception as e:
+        return {
+            'valid': False,
+            'error': str(e)
+        }
+
+
 def _run_config_unit_tests(**kwargs) -> Dict[str, Any]:
     """Run configuration unit tests."""
     return {'success': True, 'tests_run': 0, 'note': 'Placeholder for config unit tests'}
@@ -115,6 +200,7 @@ __all__ = [
     '_validate_system_architecture',
     '_validate_imports',
     '_validate_gateway_routing',
+    '_validate_metrics_configuration',
     '_run_config_unit_tests',
     '_run_config_integration_tests',
     '_run_config_performance_tests',
