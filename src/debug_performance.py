@@ -1,21 +1,16 @@
 """
 debug_performance.py - Debug Performance Operations
-Version: 2025.10.14.01
+Version: 2025.10.22.02
 Description: Performance benchmarking operations for debug subsystem
 
+CHANGES (2025.10.22.02):
+- Added _benchmark_security_operations() for SECURITY interface
+
+CHANGES (2025.10.22.01):
+- Added _benchmark_logging_operations() for LOGGING interface
+
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from typing import Dict, Any
@@ -50,110 +45,6 @@ def _run_performance_benchmark(**kwargs) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
-def _benchmark_cache_operations(**kwargs) -> Dict[str, Any]:
-    """
-    Benchmark cache operations (CACHE Phase 3).
-    
-    Tests:
-    - Simple cache_set throughput (1000 ops)
-    - cache_get hit latency (100 calls)
-    - cache_get miss latency (100 calls)
-    - cache_exists latency (100 calls)
-    
-    Returns:
-        Dict with:
-        - success: bool
-        - results: Dict with benchmark data
-        - summary: Dict with key metrics
-    """
-    try:
-        from gateway import cache_set, cache_get, cache_exists, cache_reset
-        
-        results = {}
-        
-        # Reset cache for clean benchmark
-        cache_reset()
-        
-        # Benchmark 1: cache_set throughput
-        start = time.perf_counter()
-        for i in range(1000):
-            cache_set(f'benchmark.set.{i}', f'value_{i}')
-        duration_ms = (time.perf_counter() - start) * 1000
-        
-        results['cache_set'] = {
-            'ops': 1000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(1000 / (duration_ms / 1000), 0)
-        }
-        
-        # Benchmark 2: cache_get hit latency
-        times = []
-        for i in range(100):
-            start = time.perf_counter()
-            value = cache_get(f'benchmark.set.{i}')
-            times.append((time.perf_counter() - start) * 1000)
-        
-        results['cache_get_hit'] = {
-            'ops': 100,
-            'avg_ms': round(sum(times) / len(times), 3),
-            'min_ms': round(min(times), 3),
-            'max_ms': round(max(times), 3),
-            'p95_ms': round(sorted(times)[94], 3)
-        }
-        
-        # Benchmark 3: cache_get miss latency
-        times = []
-        for i in range(100):
-            start = time.perf_counter()
-            value = cache_get(f'nonexistent.key.{i}')
-            times.append((time.perf_counter() - start) * 1000)
-        
-        results['cache_get_miss'] = {
-            'ops': 100,
-            'avg_ms': round(sum(times) / len(times), 3),
-            'min_ms': round(min(times), 3),
-            'max_ms': round(max(times), 3),
-            'p95_ms': round(sorted(times)[94], 3)
-        }
-        
-        # Benchmark 4: cache_exists latency
-        times = []
-        for i in range(100):
-            start = time.perf_counter()
-            exists = cache_exists(f'benchmark.set.{i}')
-            times.append((time.perf_counter() - start) * 1000)
-        
-        results['cache_exists'] = {
-            'ops': 100,
-            'avg_ms': round(sum(times) / len(times), 3),
-            'min_ms': round(min(times), 3),
-            'max_ms': round(max(times), 3),
-            'p95_ms': round(sorted(times)[94], 3)
-        }
-        
-        # Clean up
-        cache_reset()
-        
-        # Generate summary
-        summary = {
-            'set_throughput': f"{results['cache_set']['ops_per_sec']:,.0f} ops/sec",
-            'get_hit_latency': f"{results['cache_get_hit']['avg_ms']:.3f}ms",
-            'get_miss_latency': f"{results['cache_get_miss']['avg_ms']:.3f}ms",
-            'exists_latency': f"{results['cache_exists']['avg_ms']:.3f}ms"
-        }
-        
-        return {
-            'success': True,
-            'results': results,
-            'summary': summary
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-
 def _compare_dispatcher_modes(**kwargs) -> Dict[str, Any]:
     """Compare dispatcher performance modes."""
     try:
@@ -164,6 +55,214 @@ def _compare_dispatcher_modes(**kwargs) -> Dict[str, Any]:
             'success': False,
             'error': str(e),
             'note': 'Dispatcher comparison requires METRICS interface support'
+        }
+
+
+def _benchmark_logging_operations(**kwargs) -> Dict[str, Any]:
+    """Benchmark LOGGING interface operations."""
+    try:
+        import gateway
+        import time
+        
+        results = {}
+        
+        # Reset for clean benchmark
+        gateway.logging_reset()
+        
+        # Benchmark: log_info
+        start = time.perf_counter()
+        for i in range(1000):
+            gateway.log_info(f"Benchmark message {i}", test_run=True)
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['log_info'] = {
+            'ops': 1000,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
+        }
+        
+        # Benchmark: log_error
+        gateway.logging_reset()
+        start = time.perf_counter()
+        for i in range(500):
+            gateway.log_error(f"Error message {i}", error=f"Test error {i}")
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['log_error'] = {
+            'ops': 500,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
+        }
+        
+        # Benchmark: Reset operation
+        start = time.perf_counter()
+        for i in range(100):
+            gateway.logging_reset()
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['reset'] = {
+            'ops': 100,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(100 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 100, 2)
+        }
+        
+        recommendations = []
+        if results['log_info']['ops_per_sec'] < 10000:
+            recommendations.append("Consider reducing log verbosity for performance")
+        if not recommendations:
+            recommendations.append("LOGGING performance is optimal")
+        
+        return {
+            'success': True,
+            'component': 'LOGGING',
+            'results': results,
+            'recommendations': recommendations
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'component': 'LOGGING',
+            'error': str(e)
+        }
+
+
+def _benchmark_security_operations(**kwargs) -> Dict[str, Any]:
+    """
+    Benchmark SECURITY interface operations.
+    
+    Tests:
+    - validate_string() throughput
+    - sanitize() throughput
+    - hash() performance
+    - encrypt/decrypt roundtrip
+    - reset operation performance
+    
+    Returns:
+        Dict with benchmark results and recommendations
+    """
+    try:
+        import gateway
+        import time
+        
+        results = {}
+        
+        # Reset for clean benchmark
+        gateway.security_reset()
+        
+        # Benchmark: validate_string
+        start = time.perf_counter()
+        for i in range(1000):
+            gateway.security_validate_string(f"test_string_{i}", min_length=5, max_length=100)
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['validate_string'] = {
+            'ops': 1000,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
+        }
+        
+        # Benchmark: sanitize
+        gateway.security_reset()
+        test_data = "<script>alert('xss')</script>Test data"
+        start = time.perf_counter()
+        for i in range(1000):
+            gateway.security_sanitize(data=test_data)
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['sanitize'] = {
+            'ops': 1000,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
+        }
+        
+        # Benchmark: hash
+        gateway.security_reset()
+        start = time.perf_counter()
+        for i in range(500):
+            gateway.security_hash(data=f"test_data_{i}")
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['hash'] = {
+            'ops': 500,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
+        }
+        
+        # Benchmark: encrypt/decrypt roundtrip
+        gateway.security_reset()
+        test_message = "Sensitive data to encrypt"
+        start = time.perf_counter()
+        for i in range(100):
+            encrypted = gateway.security_encrypt(data=test_message)
+            decrypted = gateway.security_decrypt(data=encrypted)
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['encrypt_decrypt_roundtrip'] = {
+            'ops': 100,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(100 / (duration_ms / 1000), 0),
+            'avg_latency_ms': round(duration_ms / 100, 2)
+        }
+        
+        # Benchmark: reset operation
+        start = time.perf_counter()
+        for i in range(100):
+            gateway.security_reset()
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['reset'] = {
+            'ops': 100,
+            'duration_ms': round(duration_ms, 2),
+            'ops_per_sec': round(100 / (duration_ms / 1000), 0),
+            'avg_latency_us': round((duration_ms * 1000) / 100, 2)
+        }
+        
+        # Benchmark: rate limiting overhead
+        gateway.security_reset()
+        # Fill near rate limit
+        for i in range(900):
+            gateway.security_validate_string(f"fill_{i}", min_length=1, max_length=50)
+        
+        # Measure rate limit check overhead
+        start = time.perf_counter()
+        for i in range(100):
+            try:
+                gateway.security_validate_string(f"rate_test_{i}", min_length=1, max_length=50)
+            except RuntimeError:
+                pass  # Rate limited
+        duration_ms = (time.perf_counter() - start) * 1000
+        results['rate_limit_overhead'] = {
+            'ops': 100,
+            'duration_ms': round(duration_ms, 2),
+            'note': 'Measures cost of rate limit checks'
+        }
+        
+        # Generate recommendations
+        recommendations = []
+        
+        if results['validate_string']['ops_per_sec'] < 10000:
+            recommendations.append("Validation operations slower than expected")
+        
+        if results['encrypt_decrypt_roundtrip']['avg_latency_ms'] > 5:
+            recommendations.append("Crypto operations have high latency, consider optimization")
+        
+        if results['sanitize']['ops_per_sec'] > 50000:
+            recommendations.append("Sanitization performing excellently")
+        
+        if not recommendations:
+            recommendations.append("SECURITY performance is optimal")
+        
+        return {
+            'success': True,
+            'component': 'SECURITY',
+            'results': results,
+            'recommendations': recommendations
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'component': 'SECURITY',
+            'error': str(e)
         }
 
 
@@ -185,7 +284,7 @@ def _get_performance_report(**kwargs) -> Dict[str, Any]:
     
     return {
         'success': True,
-        'timestamp': '2025.10.14',
+        'timestamp': '2025.10.22',
         'benchmark': benchmark_results,
         'dispatcher_stats': dispatcher_stats,
         'operation_metrics': operation_metrics
@@ -194,8 +293,9 @@ def _get_performance_report(**kwargs) -> Dict[str, Any]:
 
 __all__ = [
     '_run_performance_benchmark',
-    '_benchmark_cache_operations',
     '_compare_dispatcher_modes',
+    '_benchmark_logging_operations',
+    '_benchmark_security_operations',
     '_get_performance_report'
 ]
 
