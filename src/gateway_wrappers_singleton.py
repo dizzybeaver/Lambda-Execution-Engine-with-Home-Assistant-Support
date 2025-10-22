@@ -1,6 +1,6 @@
 """
 gateway_wrappers_singleton.py - SINGLETON Interface Wrappers
-Version: 2025.10.22.02
+Version: 2025.10.22.03
 Description: Convenience wrappers for SINGLETON interface operations
 
 Copyright 2025 Joseph Hersey
@@ -36,6 +36,16 @@ def singleton_clear() -> None:
 def singleton_stats() -> Dict[str, Any]:
     """Get singleton statistics."""
     return execute_operation(GatewayInterface.SINGLETON, 'stats')
+
+
+def singleton_get_stats() -> Dict[str, Any]:
+    """Get singleton statistics (alias for singleton_stats)."""
+    return execute_operation(GatewayInterface.SINGLETON, 'get_stats')
+
+
+def singleton_reset() -> bool:
+    """Reset SINGLETON manager state (lifecycle management)."""
+    return execute_operation(GatewayInterface.SINGLETON, 'reset')
 
 
 # ===== MEMORY MONITORING OPERATIONS =====
@@ -82,6 +92,8 @@ __all__ = [
     'singleton_delete',
     'singleton_clear',
     'singleton_stats',
+    'singleton_get_stats',
+    'singleton_reset',
     
     # Memory monitoring operations
     'get_memory_stats',
