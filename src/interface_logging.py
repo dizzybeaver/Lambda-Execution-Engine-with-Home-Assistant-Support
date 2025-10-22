@@ -1,8 +1,11 @@
 # Filename: interface_logging.py
 """
 interface_logging.py - Logging Router (SECURITY HARDENED)
-Version: 2025.10.21.03
+Version: 2025.10.22.01
 Description: Firewall router for LOGGING interface with security sanitization
+
+CHANGES (2025.10.22.01):
+- Added reset operation to dispatch table (Phase 1 compliance)
 
 CHANGELOG:
 - 2025.10.21.03: Removed LogTemplate validation from _validate_message_param
@@ -23,6 +26,7 @@ from logging_core import (
     _execute_log_operation_start_implementation,
     _execute_log_operation_success_implementation,
     _execute_log_operation_failure_implementation,
+    _execute_log_reset_implementation,
 )
 
 # ===== DEBUG_MODE SUPPORT =====
@@ -152,6 +156,8 @@ _OPERATION_DISPATCH: Dict[str, Callable] = {
     'log_operation_start': _execute_log_operation_start_implementation,
     'log_operation_success': _execute_log_operation_success_implementation,
     'log_operation_failure': _execute_log_operation_failure_implementation,
+    'reset': _execute_log_reset_implementation,
+    'reset_logging': _execute_log_reset_implementation,
 }
 
 # ===== PUBLIC INTERFACE =====
@@ -181,6 +187,7 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
             _validate_operation_success_params(kwargs)
         elif operation == 'log_operation_failure':
             _validate_operation_failure_params(kwargs)
+        # Reset operation needs no validation
     except ValueError as e:
         _print_debug(f"Validation failed: {e}")
         raise
