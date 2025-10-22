@@ -1,17 +1,25 @@
 """
 interface_debug.py - Debug Interface Router
-Version: 2025.10.22.01
+Version: 2025.10.22.02
 Description: Router/Firewall for debug interface with import protection
+
+CHANGES (2025.10.22.02):
+- Added 4 CONFIG operations to valid operations list
+  - check_config_health
+  - diagnose_config_performance
+  - validate_config_configuration
+  - benchmark_config_operations
 
 CHANGES (2025.10.22.01):
 - Added 4 LOGGING operations to valid operations list
-  - check_logging_health
-  - diagnose_logging_performance
-  - validate_logging_configuration
-  - benchmark_logging_operations
+- Added 4 SECURITY operations to valid operations list
 
 CHANGELOG:
 - 2025.10.17.15: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for debug_core imports
+  - Sets _DEBUG_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Debug unavailable
 - 2025.10.17.06: Added parameter validation for operations (Issue #18 fix)
 - 2025.10.17.02: Initial creation with SUGA-ISP router pattern
 
@@ -37,13 +45,16 @@ _VALID_DEBUG_OPERATIONS = [
     'check_gateway_health',
     'check_logging_health',
     'check_security_health',
+    'check_config_health',
     'diagnose_system_health',
     'diagnose_logging_performance',
     'diagnose_security_performance',
+    'diagnose_config_performance',
     'run_debug_tests',
     'validate_system_architecture',
     'validate_logging_configuration',
     'validate_security_configuration',
+    'validate_config_configuration',
     'get_system_stats',
     'get_optimization_stats',
     'get_dispatcher_stats',
@@ -58,7 +69,8 @@ _VALID_DEBUG_OPERATIONS = [
     'run_memory_profile',
     'check_memory_usage',
     'benchmark_logging_operations',
-    'benchmark_security_operations'
+    'benchmark_security_operations',
+    'benchmark_config_operations'
 ]
 
 
