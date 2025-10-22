@@ -41,7 +41,7 @@ def _get_system_stats(**kwargs) -> Dict[str, Any]:
 
 def _get_optimization_stats(**kwargs) -> Dict[str, Any]:
     """Get optimization statistics with dispatcher stats."""
-    from debug.debug_verification import _verify_registry_operations
+    from debug_verification import _verify_registry_operations
     
     try:
         from gateway import get_gateway_stats
