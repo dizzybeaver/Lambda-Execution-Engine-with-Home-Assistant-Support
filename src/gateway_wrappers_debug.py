@@ -1,10 +1,7 @@
 """
 gateway_wrappers_debug.py - DEBUG Interface Wrappers
-Version: 2025.10.22.02
+Version: 2025.10.22.03
 Description: Convenience wrappers for DEBUG interface operations
-
-CHANGELOG:
-- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface debug operations
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -183,175 +180,97 @@ def benchmark_http_client_operations() -> Dict[str, Any]:
     return execute_operation(GatewayInterface.DEBUG, 'benchmark_http_client_operations')
 
 
-# ===== WEBSOCKET DEBUG OPERATIONS (2025.10.22.02) =====
+# ===== INITIALIZATION INTERFACE DEBUG OPERATIONS =====
 
-def check_websocket_health() -> Dict[str, Any]:
-    """
-    Check WEBSOCKET interface health and compliance.
-    
-    Verifies:
-    - SINGLETON registration
-    - Rate limiting effectiveness (300 ops/sec)
-    - No threading locks (AP-08)
-    - Reset operation availability
-    - Core operations availability
-    - Statistics tracking
-    
-    Returns:
-        Dict with health status and detailed checks
-        
-    REF: AP-08, DEC-04, LESS-18, LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'check_websocket_health')
+def check_initialization_health(**kwargs) -> Dict[str, Any]:
+    """Check INITIALIZATION interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
+    return execute_operation(GatewayInterface.DEBUG, 'check_initialization_health', **kwargs)
 
 
-def diagnose_websocket_performance() -> Dict[str, Any]:
-    """
-    Diagnose WEBSOCKET interface performance characteristics.
-    
-    Analyzes:
-    - Connection patterns and statistics
-    - Message send/receive ratios
-    - Error rates and types
-    - Rate limiting impact
-    - Performance recommendations
-    
-    Returns:
-        Dict with performance diagnostics
-        
-    REF: LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'diagnose_websocket_performance')
+def diagnose_initialization_performance(**kwargs) -> Dict[str, Any]:
+    """Diagnose INITIALIZATION interface performance patterns."""
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_initialization_performance', **kwargs)
 
 
-def validate_websocket_configuration() -> Dict[str, Any]:
+def validate_initialization_configuration(**kwargs) -> Dict[str, Any]:
+    """Validate INITIALIZATION interface configuration and compliance."""
+    return execute_operation(GatewayInterface.DEBUG, 'validate_initialization_configuration', **kwargs)
+
+
+def benchmark_initialization_operations(**kwargs) -> Dict[str, Any]:
+    """Benchmark INITIALIZATION interface operations."""
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_initialization_operations', **kwargs)
+
+
+# ===== UTILITY INTERFACE DEBUG OPERATIONS =====
+
+def check_utility_health(**kwargs) -> Dict[str, Any]:
+    """Check UTILITY interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
+    return execute_operation(GatewayInterface.DEBUG, 'check_utility_health', **kwargs)
+
+
+def diagnose_utility_performance(**kwargs) -> Dict[str, Any]:
+    """Diagnose UTILITY interface performance patterns."""
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_utility_performance', **kwargs)
+
+
+def validate_utility_configuration(**kwargs) -> Dict[str, Any]:
+    """Validate UTILITY interface configuration and compliance."""
+    return execute_operation(GatewayInterface.DEBUG, 'validate_utility_configuration', **kwargs)
+
+
+def benchmark_utility_operations(**kwargs) -> Dict[str, Any]:
+    """Benchmark UTILITY interface operations."""
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_utility_operations', **kwargs)
+
+
+# ===== SINGLETON INTERFACE DEBUG OPERATIONS =====
+
+def check_singleton_health(**kwargs) -> Dict[str, Any]:
+    """Check SINGLETON interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
+    return execute_operation(GatewayInterface.DEBUG, 'check_singleton_health', **kwargs)
+
+
+def diagnose_singleton_performance(**kwargs) -> Dict[str, Any]:
+    """Diagnose SINGLETON interface performance patterns."""
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_singleton_performance', **kwargs)
+
+
+def validate_singleton_configuration(**kwargs) -> Dict[str, Any]:
+    """Validate SINGLETON interface configuration and compliance."""
+    return execute_operation(GatewayInterface.DEBUG, 'validate_singleton_configuration', **kwargs)
+
+
+def benchmark_singleton_operations(**kwargs) -> Dict[str, Any]:
+    """Benchmark SINGLETON interface operations."""
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_singleton_operations', **kwargs)
+
+
+# ===== SYSTEM-WIDE DEBUG OPERATIONS =====
+
+def check_system_health(**kwargs) -> Dict[str, Any]:
     """
-    Validate WEBSOCKET interface configuration and compliance.
+    Comprehensive system-wide health check for all 12 interfaces.
     
     Validates:
-    - SINGLETON registration compliance
-    - Threading lock compliance (CRITICAL)
-    - Rate limiting configuration (300 ops/sec)
-    - Reset operation availability
-    - Core operations availability
-    - Interface router availability
-    
-    Returns:
-        Dict with validation results and compliance status
-        
-    REF: AP-08, DEC-04, LESS-18, LESS-21
+    - All interfaces optimized (SINGLETON, rate limiting, no locks)
+    - Full compliance with AP-08, DEC-04, LESS-17, LESS-18, LESS-21
+    - System readiness for production
     """
-    return execute_operation(GatewayInterface.DEBUG, 'validate_websocket_configuration')
+    return execute_operation(GatewayInterface.DEBUG, 'check_system_health', **kwargs)
 
 
-def benchmark_websocket_operations() -> Dict[str, Any]:
+def validate_system_configuration(**kwargs) -> Dict[str, Any]:
     """
-    Benchmark WEBSOCKET interface operations.
-    
-    Benchmarks:
-    - Manager retrieval (50 ops)
-    - get_stats (200 ops)
-    - reset (10 ops)
-    - Rate limit checking (50 ops)
-    
-    Total: 310 operations
-    
-    NOTE: Tests infrastructure only, not actual network performance.
-          WebSocket operations depend on external network conditions.
-    
-    Returns:
-        Dict with benchmark results for each operation
-        
-    REF: LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'benchmark_websocket_operations')
-
-
-# ===== CIRCUIT_BREAKER DEBUG OPERATIONS (2025.10.22.02) =====
-
-def check_circuit_breaker_health() -> Dict[str, Any]:
-    """
-    Check CIRCUIT_BREAKER interface health and compliance.
-    
-    Verifies:
-    - SINGLETON registration
-    - Rate limiting effectiveness (1000 ops/sec)
-    - No threading locks (AP-08, DEC-04) - CRITICAL
-    - Reset operation availability
-    - Core operations availability
-    - Statistics tracking
-    - Circuit breaker functionality
-    
-    Returns:
-        Dict with health status and detailed checks
-        
-    REF: AP-08, DEC-04, LESS-18, LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'check_circuit_breaker_health')
-
-
-def diagnose_circuit_breaker_performance() -> Dict[str, Any]:
-    """
-    Diagnose CIRCUIT_BREAKER interface performance characteristics.
-    
-    Analyzes:
-    - Operation statistics across all breakers
-    - Circuit breaker states and patterns
-    - Success/failure/rejection rates
-    - Rate limiting impact
-    - Performance recommendations
-    
-    Returns:
-        Dict with performance diagnostics
-        
-    REF: LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'diagnose_circuit_breaker_performance')
-
-
-def validate_circuit_breaker_configuration() -> Dict[str, Any]:
-    """
-    Validate CIRCUIT_BREAKER interface configuration and compliance.
+    Final system-wide configuration validation.
     
     Validates:
-    - SINGLETON registration compliance
-    - Threading lock compliance (CRITICAL)
-    - Rate limiting configuration (1000 ops/sec)
-    - Reset operation availability
-    - Core operations availability
-    - Manager and breaker class structure
-    
-    Returns:
-        Dict with validation results and compliance status
-        
-    REF: AP-08, DEC-04, LESS-18, LESS-21
+    - All 12 interfaces present and configured
+    - SIMA pattern compliance across all interfaces
+    - Anti-pattern compliance (no violations)
+    - Complete optimization (Phase 1 + 3)
     """
-    return execute_operation(GatewayInterface.DEBUG, 'validate_circuit_breaker_configuration')
-
-
-def benchmark_circuit_breaker_operations() -> Dict[str, Any]:
-    """
-    Benchmark CIRCUIT_BREAKER interface operations.
-    
-    Benchmarks:
-    - Manager retrieval (50 ops)
-    - Circuit breaker creation (100 ops)
-    - get_all_states (100 ops)
-    - get_stats (200 ops)
-    - reset (10 ops)
-    - Rate limit checking (50 ops)
-    
-    Total: 510 operations
-    
-    NOTE: Tests infrastructure only, not actual protected function calls.
-          Overhead depends on protected function complexity.
-    
-    Returns:
-        Dict with benchmark results for each operation
-        
-    REF: LESS-21
-    """
-    return execute_operation(GatewayInterface.DEBUG, 'benchmark_circuit_breaker_operations')
+    return execute_operation(GatewayInterface.DEBUG, 'validate_system_configuration', **kwargs)
 
 
 __all__ = [
@@ -374,15 +293,25 @@ __all__ = [
     'validate_http_client_configuration',
     'benchmark_http_client_operations',
     
-    # WEBSOCKET debug operations
-    'check_websocket_health',
-    'diagnose_websocket_performance',
-    'validate_websocket_configuration',
-    'benchmark_websocket_operations',
+    # INITIALIZATION interface debug
+    'check_initialization_health',
+    'diagnose_initialization_performance',
+    'validate_initialization_configuration',
+    'benchmark_initialization_operations',
     
-    # CIRCUIT_BREAKER debug operations
-    'check_circuit_breaker_health',
-    'diagnose_circuit_breaker_performance',
-    'validate_circuit_breaker_configuration',
-    'benchmark_circuit_breaker_operations',
+    # UTILITY interface debug
+    'check_utility_health',
+    'diagnose_utility_performance',
+    'validate_utility_configuration',
+    'benchmark_utility_operations',
+    
+    # SINGLETON interface debug
+    'check_singleton_health',
+    'diagnose_singleton_performance',
+    'validate_singleton_configuration',
+    'benchmark_singleton_operations',
+    
+    # System-wide debug
+    'check_system_health',
+    'validate_system_configuration',
 ]
