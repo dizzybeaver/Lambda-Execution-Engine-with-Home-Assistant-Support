@@ -1,14 +1,17 @@
 """
 interface_debug.py - Debug Interface Router
-Version: 2025.10.17.15
+Version: 2025.10.22.01
 Description: Router/Firewall for debug interface with import protection
+
+CHANGES (2025.10.22.01):
+- Added 4 LOGGING operations to valid operations list
+  - check_logging_health
+  - diagnose_logging_performance
+  - validate_logging_configuration
+  - benchmark_logging_operations
 
 CHANGELOG:
 - 2025.10.17.15: FIXED Issue #20 - Added import error protection
-  - Added try/except wrapper for debug_core imports
-  - Sets _DEBUG_AVAILABLE flag on success/failure
-  - Stores import error message for debugging
-  - Provides clear error when Debug unavailable
 - 2025.10.17.06: Added parameter validation for operations (Issue #18 fix)
 - 2025.10.17.02: Initial creation with SUGA-ISP router pattern
 
@@ -32,9 +35,15 @@ except ImportError as e:
 _VALID_DEBUG_OPERATIONS = [
     'check_component_health',
     'check_gateway_health',
+    'check_logging_health',
+    'check_security_health',
     'diagnose_system_health',
+    'diagnose_logging_performance',
+    'diagnose_security_performance',
     'run_debug_tests',
     'validate_system_architecture',
+    'validate_logging_configuration',
+    'validate_security_configuration',
     'get_system_stats',
     'get_optimization_stats',
     'get_dispatcher_stats',
@@ -48,19 +57,8 @@ _VALID_DEBUG_OPERATIONS = [
     'run_performance_profile',
     'run_memory_profile',
     'check_memory_usage',
-    # CACHE DEBUG OPERATIONS (Phase 3)
-    'check_cache_health',
-    'cache_health',
-    'health_cache',
-    'diagnose_cache_performance',
-    'cache_diagnostics',
-    'diagnose_cache',
-    'validate_cache_configuration',
-    'cache_validation',
-    'validate_cache',
-    'benchmark_cache_operations',
-    'cache_benchmark',
-    'benchmark_cache',
+    'benchmark_logging_operations',
+    'benchmark_security_operations'
 ]
 
 
