@@ -19,7 +19,7 @@ import gc
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
     """Comprehensive system health diagnosis."""
-    from debug.debug_health import _check_component_health, _check_gateway_health
+    from debug_health import _check_component_health, _check_gateway_health
     
     component_health = _check_component_health()
     gateway_health = _check_gateway_health()
