@@ -40,6 +40,22 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'GENERATE_HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
         'HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
         
+        # METRICS-specific health and diagnostics (Phase 3)
+        'CHECK_METRICS_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_metrics_health'])._check_metrics_health(**kwargs),
+        'METRICS_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_metrics_health'])._check_metrics_health(**kwargs),
+        
+        'DIAGNOSE_METRICS_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
+        'METRICS_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
+        'METRICS_DIAGNOSTICS': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_metrics_performance'])._diagnose_metrics_performance(**kwargs),
+        
+        'VALIDATE_METRICS_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
+        'VALIDATE_METRICS': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
+        'METRICS_VALIDATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_metrics_configuration'])._validate_metrics_configuration(**kwargs),
+        
+        'BENCHMARK_METRICS_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
+        'BENCHMARK_METRICS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
+        'METRICS_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_metrics_operations'])._benchmark_metrics_operations(**kwargs),
+      
         # Diagnostic operations
         'DIAGNOSE_SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
         'SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
