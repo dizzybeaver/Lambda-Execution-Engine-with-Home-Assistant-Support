@@ -3,19 +3,6 @@ interface_http.py - HTTP Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.17.17
 Description: Router for HTTP interface with dispatch dictionary pattern
 
-CHANGELOG:
-- 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-  - Converted from elif chain (9 operations) to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code from ~190 lines to ~165 lines
-  - Easier to maintain and extend (add operation = 1 line)
-  - Follows pattern from interface_utility.py v2025.10.17.16
-  - All validation logic preserved in helper functions
-  - NotImplementedError for unfinished operations preserved
-- 2025.10.17.07: FIXED Issue #17 - Changed fake responses to NotImplementedError
-- 2025.10.17.14: FIXED Issue #20 - Added import error protection
-- 2025.10.17.05: Added parameter validation for all operations
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
@@ -31,6 +18,7 @@ try:
         http_post_implementation,
         http_put_implementation,
         http_delete_implementation,
+        http_reset_implementation,
         get_state_implementation,
         reset_state_implementation
     )
@@ -44,6 +32,7 @@ except ImportError as e:
     http_post_implementation = None
     http_put_implementation = None
     http_delete_implementation = None
+    http_reset_implementation = None
     get_state_implementation = None
     reset_state_implementation = None
 
@@ -116,6 +105,7 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             http_delete_implementation(**kwargs)
         )[1],
         
+        'reset': http_reset_implementation,
         'get_state': get_state_implementation,
         'reset_state': reset_state_implementation,
         
