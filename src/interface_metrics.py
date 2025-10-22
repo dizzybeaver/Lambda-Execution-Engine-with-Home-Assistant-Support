@@ -1,24 +1,12 @@
 """
 interface_metrics.py - Metrics Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.20.02
-Description: Router for Metrics interface with dispatch dictionary pattern
+Version: 2025.10.21.01
+Description: Added reset_metrics operation to dispatch dictionary
 
-CHANGELOG:
-- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation function
-  - Fixed _validate_operation_param() to expect 'operation_name' instead of 'operation'
-  - Resolves RuntimeError: "got multiple values for argument 'operation'"
-  - Matches gateway_wrappers.py and interface_logging.py parameter rename
-- 2025.10.17.16: Modernized with dispatch dictionary pattern
-  - Converted from elif chain to dispatch dictionary (O(1) lookup)
-  - Added comprehensive parameter validation
-  - Added import error protection
-- 2025.10.17.05: Added parameter validation for all operations
-
-CRITICAL BUG FIX (2025.10.20.02):
-Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
-         _validate_operation_param() checked for 'operation' in kwargs, creating conflict.
-Solution: Changed validation function to check for 'operation_name' instead of 'operation'.
-Impact: Fixes record_operation_metric() and record_cache_metric() parameter conflicts.
+PHASE 1 CHANGES:
+✅ Added reset_metrics operation to dispatch
+✅ Imported _execute_reset_metrics_implementation
+✅ Added aliases: reset, reset_metrics, clear
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -33,6 +21,7 @@ try:
         _execute_record_metric_implementation,
         _execute_increment_counter_implementation,
         _execute_get_stats_implementation,
+        _execute_reset_metrics_implementation,  # NEW
         _execute_record_operation_metric_implementation,
         _execute_record_error_response_metric_implementation,
         _execute_record_cache_metric_implementation,
@@ -56,6 +45,7 @@ except ImportError as e:
     _execute_record_metric_implementation = None
     _execute_increment_counter_implementation = None
     _execute_get_stats_implementation = None
+    _execute_reset_metrics_implementation = None  # NEW
     _execute_record_operation_metric_implementation = None
     _execute_record_error_response_metric_implementation = None
     _execute_record_cache_metric_implementation = None
@@ -105,12 +95,7 @@ def _validate_record_metric_params(kwargs: Dict[str, Any], operation: str) -> No
 
 
 def _validate_operation_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """
-    Validate operation_name parameter.
-    
-    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
-    to match gateway_wrappers.py parameter rename.
-    """
+    """Validate operation_name parameter."""
     if 'operation_name' not in kwargs:
         raise ValueError(f"Metrics operation '{operation}' requires parameter 'operation_name'")
     
@@ -184,6 +169,11 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         # Stats operations
         'get_stats': _execute_get_stats_implementation,
+        
+        # Reset operations (NEW - Phase 1)
+        'reset': _execute_reset_metrics_implementation,
+        'reset_metrics': _execute_reset_metrics_implementation,
+        'clear': _execute_reset_metrics_implementation,
         
         # Record operation metric with aliases
         'record_operation': lambda **kwargs: (
