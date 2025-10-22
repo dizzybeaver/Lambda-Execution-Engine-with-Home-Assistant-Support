@@ -1,15 +1,15 @@
 """
 gateway.py - Universal Lambda Gateway (Consolidated Module)
-Version: 2025.10.22.03
+Version: 2025.10.22.04
 Description: Single entry point consolidating gateway_core and gateway_wrappers
 
 CHANGELOG:
+- 2025.10.22.04: CLEANUP - Removed legacy HTTP_CLIENT function names
+  - Removed: get_http_client_state (use http_get_state)
+  - Removed: reset_http_client_state (use http_reset_state)
+  - Standardized on new naming convention
 - 2025.10.22.03: CRITICAL FIX - Updated HTTP_CLIENT wrapper imports for refactoring
-  - Changed: get_http_client_state -> http_get_state
-  - Changed: reset_http_client_state -> http_reset_state
-  - Added: http_reset (was missing)
-  - Fixes: ImportError on Lambda deployment after gateway_wrappers refactoring
-- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports (CVE-LOG-001 completion)
+- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -117,15 +117,15 @@ from gateway_wrappers import (
     set_initialization_flag,
     get_initialization_flag,
     
-    # HTTP_CLIENT wrappers (FIXED 2025.10.22.03)
+    # HTTP_CLIENT wrappers (CLEANED UP 2025.10.22.04)
     http_request,
     http_get,
     http_post,
     http_put,
     http_delete,
-    http_reset,            # NEW - was missing
-    http_get_state,        # RENAMED from get_http_client_state
-    http_reset_state,      # RENAMED from reset_http_client_state
+    http_reset,
+    http_get_state,
+    http_reset_state,
     
     # WEBSOCKET wrappers
     websocket_connect,
@@ -259,15 +259,15 @@ __all__ = [
     'set_initialization_flag',
     'get_initialization_flag',
     
-    # Generated Wrappers - HTTP_CLIENT (from gateway_wrappers) (FIXED 2025.10.22.03)
+    # Generated Wrappers - HTTP_CLIENT (CLEANED UP 2025.10.22.04)
     'http_request',
     'http_get',
     'http_post',
     'http_put',
     'http_delete',
-    'http_reset',            # NEW - was missing
-    'http_get_state',        # RENAMED from get_http_client_state
-    'http_reset_state',      # RENAMED from reset_http_client_state
+    'http_reset',
+    'http_get_state',
+    'http_reset_state',
     
     # Generated Wrappers - WEBSOCKET (from gateway_wrappers)
     'websocket_connect',
