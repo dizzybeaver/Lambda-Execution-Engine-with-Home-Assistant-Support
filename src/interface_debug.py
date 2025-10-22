@@ -1,7 +1,17 @@
 """
 interface_debug.py - Debug Interface Router
-Version: 2025.10.17.15
+Version: 2025.10.22.02
 Description: Router/Firewall for debug interface with import protection
+
+CHANGELOG:
+- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER debug operations
+- 2025.10.17.15: FIXED Issue #20 - Added import error protection
+  - Added try/except wrapper for debug_core imports
+  - Sets _DEBUG_AVAILABLE flag on success/failure
+  - Stores import error message for debugging
+  - Provides clear error when Debug unavailable
+- 2025.10.17.06: Added parameter validation for operations (Issue #18 fix)
+- 2025.10.17.02: Initial creation with SUGA-ISP router pattern
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -23,13 +33,15 @@ except ImportError as e:
 _VALID_DEBUG_OPERATIONS = [
     'check_component_health',
     'check_gateway_health',
-    'check_http_client_health',
-    'diagnose_http_client_performance',
+    'check_websocket_health',
+    'check_circuit_breaker_health',
     'diagnose_system_health',
+    'diagnose_websocket_performance',
+    'diagnose_circuit_breaker_performance',
     'run_debug_tests',
-    'validate_http_client_configuration',
     'validate_system_architecture',
-    'benchmark_http_client_operations',
+    'validate_websocket_configuration',
+    'validate_circuit_breaker_configuration',
     'get_system_stats',
     'get_optimization_stats',
     'get_dispatcher_stats',
@@ -42,7 +54,9 @@ _VALID_DEBUG_OPERATIONS = [
     'measure_execution_times',
     'run_performance_profile',
     'run_memory_profile',
-    'check_memory_usage'
+    'check_memory_usage',
+    'benchmark_websocket_operations',
+    'benchmark_circuit_breaker_operations'
 ]
 
 
