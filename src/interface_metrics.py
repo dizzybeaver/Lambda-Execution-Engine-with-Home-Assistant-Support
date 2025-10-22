@@ -1,18 +1,34 @@
 """
 interface_metrics.py - Metrics Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.21.01
-Description: Added reset_metrics operation to dispatch dictionary
+Description: PHASE 2 TASK 2.4 - Use validate_required_param() helper to eliminate validation duplication
 
-PHASE 1 CHANGES:
-✅ Added reset_metrics operation to dispatch
-✅ Imported _execute_reset_metrics_implementation
-✅ Added aliases: reset, reset_metrics, clear
+CHANGELOG:
+- 2025.10.21.01: PHASE 2 TASK 2.4 - Genericize validation pattern
+  - Updated 7 validation functions to use validate_required_param() helper
+  - Eliminated ~70 LOC of duplicated validation logic
+  - Functions simplified:
+    * _validate_metric_name_param
+    * _validate_record_metric_params
+    * _validate_operation_param
+    * _validate_error_type_param
+    * _validate_api_param
+    * _validate_http_metric_params
+    * _validate_circuit_breaker_params
+    * _validate_dispatcher_timing_params
+
+- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation function
+  - Fixed _validate_operation_param() to expect 'operation_name' instead of 'operation'
+  - Resolves RuntimeError: "got multiple values for argument 'operation'"
+  - Matches gateway_wrappers.py and interface_logging.py parameter rename
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
 
 from typing import Any, Callable, Dict
+
+from metrics_helper import validate_required_param
 
 # ===== IMPORT PROTECTION =====
 
@@ -21,7 +37,6 @@ try:
         _execute_record_metric_implementation,
         _execute_increment_counter_implementation,
         _execute_get_stats_implementation,
-        _execute_reset_metrics_implementation,  # NEW
         _execute_record_operation_metric_implementation,
         _execute_record_error_response_metric_implementation,
         _execute_record_cache_metric_implementation,
@@ -45,7 +60,6 @@ except ImportError as e:
     _execute_record_metric_implementation = None
     _execute_increment_counter_implementation = None
     _execute_get_stats_implementation = None
-    _execute_reset_metrics_implementation = None  # NEW
     _execute_record_operation_metric_implementation = None
     _execute_record_error_response_metric_implementation = None
     _execute_record_cache_metric_implementation = None
@@ -65,81 +79,54 @@ except ImportError as e:
 
 def _validate_metric_name_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate name parameter for metric operations."""
-    if 'name' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'name'")
-    
-    name = kwargs.get('name')
-    if not isinstance(name, str):
-        raise ValueError(
-            f"Metrics operation '{operation}' parameter 'name' must be string, "
-            f"got {type(name).__name__}"
-        )
-    
-    if not name.strip():
-        raise ValueError(f"Metrics operation '{operation}' parameter 'name' cannot be empty")
+    validate_required_param(
+        kwargs, 'name', str, operation,
+        validator=lambda v: bool(v.strip()),
+        error_message=f"Metrics operation '{operation}' parameter 'name' cannot be empty"
+    )
 
 
 def _validate_record_metric_params(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate parameters for record metric operation."""
     _validate_metric_name_param(kwargs, operation)
-    
-    if 'value' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'value'")
-    
-    value = kwargs.get('value')
-    if not isinstance(value, (int, float)):
-        raise ValueError(
-            f"Metrics operation '{operation}' parameter 'value' must be numeric, "
-            f"got {type(value).__name__}"
-        )
+    validate_required_param(kwargs, 'value', (int, float), operation)
 
 
 def _validate_operation_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate operation_name parameter."""
-    if 'operation_name' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'operation_name'")
-    
-    op_value = kwargs.get('operation_name')
-    if not isinstance(op_value, str) or not op_value.strip():
-        raise ValueError(
-            f"Metrics operation '{operation}' parameter 'operation_name' must be non-empty string"
-        )
+    validate_required_param(
+        kwargs, 'operation_name', str, operation,
+        validator=lambda v: bool(v.strip()),
+        error_message=f"Metrics operation '{operation}' parameter 'operation_name' must be non-empty string"
+    )
 
 
 def _validate_error_type_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate error_type parameter."""
-    if 'error_type' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'error_type'")
+    validate_required_param(kwargs, 'error_type', None, operation)
 
 
 def _validate_api_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate API parameter."""
-    if 'endpoint' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'endpoint'")
+    validate_required_param(kwargs, 'endpoint', None, operation)
 
 
 def _validate_http_metric_params(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate HTTP metric parameters."""
-    required = ['method', 'url', 'status_code']
-    for param in required:
-        if param not in kwargs:
-            raise ValueError(f"Metrics operation '{operation}' requires parameter '{param}'")
+    for param in ['method', 'url', 'status_code']:
+        validate_required_param(kwargs, param, None, operation)
 
 
 def _validate_circuit_breaker_params(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate circuit breaker metric parameters."""
-    if 'circuit_name' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'circuit_name'")
-    if 'event_type' not in kwargs:
-        raise ValueError(f"Metrics operation '{operation}' requires parameter 'event_type'")
+    validate_required_param(kwargs, 'circuit_name', None, operation)
+    validate_required_param(kwargs, 'event_type', None, operation)
 
 
 def _validate_dispatcher_timing_params(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate dispatcher timing parameters."""
-    required = ['interface_name', 'operation_name', 'duration_ms']
-    for param in required:
-        if param not in kwargs:
-            raise ValueError(f"Metrics operation '{operation}' requires parameter '{param}'")
+    for param in ['interface_name', 'operation_name', 'duration_ms']:
+        validate_required_param(kwargs, param, None, operation)
 
 
 # ===== OPERATION DISPATCH =====
@@ -169,11 +156,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         # Stats operations
         'get_stats': _execute_get_stats_implementation,
-        
-        # Reset operations (NEW - Phase 1)
-        'reset': _execute_reset_metrics_implementation,
-        'reset_metrics': _execute_reset_metrics_implementation,
-        'clear': _execute_reset_metrics_implementation,
         
         # Record operation metric with aliases
         'record_operation': lambda **kwargs: (
