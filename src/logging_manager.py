@@ -1,7 +1,13 @@
+# Filename: logging_manager.py
 """
 logging_manager.py - Core logging manager (SECURITY HARDENED)
-Version: 2025.10.21.03
-Description: LoggingCore class with rate limiting and validation
+Version: 2025.10.22.01
+Description: LoggingCore class with rate limiting, validation, and reset
+
+CHANGES (2025.10.22.01):
+- Added reset() method for Phase 1 compliance
+- SINGLETON pattern: Try gateway first, fallback to module-level
+- Reset clears templates, error log, counters, and rate limiter
 
 SECURITY ENHANCEMENTS (2025.10.21.03):
 - Fixed ErrorEntry dataclass usage
@@ -9,13 +15,6 @@ SECURITY ENHANCEMENTS (2025.10.21.03):
 - LOG_LEVEL validation: Prevents misconfiguration
 - Invocation tracking: Reset log count per Lambda invocation
 - Enhanced error tracking with limits
-
-CHANGELOG:
-- 2025.10.21.03: Fixed ErrorEntry usage (removed ErrorLogEntry)
-- 2025.10.21.02: SECURITY HARDENING - Rate limiting + LOG_LEVEL validation
-- 2025.10.21.01: Added singleton docs + DEBUG_MODE support + documentation standards
-- 2025.10.18.01: Fixed ErrorLogLevel enum usage (Issue #15)
-- 2025.10.17.04: Removed threading locks (Issue #14)
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -96,6 +95,13 @@ class RateLimitTracker:
         self.limit_warning_shown = False
         _print_debug(f"Rate limit tracker reset for invocation: {invocation_id}")
     
+    def reset(self):
+        """Reset all state (for testing/debugging)."""
+        self.invocation_id = None
+        self.log_count = 0
+        self.limit_warning_shown = False
+        _print_debug("Rate limit tracker reset (full)")
+    
     def increment(self) -> bool:
         """Increment log count and check if limit exceeded."""
         self.log_count += 1
@@ -143,6 +149,35 @@ class LoggingCore:
     def set_invocation_id(self, invocation_id: str):
         """Set Lambda invocation ID and reset rate limiter."""
         _RATE_LIMITER.reset_for_invocation(invocation_id)
+    
+    def reset(self) -> bool:
+        """
+        Reset logging core state (Phase 1 requirement).
+        
+        Clears:
+        - Template cache and statistics
+        - Error log and error counts
+        - Rate limiter state
+        
+        Returns:
+            bool: True on success
+        """
+        _print_debug("Resetting LoggingCore state")
+        
+        # Clear templates
+        self._templates.clear()
+        self._template_hits = 0
+        self._template_misses = 0
+        
+        # Clear error tracking
+        self._error_log.clear()
+        self._error_count_by_type.clear()
+        
+        # Reset rate limiter
+        _RATE_LIMITER.reset()
+        
+        _print_debug("LoggingCore reset complete")
+        return True
     
     def log(self, message: str, level: int = logging.INFO, **kwargs) -> None:
         """Core logging with rate limiting."""
@@ -192,30 +227,6 @@ class LoggingCore:
         log_level = level_map.get(level, logging.ERROR)
         self.logger.log(log_level, f"{message}: {error}" if error else message, extra=kwargs)
     
-    def reset(self) -> bool:
-        """
-        Reset logging core to initial state (Phase 1 addition).
-        
-        Clears all logs, templates, errors, and resets counters.
-        Useful for testing and debugging.
-        
-        Returns:
-            True on success
-        """
-        self._templates.clear()
-        self._template_hits = 0
-        self._template_misses = 0
-        self._error_log.clear()
-        self._error_count_by_type.clear()
-        
-        # Reset rate limiter
-        global _RATE_LIMITER
-        _RATE_LIMITER.log_count = 0
-        _RATE_LIMITER.limit_warning_shown = False
-        
-        _print_debug("LoggingCore reset complete")
-        return True
-    
     def _get_template_key(self, message: str) -> str:
         """Generate template key from message."""
         return message[:100]
@@ -252,36 +263,34 @@ class LoggingCore:
 
 # ===== MODULE-LEVEL SINGLETON =====
 
-_LOGGING_CORE = LoggingCore()
-_print_debug("Module-level singleton _LOGGING_CORE created")
+_LOGGING_CORE = None
+_print_debug("Module-level singleton initialized")
 
 def get_logging_core() -> LoggingCore:
     """
-    Get the logging core singleton (Phase 1 SINGLETON integration).
+    Get logging core singleton (SINGLETON pattern).
     
-    SINGLETON Pattern:
-    Tries to use SINGLETON interface for lifecycle management.
-    Falls back to module-level singleton if SINGLETON unavailable.
-    
-    Returns:
-        LoggingCore instance
+    Tries gateway first, falls back to module-level instance.
     """
     global _LOGGING_CORE
     
-    # Try SINGLETON interface first (Phase 1)
     try:
         from gateway import singleton_get, singleton_register
         
-        core = singleton_get('logging_core')
-        if core is None:
+        manager = singleton_get('logging_manager')
+        if manager is None:
             if _LOGGING_CORE is None:
                 _LOGGING_CORE = LoggingCore()
-            singleton_register('logging_core', _LOGGING_CORE)
-            core = _LOGGING_CORE
+            singleton_register('logging_manager', _LOGGING_CORE)
+            manager = _LOGGING_CORE
+            _print_debug("Registered logging_manager with SINGLETON")
         
-        return core
-    except (ImportError, Exception):
-        # Fallback to module-level singleton
+        return manager
+        
+    except (ImportError, Exception) as e:
+        _print_debug(f"Gateway unavailable, using module-level: {e}")
+        if _LOGGING_CORE is None:
+            _LOGGING_CORE = LoggingCore()
         return _LOGGING_CORE
 
 # ===== EXPORTS =====
