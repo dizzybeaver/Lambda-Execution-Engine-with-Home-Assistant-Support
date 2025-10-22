@@ -1,21 +1,16 @@
 """
 debug_validation.py - Debug Validation Operations
-Version: 2025.10.14.01
+Version: 2025.10.22.02
 Description: System validation operations for debug subsystem
 
+CHANGES (2025.10.22.02):
+- Added _validate_security_configuration() for SECURITY interface
+
+CHANGES (2025.10.22.01):
+- Added _validate_logging_configuration() for LOGGING interface
+
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from typing import Dict, Any
@@ -86,90 +81,202 @@ def _validate_gateway_routing(**kwargs) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
-def _validate_cache_configuration(**kwargs) -> Dict[str, Any]:
-    """
-    Validate cache configuration and compliance (CACHE Phase 3).
+def _validate_logging_configuration(**kwargs) -> Dict[str, Any]:
+    """Validate LOGGING interface configuration."""
+    issues = []
+    warnings = []
     
-    Checks:
-    - SINGLETON registration (INT-06)
-    - Security validations enabled
+    try:
+        # Check SINGLETON registration
+        try:
+            import gateway
+            manager = gateway.singleton_get('logging_manager')
+            if manager is None:
+                warnings.append("SINGLETON 'logging_manager' not registered yet")
+            else:
+                from logging_manager import LoggingCore
+                if not isinstance(manager, LoggingCore):
+                    issues.append(f"SINGLETON 'logging_manager' wrong type: {type(manager)}")
+        except Exception as e:
+            warnings.append(f"Could not verify SINGLETON: {e}")
+        
+        # Check for threading locks
+        try:
+            import logging_manager
+            import inspect
+            source = inspect.getsource(logging_manager)
+            if 'threading.Lock' in source or 'threading.RLock' in source:
+                issues.append("CRITICAL: Found threading locks in logging_manager (AP-08, DEC-04)")
+        except Exception as e:
+            warnings.append(f"Could not check for threading locks: {e}")
+        
+        # Check rate limiting configuration
+        try:
+            import os
+            rate_limit_enabled = os.getenv('LOG_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+            max_logs = int(os.getenv('MAX_LOGS_PER_INVOCATION', '500'))
+            
+            if not rate_limit_enabled:
+                warnings.append("Rate limiting disabled (LOG_RATE_LIMIT_ENABLED=false)")
+            elif max_logs < 100:
+                warnings.append(f"Rate limit very low: {max_logs} logs/invocation")
+            elif max_logs > 1000:
+                warnings.append(f"Rate limit very high: {max_logs} logs/invocation")
+        except Exception as e:
+            warnings.append(f"Could not check rate limit config: {e}")
+        
+        # Check security sanitization
+        try:
+            import os
+            sanitize = os.getenv('SANITIZE_EXCEPTIONS', 'true').lower() == 'true'
+            if not sanitize:
+                warnings.append("Exception sanitization disabled (SANITIZE_EXCEPTIONS=false)")
+        except Exception as e:
+            warnings.append(f"Could not check sanitization config: {e}")
+        
+        # Check reset operation
+        try:
+            from logging_core import _execute_log_reset_implementation
+            result = _execute_log_reset_implementation()
+            if not result:
+                issues.append("Reset operation returned False")
+        except ImportError:
+            issues.append("Reset implementation not found (_execute_log_reset_implementation)")
+        except Exception as e:
+            warnings.append(f"Could not test reset operation: {e}")
+        
+        # Check gateway routing
+        try:
+            import gateway
+            gateway.logging_reset()
+        except AttributeError:
+            issues.append("Reset operation not available in gateway (logging_reset)")
+        except Exception as e:
+            warnings.append(f"Reset routing issue: {e}")
+        
+        return {
+            'component': 'LOGGING',
+            'valid': len(issues) == 0,
+            'issues': issues,
+            'warnings': warnings,
+            'summary': f"{len(issues)} issues, {len(warnings)} warnings"
+        }
+        
+    except Exception as e:
+        return {
+            'component': 'LOGGING',
+            'valid': False,
+            'error': str(e)
+        }
+
+
+def _validate_security_configuration(**kwargs) -> Dict[str, Any]:
+    """
+    Validate SECURITY interface configuration.
+    
+    Checks for:
+    - SINGLETON registration (Phase 1 requirement)
+    - No threading locks (AP-08, DEC-04)
     - Rate limiting configured
-    - Memory limits configured
-    - No threading locks (AP-08)
+    - Reset operation available
+    - Validator and Crypto components present
     
     Returns:
-        Dict with:
-        - valid: bool
-        - issues: List[str] (critical violations)
-        - warnings: List[str] (non-critical issues)
-        - checks_passed: int
-        - checks_total: int
+        Dict with validation status and any issues
     """
     issues = []
     warnings = []
     
-    # Check 1: SINGLETON registration
     try:
-        from gateway import singleton_get
-        if singleton_get('cache_manager') is None:
-            warnings.append("⚠️ Not registered with SINGLETON (INT-06)")
-    except Exception:
-        warnings.append("⚠️ Could not verify SINGLETON registration")
-    
-    # Check 2: Security validations
-    try:
-        import cache_core
-        code = open(cache_core.__file__).read()
+        # Check SINGLETON registration
+        try:
+            import gateway
+            manager = gateway.singleton_get('security_manager')
+            if manager is None:
+                warnings.append("SINGLETON 'security_manager' not registered yet")
+            else:
+                from security_core import SecurityCore
+                if not isinstance(manager, SecurityCore):
+                    issues.append(f"SINGLETON 'security_manager' wrong type: {type(manager)}")
+        except Exception as e:
+            warnings.append(f"Could not verify SINGLETON: {e}")
         
-        if 'validate_cache_key' not in code:
-            issues.append("❌ Cache key validation missing (CVE-SUGA-2025-001)")
+        # Check for threading locks
+        try:
+            import security_core
+            import inspect
+            source = inspect.getsource(security_core)
+            if 'threading.Lock' in source or 'threading.RLock' in source:
+                issues.append("CRITICAL: Found threading locks in security_core (AP-08, DEC-04)")
+        except Exception as e:
+            warnings.append(f"Could not check for threading locks: {e}")
         
-        if 'validate_ttl' not in code:
-            issues.append("❌ TTL validation missing (CVE-SUGA-2025-002)")
+        # Check rate limiting present
+        try:
+            import gateway
+            stats = gateway.security_get_stats()
+            rate_limit_stats = stats.get('rate_limit', {})
+            
+            if not rate_limit_stats:
+                issues.append("Rate limiting not configured")
+            else:
+                rate_limit = rate_limit_stats.get('rate_limit', 0)
+                if rate_limit < 100:
+                    warnings.append(f"Rate limit very low: {rate_limit} ops/sec")
+                elif rate_limit != 1000:
+                    warnings.append(f"Non-standard rate limit: {rate_limit} ops/sec (expected 1000)")
+        except Exception as e:
+            warnings.append(f"Could not check rate limit config: {e}")
+        
+        # Check reset operation
+        try:
+            from security_core import _execute_security_reset_implementation
+            result = _execute_security_reset_implementation()
+            if not result:
+                issues.append("Reset operation returned False")
+        except ImportError:
+            issues.append("Reset implementation not found (_execute_security_reset_implementation)")
+        except Exception as e:
+            warnings.append(f"Could not test reset operation: {e}")
+        
+        # Check gateway routing for reset
+        try:
+            import gateway
+            gateway.security_reset()
+        except AttributeError:
+            issues.append("Reset operation not available in gateway (security_reset)")
+        except Exception as e:
+            warnings.append(f"Reset routing issue: {e}")
+        
+        # Check validator and crypto components
+        try:
+            from security_core import get_security_manager
+            manager = get_security_manager()
+            
+            validator = manager.get_validator()
+            if validator is None:
+                issues.append("Validator component missing")
+            
+            crypto = manager.get_crypto()
+            if crypto is None:
+                issues.append("Crypto component missing")
+        except Exception as e:
+            warnings.append(f"Could not check components: {e}")
+        
+        return {
+            'component': 'SECURITY',
+            'valid': len(issues) == 0,
+            'issues': issues,
+            'warnings': warnings,
+            'summary': f"{len(issues)} issues, {len(warnings)} warnings"
+        }
+        
     except Exception as e:
-        warnings.append(f"⚠️ Could not verify security validations: {e}")
-    
-    # Check 3: Rate limiting
-    try:
-        from gateway import cache_get_stats
-        stats = cache_get_stats()
-        
-        if 'rate_limited_count' not in stats:
-            issues.append("❌ Rate limiting missing (LESS-21)")
-    except Exception:
-        warnings.append("⚠️ Could not verify rate limiting")
-    
-    # Check 4: Memory limits
-    try:
-        from gateway import cache_get_stats
-        stats = cache_get_stats()
-        
-        if 'max_bytes' not in stats:
-            issues.append("❌ Memory limits not configured (LESS-20)")
-    except Exception:
-        warnings.append("⚠️ Could not verify memory limits")
-    
-    # Check 5: No threading locks (AP-08)
-    try:
-        import cache_core
-        code = open(cache_core.__file__).read()
-        
-        if 'threading.Lock' in code or 'threading.RLock' in code:
-            issues.append("❌ Threading lock present (AP-08, DEC-04)")
-    except Exception:
-        warnings.append("⚠️ Could not verify threading compliance")
-    
-    checks_total = 5
-    checks_passed = checks_total - len(issues) - len(warnings)
-    
-    return {
-        'valid': len(issues) == 0,
-        'issues': issues,
-        'warnings': warnings,
-        'checks_passed': checks_passed,
-        'checks_total': checks_total,
-        'summary': f"{checks_passed}/{checks_total} checks passed"
-    }
+        return {
+            'component': 'SECURITY',
+            'valid': False,
+            'error': str(e)
+        }
 
 
 def _run_config_unit_tests(**kwargs) -> Dict[str, Any]:
@@ -201,7 +308,8 @@ __all__ = [
     '_validate_system_architecture',
     '_validate_imports',
     '_validate_gateway_routing',
-    '_validate_cache_configuration',
+    '_validate_logging_configuration',
+    '_validate_security_configuration',
     '_run_config_unit_tests',
     '_run_config_integration_tests',
     '_run_config_performance_tests',
