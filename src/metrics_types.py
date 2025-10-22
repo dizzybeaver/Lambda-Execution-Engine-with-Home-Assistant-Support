@@ -1,21 +1,16 @@
 """
 metrics_types.py - Metrics type definitions and data structures
-Version: 2025.10.14.04
-Description: Enumerations and data classes for metrics subsystem
+Version: 2025.10.21.01
+Description: PHASE 2 TASK 2.2 - Use safe_divide() in ResponseMetrics.success_rate()
+
+CHANGELOG:
+- 2025.10.21.01: PHASE 2 TASK 2.2 - Genericize safe division
+  - Updated: ResponseMetrics.success_rate() to use safe_divide() helper
+  - Eliminated: Duplicate division-by-zero check
+  - Consistency: All division operations now use safe_divide()
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from enum import Enum
@@ -76,8 +71,13 @@ class ResponseMetrics:
     cache_hit_rate: float = 0.0
     
     def success_rate(self) -> float:
-        """Calculate success rate percentage."""
-        return (self.successful_responses / self.total_responses * 100) if self.total_responses > 0 else 0.0
+        """Calculate success rate percentage using safe_divide."""
+        from metrics_helper import safe_divide
+        return safe_divide(
+            self.successful_responses,
+            self.total_responses,
+            multiply_by=100.0
+        )
 
 
 @dataclass
