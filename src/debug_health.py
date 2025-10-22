@@ -170,10 +170,10 @@ def _check_security_health(**kwargs) -> Dict[str, Any]:
 
 def _generate_health_report(**kwargs) -> Dict[str, Any]:
     """Generate comprehensive health report with dispatcher metrics."""
-    from debug.debug_diagnostics import _diagnose_system_health
-    from debug.debug_validation import _validate_system_architecture, _validate_imports, _validate_gateway_routing
-    from debug.debug_verification import _verify_registry_operations
-    from debug.debug_stats import _get_system_stats, _get_optimization_stats, _get_dispatcher_stats
+    from debug_diagnostics import _diagnose_system_health
+    from debug_validation import _validate_system_architecture, _validate_imports, _validate_gateway_routing
+    from debug_verification import _verify_registry_operations
+    from debug_stats import _get_system_stats, _get_optimization_stats, _get_dispatcher_stats
     
     try:
         dispatcher_stats = _get_dispatcher_stats()
