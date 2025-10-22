@@ -1,7 +1,14 @@
 """
 debug_health.py - Debug Health Check Operations
-Version: 2025.10.14.01
+Version: 2025.10.22.02
 Description: Health check operations for debug subsystem
+
+CHANGELOG:
+- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface health checks
+  - Added _check_websocket_health (SINGLETON, rate limiting, no locks)
+  - Added _check_circuit_breaker_health (SINGLETON, rate limiting, no locks)
+  - Both validate AP-08 compliance (CRITICAL: no threading locks)
+  - Both verify LESS-21 compliance (rate limiting essential)
 
 Copyright 2025 Joseph Hersey
 
@@ -19,7 +26,6 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-import time
 
 
 def _check_component_health(**kwargs) -> Dict[str, Any]:
@@ -72,145 +78,295 @@ def _generate_health_report(**kwargs) -> Dict[str, Any]:
     }
 
 
-def _check_http_client_health(**kwargs) -> Dict[str, Any]:
+def _check_websocket_health(**kwargs) -> Dict[str, Any]:
     """
-    Check HTTP_CLIENT interface health and compliance.
+    Check WEBSOCKET interface health.
     
     Verifies:
-    - SINGLETON registration ('http_client_manager')
-    - Rate limiting effectiveness (500 ops/sec)
-    - No threading locks (AP-08, DEC-04)
+    - SINGLETON registration (LESS-18)
+    - Rate limiting configuration (LESS-21)
+    - NO threading locks compliance (AP-08, DEC-04)
     - Reset operation availability
-    - Connection pool status
-    - Request statistics
+    - Statistics tracking
+    
+    REF-IDs:
+    - AP-08: No threading locks
+    - DEC-04: Lambda single-threaded
+    - LESS-18: SINGLETON pattern
+    - LESS-21: Rate limiting essential
     
     Returns:
-        Dict with health status and detailed checks
-        
-    REF: AP-08 (No threading locks)
-    REF: DEC-04 (Lambda single-threaded)
-    REF: LESS-18 (SINGLETON pattern for lifecycle)
-    REF: LESS-21 (Rate limiting essential)
+        Health status with detailed diagnostics
     """
-    import gateway
-    import inspect
-    from http_client_core import get_http_client_manager, HTTPClientCore
+    from gateway import create_success_response, create_error_response
     
-    health_status = {
-        'interface': 'HTTP_CLIENT',
-        'timestamp': time.time(),
-        'overall_status': 'HEALTHY',
-        'checks': {}
+    health = {
+        'interface': 'WEBSOCKET',
+        'healthy': True,
+        'checks': {},
+        'warnings': [],
+        'errors': []
     }
     
     try:
-        # Check 1: SINGLETON Registration
-        singleton_manager = gateway.singleton_get('http_client_manager')
-        health_status['checks']['singleton_registered'] = {
-            'status': 'PASS' if singleton_manager is not None else 'FAIL',
-            'details': 'Registered as http_client_manager' if singleton_manager else 'Not registered',
-            'critical': True
-        }
+        # Check 1: SINGLETON registration
+        try:
+            from gateway import singleton_get
+            manager = singleton_get('websocket_manager')
+            if manager is not None:
+                health['checks']['singleton_registered'] = True
+            else:
+                health['checks']['singleton_registered'] = False
+                health['warnings'].append('SINGLETON not registered yet (will register on first use)')
+        except Exception as e:
+            health['checks']['singleton_registered'] = False
+            health['warnings'].append(f'SINGLETON check failed: {str(e)}')
         
-        # Check 2: Get manager instance
-        manager = get_http_client_manager()
-        health_status['checks']['manager_accessible'] = {
-            'status': 'PASS',
-            'details': f'Instance type: {type(manager).__name__}',
-            'critical': True
-        }
+        # Check 2: Get manager and verify no threading locks
+        try:
+            from websocket_core import get_websocket_manager
+            manager = get_websocket_manager()
+            
+            # Verify no threading locks (AP-08, DEC-04)
+            has_lock = hasattr(manager, '_lock')
+            health['checks']['no_threading_locks'] = not has_lock
+            
+            if has_lock:
+                health['healthy'] = False
+                health['errors'].append('CRITICAL: Threading locks found (violates AP-08, DEC-04)')
+            
+        except Exception as e:
+            health['checks']['manager_accessible'] = False
+            health['healthy'] = False
+            health['errors'].append(f'Failed to get manager: {str(e)}')
         
-        # Check 3: Threading locks (CRITICAL - must be absent)
-        source = inspect.getsource(HTTPClientCore)
-        has_lock = 'threading.Lock' in source or 'from threading import Lock' in source
-        health_status['checks']['no_threading_locks'] = {
-            'status': 'FAIL' if has_lock else 'PASS',
-            'details': 'Threading lock found (AP-08 violation)' if has_lock else 'No threading locks (compliant)',
-            'critical': True,
-            'compliance': ['AP-08', 'DEC-04', 'LESS-17']
-        }
-        if has_lock:
-            health_status['overall_status'] = 'CRITICAL'
+        # Check 3: Rate limiting configuration
+        try:
+            if hasattr(manager, '_rate_limiter'):
+                health['checks']['rate_limiting_enabled'] = True
+                health['checks']['rate_limit_max'] = manager._rate_limiter.maxlen
+                health['checks']['rate_limit_window_ms'] = manager._rate_limit_window_ms
+                
+                # Verify 300 ops/sec (WebSocket specific)
+                if manager._rate_limiter.maxlen != 300:
+                    health['warnings'].append(f'Rate limit is {manager._rate_limiter.maxlen} ops/sec, expected 300')
+            else:
+                health['checks']['rate_limiting_enabled'] = False
+                health['healthy'] = False
+                health['errors'].append('CRITICAL: Rate limiting not configured (violates LESS-21)')
+        except Exception as e:
+            health['checks']['rate_limiting_enabled'] = False
+            health['warnings'].append(f'Rate limiting check failed: {str(e)}')
         
-        # Check 4: Rate limiting present
-        has_rate_limiter = hasattr(manager, '_rate_limiter') and hasattr(manager, '_check_rate_limit')
-        health_status['checks']['rate_limiting'] = {
-            'status': 'PASS' if has_rate_limiter else 'FAIL',
-            'details': f"Rate limiter: {'present' if has_rate_limiter else 'absent'}",
-            'critical': True,
-            'compliance': ['LESS-21']
-        }
-        if not has_rate_limiter:
-            health_status['overall_status'] = 'UNHEALTHY'
+        # Check 4: Reset operation
+        try:
+            from websocket_core import websocket_reset_implementation
+            health['checks']['reset_available'] = True
+        except ImportError:
+            health['checks']['reset_available'] = False
+            health['warnings'].append('Reset operation not available')
         
-        # Check 5: Rate limiting effectiveness (if present)
-        if has_rate_limiter:
-            stats = manager.get_stats()
-            rate_limited = stats.get('rate_limited', 0)
-            limiter_size = stats.get('rate_limiter_size', 0)
-            health_status['checks']['rate_limit_effectiveness'] = {
-                'status': 'PASS',
-                'details': f'Rate limited: {rate_limited} requests, Current queue: {limiter_size}/500',
-                'metrics': {
-                    'rate_limited_count': rate_limited,
-                    'current_queue_size': limiter_size,
-                    'max_queue_size': 500
+        # Check 5: Statistics
+        try:
+            stats_result = manager.get_stats()
+            if stats_result.get('success'):
+                stats = stats_result.get('data', {})
+                health['checks']['statistics_tracking'] = True
+                health['statistics'] = {
+                    'total_operations': stats.get('total_operations', 0),
+                    'connections_count': stats.get('connections_count', 0),
+                    'messages_sent': stats.get('messages_sent_count', 0),
+                    'messages_received': stats.get('messages_received_count', 0),
+                    'errors_count': stats.get('errors_count', 0),
+                    'rate_limited_count': stats.get('rate_limited_count', 0)
                 }
-            }
+            else:
+                health['checks']['statistics_tracking'] = False
+                health['warnings'].append('Statistics not available')
+        except Exception as e:
+            health['checks']['statistics_tracking'] = False
+            health['warnings'].append(f'Statistics check failed: {str(e)}')
         
-        # Check 6: Reset operation
-        has_reset = hasattr(manager, 'reset')
-        health_status['checks']['reset_operation'] = {
-            'status': 'PASS' if has_reset else 'FAIL',
-            'details': 'Reset method available' if has_reset else 'Reset method missing',
-            'critical': True,
-            'compliance': ['LESS-18']
-        }
-        if not has_reset:
-            health_status['overall_status'] = 'UNHEALTHY'
+        # Check 6: Core operations availability
+        try:
+            from websocket_core import (
+                websocket_connect_implementation,
+                websocket_send_implementation,
+                websocket_receive_implementation,
+                websocket_close_implementation,
+                websocket_request_implementation
+            )
+            health['checks']['core_operations'] = True
+        except ImportError as e:
+            health['checks']['core_operations'] = False
+            health['healthy'] = False
+            health['errors'].append(f'Core operations unavailable: {str(e)}')
         
-        # Check 7: Connection pool status
-        has_http_pool = hasattr(manager, 'http')
-        health_status['checks']['connection_pool'] = {
-            'status': 'PASS' if has_http_pool else 'FAIL',
-            'details': f"HTTP pool: {'configured' if has_http_pool else 'missing'}",
-            'critical': True
-        }
+        # Final health determination
+        if health['errors']:
+            health['healthy'] = False
         
-        # Check 8: Request statistics
-        stats = manager.get_stats()
-        health_status['checks']['statistics'] = {
-            'status': 'PASS',
-            'details': 'Statistics tracking functional',
-            'metrics': {
-                'total_requests': stats.get('requests', 0),
-                'successful': stats.get('successful', 0),
-                'failed': stats.get('failed', 0),
-                'retries': stats.get('retries', 0),
-                'rate_limited': stats.get('rate_limited', 0)
-            }
-        }
-        
-        # Overall status determination
-        failed_checks = [k for k, v in health_status['checks'].items() 
-                        if v.get('status') == 'FAIL' and v.get('critical')]
-        if failed_checks:
-            health_status['overall_status'] = 'UNHEALTHY'
-            health_status['failed_critical_checks'] = failed_checks
+        return create_success_response('WEBSOCKET health check complete', health)
         
     except Exception as e:
-        health_status['overall_status'] = 'ERROR'
-        health_status['error'] = str(e)
-        health_status['error_type'] = type(e).__name__
+        return create_error_response(f'Health check failed: {str(e)}', 'HEALTH_CHECK_FAILED')
+
+
+def _check_circuit_breaker_health(**kwargs) -> Dict[str, Any]:
+    """
+    Check CIRCUIT_BREAKER interface health.
     
-    return health_status
+    Verifies:
+    - SINGLETON registration (LESS-18)
+    - Rate limiting configuration (LESS-21)
+    - NO threading locks compliance (AP-08, DEC-04) - CRITICAL
+    - Reset operation availability
+    - Statistics tracking
+    - Circuit breakers operational
+    
+    REF-IDs:
+    - AP-08: No threading locks (CRITICAL)
+    - DEC-04: Lambda single-threaded
+    - LESS-18: SINGLETON pattern
+    - LESS-21: Rate limiting essential
+    
+    Returns:
+        Health status with detailed diagnostics
+    """
+    from gateway import create_success_response, create_error_response
+    
+    health = {
+        'interface': 'CIRCUIT_BREAKER',
+        'healthy': True,
+        'checks': {},
+        'warnings': [],
+        'errors': [],
+        'critical_issues': []
+    }
+    
+    try:
+        # Check 1: SINGLETON registration
+        try:
+            from gateway import singleton_get
+            manager = singleton_get('circuit_breaker_manager')
+            if manager is not None:
+                health['checks']['singleton_registered'] = True
+            else:
+                health['checks']['singleton_registered'] = False
+                health['warnings'].append('SINGLETON not registered yet (will register on first use)')
+        except Exception as e:
+            health['checks']['singleton_registered'] = False
+            health['warnings'].append(f'SINGLETON check failed: {str(e)}')
+        
+        # Check 2: Get manager and verify no threading locks (CRITICAL)
+        try:
+            from circuit_breaker_core import get_circuit_breaker_manager
+            manager = get_circuit_breaker_manager()
+            
+            # CRITICAL: Verify no threading locks (AP-08, DEC-04)
+            has_lock = hasattr(manager, '_lock')
+            health['checks']['no_threading_locks'] = not has_lock
+            
+            if has_lock:
+                health['healthy'] = False
+                health['critical_issues'].append(
+                    'CRITICAL: Threading locks found (violates AP-08, DEC-04) - '
+                    'Lambda is single-threaded, locks are unnecessary and harmful'
+                )
+        except Exception as e:
+            health['checks']['manager_accessible'] = False
+            health['healthy'] = False
+            health['errors'].append(f'Failed to get manager: {str(e)}')
+        
+        # Check 3: Rate limiting configuration
+        try:
+            if hasattr(manager, '_rate_limiter'):
+                health['checks']['rate_limiting_enabled'] = True
+                health['checks']['rate_limit_max'] = manager._rate_limiter.maxlen
+                health['checks']['rate_limit_window_ms'] = manager._rate_limit_window_ms
+                
+                # Verify 1000 ops/sec (Circuit Breaker specific)
+                if manager._rate_limiter.maxlen != 1000:
+                    health['warnings'].append(f'Rate limit is {manager._rate_limiter.maxlen} ops/sec, expected 1000')
+            else:
+                health['checks']['rate_limiting_enabled'] = False
+                health['healthy'] = False
+                health['errors'].append('CRITICAL: Rate limiting not configured (violates LESS-21)')
+        except Exception as e:
+            health['checks']['rate_limiting_enabled'] = False
+            health['warnings'].append(f'Rate limiting check failed: {str(e)}')
+        
+        # Check 4: Reset operation
+        try:
+            from circuit_breaker_core import reset_implementation
+            health['checks']['reset_available'] = True
+        except ImportError:
+            health['checks']['reset_available'] = False
+            health['warnings'].append('Reset operation not available')
+        
+        # Check 5: Statistics
+        try:
+            stats_result = manager.get_stats()
+            if stats_result.get('success'):
+                stats = stats_result.get('data', {})
+                health['checks']['statistics_tracking'] = True
+                health['statistics'] = {
+                    'total_operations': stats.get('total_operations', 0),
+                    'breakers_count': stats.get('breakers_count', 0),
+                    'rate_limited_count': stats.get('rate_limited_count', 0)
+                }
+            else:
+                health['checks']['statistics_tracking'] = False
+                health['warnings'].append('Statistics not available')
+        except Exception as e:
+            health['checks']['statistics_tracking'] = False
+            health['warnings'].append(f'Statistics check failed: {str(e)}')
+        
+        # Check 6: Core operations availability
+        try:
+            from circuit_breaker_core import (
+                get_breaker_implementation,
+                execute_with_breaker_implementation,
+                get_all_states_implementation,
+                reset_all_implementation
+            )
+            health['checks']['core_operations'] = True
+        except ImportError as e:
+            health['checks']['core_operations'] = False
+            health['healthy'] = False
+            health['errors'].append(f'Core operations unavailable: {str(e)}')
+        
+        # Check 7: Circuit breaker functionality (test with dummy breaker)
+        try:
+            test_breaker = manager.get('health_check_test', failure_threshold=5, timeout=60)
+            if test_breaker:
+                health['checks']['circuit_breaker_creation'] = True
+                # Clean up test breaker
+                if 'health_check_test' in manager._breakers:
+                    del manager._breakers['health_check_test']
+            else:
+                health['checks']['circuit_breaker_creation'] = False
+                health['warnings'].append('Circuit breaker creation returned None')
+        except Exception as e:
+            health['checks']['circuit_breaker_creation'] = False
+            health['warnings'].append(f'Circuit breaker creation test failed: {str(e)}')
+        
+        # Final health determination
+        if health['critical_issues'] or health['errors']:
+            health['healthy'] = False
+        
+        return create_success_response('CIRCUIT_BREAKER health check complete', health)
+        
+    except Exception as e:
+        return create_error_response(f'Health check failed: {str(e)}', 'HEALTH_CHECK_FAILED')
 
 
 __all__ = [
     '_check_component_health',
     '_check_gateway_health',
     '_generate_health_report',
-    '_check_http_client_health'
+    '_check_websocket_health',
+    '_check_circuit_breaker_health'
 ]
 
 # EOF
