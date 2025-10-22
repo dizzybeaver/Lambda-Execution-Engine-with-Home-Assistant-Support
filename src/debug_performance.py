@@ -1,14 +1,13 @@
 """
 debug_performance.py - Debug Performance Operations
-Version: 2025.10.22.02
+Version: 2025.10.22.01
 Description: Performance benchmarking operations for debug subsystem
 
 CHANGELOG:
-- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface benchmarks
-  - Added _benchmark_websocket_operations (infrastructure overhead tests)
-  - Added _benchmark_circuit_breaker_operations (manager operations)
-  - Both test SINGLETON overhead and rate limiting impact
-  - Focus on infrastructure, not external network/function calls
+- 2025.10.22.01: Added INITIALIZATION, UTILITY, and SINGLETON benchmarks
+  - Added _benchmark_initialization_operations()
+  - Added _benchmark_utility_operations()
+  - Added _benchmark_singleton_operations()
 
 Copyright 2025 Joseph Hersey
 
@@ -88,325 +87,498 @@ def _get_performance_report(**kwargs) -> Dict[str, Any]:
     
     return {
         'success': True,
-        'timestamp': '2025.10.14',
+        'timestamp': '2025.10.22',
         'benchmark': benchmark_results,
         'dispatcher_stats': dispatcher_stats,
         'operation_metrics': operation_metrics
     }
 
 
-def _benchmark_websocket_operations(**kwargs) -> Dict[str, Any]:
+def _benchmark_initialization_operations(**kwargs) -> Dict[str, Any]:
     """
-    Benchmark WEBSOCKET interface operations.
+    Benchmark INITIALIZATION interface operations.
     
-    Tests:
-    - Manager retrieval overhead (50 ops)
-    - Statistics retrieval (200 ops)
-    - Reset operation (10 ops)
-    - Rate limiting overhead (50 ops)
-    
-    Note: Does NOT benchmark actual WebSocket connections (external network dependency).
-    Focuses on infrastructure overhead and internal operations.
-    
-    REF-IDs:
-    - LESS-18: SINGLETON pattern overhead
-    - LESS-21: Rate limiting overhead
+    Benchmarks:
+    - initialize
+    - is_initialized
+    - get_config
+    - get_status
+    - get_stats
+    - set_flag
+    - get_flag
+    - reset
     
     Returns:
-        Benchmark results with timing analysis
+        Benchmark results with timing and throughput
     """
-    from gateway import create_success_response, create_error_response
-    import time
-    
-    results = {
-        'interface': 'WEBSOCKET',
-        'benchmarks': {},
-        'total_operations': 0,
-        'total_duration_ms': 0
-    }
-    
     try:
-        from websocket_core import get_websocket_manager
+        from gateway import (
+            initialization_initialize, initialization_is_initialized,
+            initialization_get_config, initialization_get_status, initialization_get_stats,
+            initialization_set_flag, initialization_get_flag, initialization_reset
+        )
         
-        # Benchmark 1: Manager retrieval (SINGLETON overhead)
-        iterations_1 = 50
-        start = time.time()
-        for _ in range(iterations_1):
-            manager = get_websocket_manager()
-        duration_1 = (time.time() - start) * 1000
-        
-        results['benchmarks']['manager_retrieval'] = {
-            'iterations': iterations_1,
-            'total_duration_ms': round(duration_1, 3),
-            'avg_per_op_ms': round(duration_1 / iterations_1, 6),
-            'ops_per_second': round(iterations_1 / (duration_1 / 1000), 2)
-        }
-        results['total_operations'] += iterations_1
-        results['total_duration_ms'] += duration_1
-        
-        # Get manager for subsequent tests
-        manager = get_websocket_manager()
-        
-        # Benchmark 2: Get statistics (200 ops)
-        iterations_2 = 200
-        start = time.time()
-        for _ in range(iterations_2):
-            stats = manager.get_stats()
-        duration_2 = (time.time() - start) * 1000
-        
-        results['benchmarks']['get_stats'] = {
-            'iterations': iterations_2,
-            'total_duration_ms': round(duration_2, 3),
-            'avg_per_op_ms': round(duration_2 / iterations_2, 6),
-            'ops_per_second': round(iterations_2 / (duration_2 / 1000), 2)
-        }
-        results['total_operations'] += iterations_2
-        results['total_duration_ms'] += duration_2
-        
-        # Benchmark 3: Reset operation (10 ops)
-        iterations_3 = 10
-        start = time.time()
-        for _ in range(iterations_3):
-            success = manager.reset()
-        duration_3 = (time.time() - start) * 1000
-        
-        results['benchmarks']['reset'] = {
-            'iterations': iterations_3,
-            'total_duration_ms': round(duration_3, 3),
-            'avg_per_op_ms': round(duration_3 / iterations_3, 6),
-            'ops_per_second': round(iterations_3 / (duration_3 / 1000), 2)
-        }
-        results['total_operations'] += iterations_3
-        results['total_duration_ms'] += duration_3
-        
-        # Benchmark 4: Rate limit checking (50 ops)
-        iterations_4 = 50
-        start = time.time()
-        for _ in range(iterations_4):
-            allowed = manager._check_rate_limit()
-        duration_4 = (time.time() - start) * 1000
-        
-        results['benchmarks']['rate_limit_check'] = {
-            'iterations': iterations_4,
-            'total_duration_ms': round(duration_4, 3),
-            'avg_per_op_ms': round(duration_4 / iterations_4, 6),
-            'ops_per_second': round(iterations_4 / (duration_4 / 1000), 2)
-        }
-        results['total_operations'] += iterations_4
-        results['total_duration_ms'] += duration_4
-        
-        # Overall statistics
-        results['overall'] = {
-            'total_operations': results['total_operations'],
-            'total_duration_ms': round(results['total_duration_ms'], 3),
-            'avg_per_op_ms': round(results['total_duration_ms'] / results['total_operations'], 6),
-            'ops_per_second': round(results['total_operations'] / (results['total_duration_ms'] / 1000), 2)
+        benchmark = {
+            'interface': 'INITIALIZATION',
+            'timestamp': time.time(),
+            'operations': {},
+            'summary': {}
         }
         
-        # Performance assessment
-        avg_op_time = results['overall']['avg_per_op_ms']
-        if avg_op_time < 0.1:
-            results['performance_rating'] = 'excellent'
-        elif avg_op_time < 0.5:
-            results['performance_rating'] = 'good'
-        elif avg_op_time < 1.0:
-            results['performance_rating'] = 'fair'
-        else:
-            results['performance_rating'] = 'needs_improvement'
+        iterations = 100
         
-        # Notes
-        results['notes'] = [
-            'Benchmarks test infrastructure overhead only',
-            'Actual WebSocket operations depend on network conditions',
-            'Use for comparing SINGLETON and rate limiting overhead',
-            'Does not include external network latency'
-        ]
+        # Benchmark: initialize (idempotent, should return cached after first)
+        start = time.perf_counter()
+        for i in range(10):  # Fewer iterations for initialization
+            initialization_initialize({'benchmark': True})
+        duration = time.perf_counter() - start
+        benchmark['operations']['initialize'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
         
-        return create_success_response('WEBSOCKET operations benchmark complete', results)
+        # Benchmark: is_initialized
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_is_initialized()
+        duration = time.perf_counter() - start
+        benchmark['operations']['is_initialized'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_config
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_get_config()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_config'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_status
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_get_status()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_status'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_stats
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_get_stats()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_stats'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: set_flag
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_set_flag(f'bench_flag_{i}', f'value_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['set_flag'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_flag
+        start = time.perf_counter()
+        for i in range(iterations):
+            initialization_get_flag(f'bench_flag_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_flag'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: reset
+        start = time.perf_counter()
+        for i in range(10):  # Fewer iterations for reset
+            initialization_reset()
+            initialization_initialize({'benchmark': True})  # Re-initialize after reset
+        duration = time.perf_counter() - start
+        benchmark['operations']['reset'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
+        
+        # Summary
+        total_ops = 10 + iterations * 6 + 10  # initialize, 6 ops × iterations, reset
+        total_time = sum(op['total_seconds'] for op in benchmark['operations'].values())
+        
+        benchmark['summary'] = {
+            'total_operations': total_ops,
+            'total_time_seconds': total_time,
+            'overall_ops_per_sec': total_ops / total_time if total_time > 0 else 0,
+            'fastest_operation': min(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0],
+            'slowest_operation': max(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0]
+        }
+        
+        return benchmark
         
     except Exception as e:
-        return create_error_response(f'Benchmark failed: {str(e)}', 'BENCHMARK_FAILED')
+        return {
+            'interface': 'INITIALIZATION',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
 
 
-def _benchmark_circuit_breaker_operations(**kwargs) -> Dict[str, Any]:
+def _benchmark_utility_operations(**kwargs) -> Dict[str, Any]:
+    """Benchmark UTILITY interface operations."""
+    try:
+        from gateway import (
+            utility_generate_uuid, utility_get_timestamp, utility_parse_json,
+            utility_deep_merge, utility_validate_string, utility_sanitize_data,
+            utility_get_performance_stats, utility_cleanup_cache, utility_reset
+        )
+        
+        benchmark = {
+            'interface': 'UTILITY',
+            'timestamp': time.time(),
+            'operations': {},
+            'summary': {}
+        }
+        
+        iterations = 100
+        
+        # Benchmark: generate_uuid
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_generate_uuid()
+        duration = time.perf_counter() - start
+        benchmark['operations']['generate_uuid'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_timestamp
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_get_timestamp()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_timestamp'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: parse_json
+        test_json = '{"test": "data", "number": 123}'
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_parse_json(test_json)
+        duration = time.perf_counter() - start
+        benchmark['operations']['parse_json'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: deep_merge
+        dict1 = {'a': 1, 'b': {'c': 2}}
+        dict2 = {'b': {'d': 3}, 'e': 4}
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_deep_merge(dict1, dict2)
+        duration = time.perf_counter() - start
+        benchmark['operations']['deep_merge'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: validate_string
+        test_string = "test_string_value"
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_validate_string(test_string)
+        duration = time.perf_counter() - start
+        benchmark['operations']['validate_string'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: sanitize_data
+        test_data = {'password': 'secret', 'data': 'value'}
+        start = time.perf_counter()
+        for i in range(iterations):
+            utility_sanitize_data(test_data)
+        duration = time.perf_counter() - start
+        benchmark['operations']['sanitize_data'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_performance_stats
+        start = time.perf_counter()
+        for i in range(10):  # Fewer iterations for stats
+            utility_get_performance_stats()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_performance_stats'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: cleanup_cache
+        start = time.perf_counter()
+        utility_cleanup_cache()
+        duration = time.perf_counter() - start
+        benchmark['operations']['cleanup_cache'] = {
+            'iterations': 1,
+            'total_seconds': duration,
+            'avg_ms': duration * 1000,
+            'ops_per_sec': 1 / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: reset
+        start = time.perf_counter()
+        for i in range(10):
+            utility_reset()
+        duration = time.perf_counter() - start
+        benchmark['operations']['reset'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
+        
+        # Summary
+        total_ops = iterations * 6 + 10 + 1 + 10
+        total_time = sum(op['total_seconds'] for op in benchmark['operations'].values())
+        
+        benchmark['summary'] = {
+            'total_operations': total_ops,
+            'total_time_seconds': total_time,
+            'overall_ops_per_sec': total_ops / total_time if total_time > 0 else 0,
+            'fastest_operation': min(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0],
+            'slowest_operation': max(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0]
+        }
+        
+        return benchmark
+        
+    except Exception as e:
+        return {
+            'interface': 'UTILITY',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
+
+
+def _benchmark_singleton_operations(**kwargs) -> Dict[str, Any]:
     """
-    Benchmark CIRCUIT_BREAKER interface operations.
+    Benchmark SINGLETON interface operations.
     
-    Tests:
-    - Manager retrieval overhead (50 ops)
-    - Circuit breaker creation (100 ops)
-    - get_all_states (100 ops)
-    - get_stats (200 ops)
-    - reset operation (10 ops)
-    - Rate limiting overhead (50 ops)
-    
-    Note: Does NOT benchmark actual protected function calls.
-    Focuses on infrastructure overhead and internal operations.
-    
-    REF-IDs:
-    - LESS-18: SINGLETON pattern overhead
-    - LESS-21: Rate limiting overhead
+    Benchmarks:
+    - get (with and without factory)
+    - set
+    - has
+    - delete
+    - clear
+    - get_stats
+    - reset
     
     Returns:
-        Benchmark results with timing analysis
+        Benchmark results with timing and throughput
     """
-    from gateway import create_success_response, create_error_response
-    import time
-    
-    results = {
-        'interface': 'CIRCUIT_BREAKER',
-        'benchmarks': {},
-        'total_operations': 0,
-        'total_duration_ms': 0
-    }
-    
     try:
-        from circuit_breaker_core import get_circuit_breaker_manager
+        from gateway import (
+            singleton_get, singleton_set, singleton_has, 
+            singleton_delete, singleton_clear, singleton_get_stats, singleton_reset
+        )
         
-        # Benchmark 1: Manager retrieval (SINGLETON overhead)
-        iterations_1 = 50
-        start = time.time()
-        for _ in range(iterations_1):
-            manager = get_circuit_breaker_manager()
-        duration_1 = (time.time() - start) * 1000
-        
-        results['benchmarks']['manager_retrieval'] = {
-            'iterations': iterations_1,
-            'total_duration_ms': round(duration_1, 3),
-            'avg_per_op_ms': round(duration_1 / iterations_1, 6),
-            'ops_per_second': round(iterations_1 / (duration_1 / 1000), 2)
-        }
-        results['total_operations'] += iterations_1
-        results['total_duration_ms'] += duration_1
-        
-        # Get manager for subsequent tests
-        manager = get_circuit_breaker_manager()
-        
-        # Benchmark 2: Circuit breaker creation (100 ops)
-        iterations_2 = 100
-        start = time.time()
-        for i in range(iterations_2):
-            breaker = manager.get(f'benchmark_breaker_{i}', failure_threshold=5, timeout=60)
-        duration_2 = (time.time() - start) * 1000
-        
-        results['benchmarks']['breaker_creation'] = {
-            'iterations': iterations_2,
-            'total_duration_ms': round(duration_2, 3),
-            'avg_per_op_ms': round(duration_2 / iterations_2, 6),
-            'ops_per_second': round(iterations_2 / (duration_2 / 1000), 2)
-        }
-        results['total_operations'] += iterations_2
-        results['total_duration_ms'] += duration_2
-        
-        # Benchmark 3: get_all_states (100 ops)
-        iterations_3 = 100
-        start = time.time()
-        for _ in range(iterations_3):
-            states = manager.get_all_states()
-        duration_3 = (time.time() - start) * 1000
-        
-        results['benchmarks']['get_all_states'] = {
-            'iterations': iterations_3,
-            'total_duration_ms': round(duration_3, 3),
-            'avg_per_op_ms': round(duration_3 / iterations_3, 6),
-            'ops_per_second': round(iterations_3 / (duration_3 / 1000), 2)
-        }
-        results['total_operations'] += iterations_3
-        results['total_duration_ms'] += duration_3
-        
-        # Benchmark 4: Get statistics (200 ops)
-        iterations_4 = 200
-        start = time.time()
-        for _ in range(iterations_4):
-            stats = manager.get_stats()
-        duration_4 = (time.time() - start) * 1000
-        
-        results['benchmarks']['get_stats'] = {
-            'iterations': iterations_4,
-            'total_duration_ms': round(duration_4, 3),
-            'avg_per_op_ms': round(duration_4 / iterations_4, 6),
-            'ops_per_second': round(iterations_4 / (duration_4 / 1000), 2)
-        }
-        results['total_operations'] += iterations_4
-        results['total_duration_ms'] += duration_4
-        
-        # Benchmark 5: Reset operation (10 ops)
-        iterations_5 = 10
-        start = time.time()
-        for _ in range(iterations_5):
-            success = manager.reset()
-            # Recreate test breakers after reset
-            for i in range(10):
-                manager.get(f'benchmark_breaker_{i}', failure_threshold=5, timeout=60)
-        duration_5 = (time.time() - start) * 1000
-        
-        results['benchmarks']['reset'] = {
-            'iterations': iterations_5,
-            'total_duration_ms': round(duration_5, 3),
-            'avg_per_op_ms': round(duration_5 / iterations_5, 6),
-            'ops_per_second': round(iterations_5 / (duration_5 / 1000), 2)
-        }
-        results['total_operations'] += iterations_5
-        results['total_duration_ms'] += duration_5
-        
-        # Benchmark 6: Rate limit checking (50 ops)
-        iterations_6 = 50
-        start = time.time()
-        for _ in range(iterations_6):
-            allowed = manager._check_rate_limit()
-        duration_6 = (time.time() - start) * 1000
-        
-        results['benchmarks']['rate_limit_check'] = {
-            'iterations': iterations_6,
-            'total_duration_ms': round(duration_6, 3),
-            'avg_per_op_ms': round(duration_6 / iterations_6, 6),
-            'ops_per_second': round(iterations_6 / (duration_6 / 1000), 2)
-        }
-        results['total_operations'] += iterations_6
-        results['total_duration_ms'] += duration_6
-        
-        # Overall statistics
-        results['overall'] = {
-            'total_operations': results['total_operations'],
-            'total_duration_ms': round(results['total_duration_ms'], 3),
-            'avg_per_op_ms': round(results['total_duration_ms'] / results['total_operations'], 6),
-            'ops_per_second': round(results['total_operations'] / (results['total_duration_ms'] / 1000), 2)
+        benchmark = {
+            'interface': 'SINGLETON',
+            'timestamp': time.time(),
+            'operations': {},
+            'summary': {}
         }
         
-        # Performance assessment
-        avg_op_time = results['overall']['avg_per_op_ms']
-        if avg_op_time < 0.1:
-            results['performance_rating'] = 'excellent'
-        elif avg_op_time < 0.5:
-            results['performance_rating'] = 'good'
-        elif avg_op_time < 1.0:
-            results['performance_rating'] = 'fair'
-        else:
-            results['performance_rating'] = 'needs_improvement'
+        iterations = 100
         
-        # Clean up test breakers
-        manager.reset()
+        # Benchmark: set
+        start = time.perf_counter()
+        for i in range(iterations):
+            singleton_set(f'bench_test_{i}', f'value_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['set'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
         
-        # Notes
-        results['notes'] = [
-            'Benchmarks test infrastructure overhead only',
-            'Does not benchmark protected function execution',
-            'Use for comparing SINGLETON and rate limiting overhead',
-            'Circuit breaker call() overhead depends on protected function'
-        ]
+        # Benchmark: get (existing)
+        start = time.perf_counter()
+        for i in range(iterations):
+            singleton_get(f'bench_test_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_existing'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
         
-        return create_success_response('CIRCUIT_BREAKER operations benchmark complete', results)
+        # Benchmark: get (with factory)
+        def factory_func():
+            return {'test': 'data'}
+        
+        start = time.perf_counter()
+        for i in range(iterations):
+            singleton_get(f'bench_factory_{i}', factory_func=factory_func)
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_with_factory'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: has
+        start = time.perf_counter()
+        for i in range(iterations):
+            singleton_has(f'bench_test_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['has'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: delete
+        start = time.perf_counter()
+        for i in range(iterations):
+            singleton_delete(f'bench_test_{i}')
+        duration = time.perf_counter() - start
+        benchmark['operations']['delete'] = {
+            'iterations': iterations,
+            'total_seconds': duration,
+            'avg_ms': (duration / iterations) * 1000,
+            'ops_per_sec': iterations / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: get_stats
+        start = time.perf_counter()
+        for i in range(10):  # Fewer iterations for stats
+            singleton_get_stats()
+        duration = time.perf_counter() - start
+        benchmark['operations']['get_stats'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: clear
+        singleton_set('bench_clear_1', 'value1')
+        singleton_set('bench_clear_2', 'value2')
+        start = time.perf_counter()
+        singleton_clear()
+        duration = time.perf_counter() - start
+        benchmark['operations']['clear'] = {
+            'iterations': 1,
+            'total_seconds': duration,
+            'avg_ms': duration * 1000,
+            'ops_per_sec': 1 / duration if duration > 0 else 0
+        }
+        
+        # Benchmark: reset
+        start = time.perf_counter()
+        for i in range(10):
+            singleton_reset()
+        duration = time.perf_counter() - start
+        benchmark['operations']['reset'] = {
+            'iterations': 10,
+            'total_seconds': duration,
+            'avg_ms': (duration / 10) * 1000,
+            'ops_per_sec': 10 / duration if duration > 0 else 0
+        }
+        
+        # Summary
+        total_ops = iterations * 5 + 10 + 1 + 10  # set, get_existing, get_factory, has, delete, stats, clear, reset
+        total_time = sum(op['total_seconds'] for op in benchmark['operations'].values())
+        
+        benchmark['summary'] = {
+            'total_operations': total_ops,
+            'total_time_seconds': total_time,
+            'overall_ops_per_sec': total_ops / total_time if total_time > 0 else 0,
+            'fastest_operation': min(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0],
+            'slowest_operation': max(
+                benchmark['operations'].items(), 
+                key=lambda x: x[1]['avg_ms']
+            )[0]
+        }
+        
+        return benchmark
         
     except Exception as e:
-        return create_error_response(f'Benchmark failed: {str(e)}', 'BENCHMARK_FAILED')
+        return {
+            'interface': 'SINGLETON',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
 
 
 __all__ = [
     '_run_performance_benchmark',
     '_compare_dispatcher_modes',
     '_get_performance_report',
-    '_benchmark_websocket_operations',
-    '_benchmark_circuit_breaker_operations'
+    '_benchmark_initialization_operations',
+    '_benchmark_utility_operations',
+    '_benchmark_singleton_operations'
 ]
 
 # EOF
