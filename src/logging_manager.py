@@ -1,4 +1,3 @@
-# Filename: logging_manager.py
 """
 logging_manager.py - Core logging manager (SECURITY HARDENED)
 Version: 2025.10.21.03
@@ -130,32 +129,6 @@ _RATE_LIMITER = RateLimitTracker()
 class LoggingCore:
     """Unified logging manager with template optimization and rate limiting."""
     
-    # Add reset method to LoggingCore class
-
-    def reset(self) -> bool:
-        """
-        Reset logging core to initial state (Phase 1 addition).
-    
-        Clears all logs, templates, errors, and resets counters.
-        Useful for testing and debugging.
-    
-        Returns:
-            True on success
-        """
-        self._templates.clear()
-        self._template_hits = 0
-        self._template_misses = 0
-        self._error_log.clear()
-        self._error_count_by_type.clear()
-    
-        # Reset rate limiter
-        global _RATE_LIMITER
-        _RATE_LIMITER.log_count = 0
-        _RATE_LIMITER.limit_warning_shown = False
-    
-        _print_debug("LoggingCore reset complete")
-        return True
-    
     def __init__(self):
         """Initialize logging core."""
         self.logger = logging.getLogger('SUGA-ISP')
@@ -218,6 +191,30 @@ class LoggingCore:
         
         log_level = level_map.get(level, logging.ERROR)
         self.logger.log(log_level, f"{message}: {error}" if error else message, extra=kwargs)
+    
+    def reset(self) -> bool:
+        """
+        Reset logging core to initial state (Phase 1 addition).
+        
+        Clears all logs, templates, errors, and resets counters.
+        Useful for testing and debugging.
+        
+        Returns:
+            True on success
+        """
+        self._templates.clear()
+        self._template_hits = 0
+        self._template_misses = 0
+        self._error_log.clear()
+        self._error_count_by_type.clear()
+        
+        # Reset rate limiter
+        global _RATE_LIMITER
+        _RATE_LIMITER.log_count = 0
+        _RATE_LIMITER.limit_warning_shown = False
+        
+        _print_debug("LoggingCore reset complete")
+        return True
     
     def _get_template_key(self, message: str) -> str:
         """Generate template key from message."""
