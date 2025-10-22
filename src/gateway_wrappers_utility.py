@@ -1,6 +1,6 @@
 """
 gateway_wrappers_utility.py - UTILITY Interface Wrappers
-Version: 2025.10.22.02
+Version: 2025.10.22.03
 Description: Convenience wrappers for UTILITY interface operations
 
 Copyright 2025 Joseph Hersey
@@ -36,10 +36,22 @@ def get_timestamp() -> float:
     return execute_operation(GatewayInterface.UTILITY, 'get_timestamp')
 
 
+def utility_get_stats() -> Dict[str, Any]:
+    """Get utility statistics (alias for utility_get_performance_stats)."""
+    return execute_operation(GatewayInterface.UTILITY, 'get_stats')
+
+
+def utility_reset() -> bool:
+    """Reset UTILITY manager state (lifecycle management)."""
+    return execute_operation(GatewayInterface.UTILITY, 'reset')
+
+
 __all__ = [
     'format_response',
     'parse_json',
     'safe_get',
     'generate_uuid',
     'get_timestamp',
+    'utility_get_stats',
+    'utility_reset',
 ]
