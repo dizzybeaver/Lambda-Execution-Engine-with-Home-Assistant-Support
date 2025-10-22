@@ -1,17 +1,17 @@
 """
 debug_core.py - Debug Operation Dispatcher
-Version: 2025.10.17.18
+Version: 2025.10.22.01
 Description: Dispatch dictionary pattern for debug operations
+
+CHANGES (2025.10.22.01):
+- Added 4 LOGGING operations (12 dispatch entries with aliases)
+  - CHECK_LOGGING_HEALTH / LOGGING_HEALTH / HEALTH_LOGGING
+  - DIAGNOSE_LOGGING_PERFORMANCE / LOGGING_PERFORMANCE / PERFORMANCE_LOGGING
+  - VALIDATE_LOGGING_CONFIGURATION / LOGGING_CONFIGURATION / CONFIGURATION_LOGGING
+  - BENCHMARK_LOGGING_OPERATIONS / LOGGING_BENCHMARK / BENCHMARK_LOGGING
 
 CHANGELOG:
 - 2025.10.17.18: MODERNIZED with dispatch dictionary pattern (Issue #47)
-  - Converted from ~30+ elif chain to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code complexity significantly
-  - Easier to add new debug operations (1 line vs 5+ lines)
-  - Supports operation aliases (uppercase conversion preserved)
-  - All lazy imports preserved (modules loaded only when needed)
-- 2025.10.16.01: Fixed ALL import paths - removed 'debug.' prefix
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -37,13 +37,16 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'CHECK_GATEWAY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_gateway_health'])._check_gateway_health(**kwargs),
         'GATEWAY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_gateway_health'])._check_gateway_health(**kwargs),
         
+        'CHECK_LOGGING_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
+        'LOGGING_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
+        'HEALTH_LOGGING': lambda **kwargs: __import__('debug_health', fromlist=['_check_logging_health'])._check_logging_health(**kwargs),
+        
+        'CHECK_SECURITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
+        'SECURITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
+        'HEALTH_SECURITY': lambda **kwargs: __import__('debug_health', fromlist=['_check_security_health'])._check_security_health(**kwargs),
+        
         'GENERATE_HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
         'HEALTH_REPORT': lambda **kwargs: __import__('debug_health', fromlist=['_generate_health_report'])._generate_health_report(**kwargs),
-        
-        # CACHE DEBUG OPERATIONS (Phase 3)
-        'CHECK_CACHE_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
-        'CACHE_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
-        'HEALTH_CACHE': lambda **kwargs: __import__('debug_health', fromlist=['_check_cache_health'])._check_cache_health(**kwargs),
         
         # Diagnostic operations
         'DIAGNOSE_SYSTEM_HEALTH': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_system_health'])._diagnose_system_health(**kwargs),
@@ -55,9 +58,13 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'DIAGNOSE_MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         'MEMORY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_memory'])._diagnose_memory(**kwargs),
         
-        'DIAGNOSE_CACHE_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
-        'CACHE_DIAGNOSTICS': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
-        'DIAGNOSE_CACHE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_cache_performance'])._diagnose_cache_performance(**kwargs),
+        'DIAGNOSE_LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        'LOGGING_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        'PERFORMANCE_LOGGING': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_logging_performance'])._diagnose_logging_performance(**kwargs),
+        
+        'DIAGNOSE_SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
+        'SECURITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
+        'PERFORMANCE_SECURITY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_security_performance'])._diagnose_security_performance(**kwargs),
         
         # Validation operations
         'VALIDATE_SYSTEM_ARCHITECTURE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_architecture'])._validate_system_architecture(**kwargs),
@@ -69,9 +76,13 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'VALIDATE_GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
         'GATEWAY_ROUTING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_gateway_routing'])._validate_gateway_routing(**kwargs),
         
-        'VALIDATE_CACHE_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
-        'CACHE_VALIDATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
-        'VALIDATE_CACHE': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_cache_configuration'])._validate_cache_configuration(**kwargs),
+        'VALIDATE_LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        'LOGGING_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        'CONFIGURATION_LOGGING': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_logging_configuration'])._validate_logging_configuration(**kwargs),
+        
+        'VALIDATE_SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
+        'SECURITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
+        'CONFIGURATION_SECURITY': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_security_configuration'])._validate_security_configuration(**kwargs),
         
         'RUN_CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
         'CONFIG_UNIT_TESTS': lambda **kwargs: __import__('debug_validation', fromlist=['_run_config_unit_tests'])._run_config_unit_tests(**kwargs),
@@ -108,12 +119,16 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'RUN_PERFORMANCE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_run_performance_benchmark'])._run_performance_benchmark(**kwargs),
         'PERFORMANCE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_run_performance_benchmark'])._run_performance_benchmark(**kwargs),
         
-        'BENCHMARK_CACHE_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
-        'CACHE_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
-        'BENCHMARK_CACHE': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_cache_operations'])._benchmark_cache_operations(**kwargs),
-        
         'COMPARE_DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
         'DISPATCHER_MODES': lambda **kwargs: __import__('debug_performance', fromlist=['_compare_dispatcher_modes'])._compare_dispatcher_modes(**kwargs),
+        
+        'BENCHMARK_LOGGING_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        'LOGGING_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        'BENCHMARK_LOGGING': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_logging_operations'])._benchmark_logging_operations(**kwargs),
+        
+        'BENCHMARK_SECURITY_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
+        'SECURITY_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
+        'BENCHMARK_SECURITY': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_security_operations'])._benchmark_security_operations(**kwargs),
         
         'GET_PERFORMANCE_REPORT': lambda **kwargs: __import__('debug_performance', fromlist=['_get_performance_report'])._get_performance_report(**kwargs),
         'PERFORMANCE_REPORT': lambda **kwargs: __import__('debug_performance', fromlist=['_get_performance_report'])._get_performance_report(**kwargs),
