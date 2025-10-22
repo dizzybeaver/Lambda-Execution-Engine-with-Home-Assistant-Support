@@ -1,20 +1,14 @@
 """
 metrics_operations.py - Gateway implementation functions for metrics
 Version: 2025.10.21.01
-Description: SINGLETON registration + parameter fixes
+Description: Added reset_metrics operation and SINGLETON registration pattern
 
-CHANGELOG:
-- 2025.10.21.01: CRITICAL FIX - SINGLETON Interface Registration
-  - ADDED: get_metrics_manager() function for proper singleton management
-  - CHANGED: _MANAGER now uses SINGLETON interface (INT-06)
-  - COMPLIANCE: Enables memory tracking and LUGS lifecycle management
-  - REF: Finding 2.1 (Register with SINGLETON interface)
-  
-- 2025.10.20.03: BUG FIX - Parameter name mismatch
-  - FIXED: _execute_record_cache_metric_implementation() signature
-  - Changed: operation: str → operation_name: str
-  - Reason: Gateway wrapper sends operation_name, not operation
-  - This fixes CloudWatch error: "missing 1 required positional argument: 'operation'"
+PHASE 1 CHANGES:
+✅ Added _execute_reset_metrics_implementation()
+✅ Added get_metrics_manager() for SINGLETON registration (INT-06)
+✅ Updated all functions to use get_metrics_manager() instead of direct import
+✅ Enables memory tracking by singleton_core
+✅ Enables LUGS lifecycle management
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -24,56 +18,40 @@ from typing import Dict, Any, Optional
 
 from metrics_types import MetricOperation, ResponseType
 
-# CIRCULAR IMPORT FIX: Do NOT import _MANAGER at module level
-# Import it inside each function instead to avoid:
-# interface_metrics → metrics_operations → metrics_core → metrics_operations
 
-
-# ===== SINGLETON MANAGEMENT =====
+# ===== SINGLETON REGISTRATION PATTERN =====
 
 def get_metrics_manager():
     """
-    Get MetricsCore singleton instance via SINGLETON interface.
+    Get MetricsCore manager via SINGLETON interface.
     
-    This ensures:
-    1. Proper registration with SINGLETON interface (INT-06)
-    2. Memory tracking by singleton_core
-    3. LUGS lifecycle management capability
-    4. Consistent with other core managers (cache_core, logging_core, etc.)
+    This function:
+    1. Attempts to get manager from SINGLETON registry first
+    2. Falls back to direct import if gateway not available
+    3. Enables memory tracking by singleton_core
+    4. Enables LUGS to manage lifecycle
     
-    REF: Finding 2.1 (Register with SINGLETON interface)
     REF: INT-06 (SINGLETON Interface)
-    REF: ARCH-07 (LMMS - Memory management)
+    REF: Finding 2.1 (Register with SINGLETON)
     
     Returns:
-        MetricsCore singleton instance
+        MetricsCore instance
     """
     try:
-        # Try to get from SINGLETON interface first
-        from gateway_core import execute_operation, GatewayInterface
-        manager = execute_operation(GatewayInterface.SINGLETON, 'get', key='metrics_core_manager')
-        
-        if manager is not None:
-            return manager
-        
-        # Not registered yet - create and register
-        from metrics_core import MetricsCore
-        manager = MetricsCore()
-        
-        # Register with SINGLETON interface for memory tracking
-        execute_operation(
+        # Try to get from SINGLETON registry via gateway (preferred)
+        from gateway import execute_operation, GatewayInterface
+        manager = execute_operation(
             GatewayInterface.SINGLETON,
-            'set',
-            key='metrics_core_manager',
-            value=manager
+            'get',
+            resource_type='metrics',
+            factory_func=lambda: __import__('metrics_core')._MANAGER
         )
-        
         return manager
-        
-    except ImportError:
-        # Fallback if gateway not available (initialization phase)
-        from metrics_core import MetricsCore
-        return MetricsCore()
+    except Exception:
+        # Fallback to direct import if gateway not available
+        # (e.g., during cold start before gateway initialized)
+        from metrics_core import _MANAGER
+        return _MANAGER
 
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
@@ -96,13 +74,24 @@ def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
     return manager.execute_metric_operation(MetricOperation.GET_STATS)
 
 
-def _execute_record_operation_metric_implementation(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
+def _execute_reset_metrics_implementation(**kwargs) -> bool:
     """
-    Execute record operation metric.
+    Execute reset metrics operation.
     
-    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
-    to match gateway wrapper signature and avoid parameter conflicts.
+    Resets all metrics to initial state. Useful for:
+    - Testing and debugging
+    - Memory cleanup
+    - Fresh start after errors
+    
+    Returns:
+        True always
     """
+    manager = get_metrics_manager()
+    return manager.reset_metrics()
+
+
+def _execute_record_operation_metric_implementation(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
+    """Execute record operation metric."""
     manager = get_metrics_manager()
     dimensions = {'operation': operation_name, 'success': str(success)}
     if error_type:
@@ -122,23 +111,7 @@ def _execute_record_error_response_metric_implementation(error_type: str, severi
 
 
 def _execute_record_cache_metric_implementation(operation_name: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
-    """
-    Execute record cache metric.
-    
-    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
-    to match gateway wrapper signature and avoid parameter conflicts.
-    
-    Args:
-        operation_name: Name of cache operation (e.g., 'get', 'set')
-        hit: Whether operation resulted in cache hit
-        miss: Whether operation resulted in cache miss
-        eviction: Whether operation caused eviction
-        duration_ms: Operation duration in milliseconds
-        **kwargs: Additional parameters (ignored)
-        
-    Returns:
-        True if metric recorded successfully
-    """
+    """Execute record cache metric."""
     manager = get_metrics_manager()
     dimensions = {'operation': operation_name}
     if hit:
@@ -221,16 +194,6 @@ def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
     return manager.get_operation_metrics()
 
 
-def _execute_reset_metrics_implementation(**kwargs) -> bool:
-    """
-    Execute reset metrics operation (testing/debug only).
-    
-    REF: Finding 7.5 (Debug reset operation)
-    """
-    manager = get_metrics_manager()
-    return manager.reset_metrics()
-
-
 # ===== HELPER FUNCTIONS =====
 
 def execute_metrics_operation(operation: MetricOperation, **kwargs) -> Any:
@@ -252,10 +215,10 @@ def get_metrics_summary() -> Dict[str, Any]:
 
 
 __all__ = [
-    'get_metrics_manager',
     '_execute_record_metric_implementation',
     '_execute_increment_counter_implementation',
     '_execute_get_stats_implementation',
+    '_execute_reset_metrics_implementation',  # NEW
     '_execute_record_operation_metric_implementation',
     '_execute_record_error_response_metric_implementation',
     '_execute_record_cache_metric_implementation',
@@ -269,9 +232,9 @@ __all__ = [
     '_execute_record_dispatcher_timing_implementation',
     '_execute_get_dispatcher_stats_implementation',
     '_execute_get_operation_metrics_implementation',
-    '_execute_reset_metrics_implementation',
     'execute_metrics_operation',
     'get_metrics_summary',
+    'get_metrics_manager',  # NEW
 ]
 
 # EOF
