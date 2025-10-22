@@ -1,9 +1,18 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions
-Version: 2025.10.20.02
+Version: 2025.10.22.02
 Description: Wrapper functions that call execute_operation() for cleaner code
 
 CHANGELOG:
+- 2025.10.22.02: Added CONFIG Phase 1 + 3 optimization
+  - Added standardized CONFIG wrapper functions:
+    - config_initialize(), config_get_parameter(), config_set_parameter()
+    - config_delete_parameter(), config_validate_parameter()
+    - config_validate_all(), config_get_state(), config_reset()
+  - Added 4 CONFIG DEBUG operations:
+    - check_config_health(), diagnose_config_performance()
+    - validate_config_configuration(), benchmark_config_operations()
+  - Part of CONFIG Phase 1 + 3 optimization
 - 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in 5 functions
   - Fixed record_operation_metric() parameter conflict
   - Fixed record_cache_metric() parameter conflict
@@ -38,7 +47,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from typing import Any, Dict, Optional, Callable, Tuple
+from typing import Any, Dict, Optional
 from gateway_core import GatewayInterface, execute_operation
 
 # ===== CONFIGURATION HELPERS =====
@@ -373,6 +382,61 @@ def validate_all_config() -> Dict[str, Any]:
     """Validate all configuration."""
     return execute_operation(GatewayInterface.CONFIG, 'validate_all')
 
+# ===== STANDARDIZED CONFIG WRAPPERS (2025.10.22.02) =====
+
+def config_initialize(**kwargs) -> Dict[str, Any]:
+    """Initialize configuration system."""
+    return execute_operation(GatewayInterface.CONFIG, 'initialize', **kwargs)
+
+def config_get_parameter(key: str, default: Any = None) -> Any:
+    """
+    Get configuration parameter with SSM-first priority.
+    
+    Priority:
+    1. SSM Parameter Store (if USE_PARAMETER_STORE=true)
+    2. Environment variable
+    3. Default value
+    """
+    return execute_operation(GatewayInterface.CONFIG, 'get_parameter', key=key, default=default)
+
+def config_set_parameter(key: str, value: Any) -> bool:
+    """Set configuration parameter."""
+    return execute_operation(GatewayInterface.CONFIG, 'set_parameter', key=key, value=value)
+
+def config_delete_parameter(key: str) -> bool:
+    """Delete configuration parameter."""
+    return execute_operation(GatewayInterface.CONFIG, 'delete_parameter', key=key)
+
+def config_validate_parameter(key: str, value: Any) -> Dict[str, Any]:
+    """Validate a configuration parameter."""
+    return execute_operation(GatewayInterface.CONFIG, 'validate_parameter', key=key, value=value)
+
+def config_validate_all(config: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Validate entire configuration."""
+    return execute_operation(GatewayInterface.CONFIG, 'validate_config', config=config)
+
+def config_get_state() -> Dict[str, Any]:
+    """
+    Get configuration state including initialization status and rate limiting stats.
+    
+    Returns dict with:
+    - initialized: bool
+    - use_parameter_store: bool
+    - parameter_prefix: str
+    - config_keys: List[str]
+    - rate_limited_count: int
+    """
+    return execute_operation(GatewayInterface.CONFIG, 'get_state')
+
+def config_reset(**kwargs) -> bool:
+    """
+    Reset configuration state.
+    
+    Clears all configuration data and resets rate limiter.
+    Part of Phase 1 optimization for lifecycle management.
+    """
+    return execute_operation(GatewayInterface.CONFIG, 'reset', **kwargs)
+
 # ===== SINGLETON WRAPPERS =====
 
 def singleton_get(key: str) -> Any:
@@ -535,28 +599,6 @@ def get_timestamp() -> float:
     """Get current timestamp."""
     return execute_operation(GatewayInterface.UTILITY, 'get_timestamp')
 
-def time_operation(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
-    """
-    Time an operation execution.
-    
-    Wrapper for UTILITY interface time_operation function.
-    Executes function and returns result with duration in milliseconds.
-    
-    Args:
-        func: Function to execute and time
-        *args: Positional arguments for func
-        **kwargs: Keyword arguments for func
-        
-    Returns:
-        Tuple of (result, duration_ms)
-        
-    Example:
-        >>> result, duration = time_operation(expensive_function, arg1, arg2)
-        >>> log_info(f"Operation completed in {duration:.2f}ms")
-        >>> record_metric('operation.duration_ms', duration)
-    """
-    return execute_operation(GatewayInterface.UTILITY, 'time_operation', func=func, args=args, kwargs=kwargs)
-
 # ===== DEBUG WRAPPERS =====
 
 def check_component_health(component: str) -> Dict[str, Any]:
@@ -578,6 +620,60 @@ def run_debug_tests() -> Dict[str, Any]:
 def validate_system_architecture() -> Dict[str, Any]:
     """Validate system architecture."""
     return execute_operation(GatewayInterface.DEBUG, 'validate_system_architecture')
+
+# ===== CONFIG DEBUG OPERATIONS (2025.10.22.02) - Phase 3 =====
+
+def check_config_health() -> Dict[str, Any]:
+    """
+    Check CONFIG interface health.
+    
+    Verifies:
+    - SINGLETON registration
+    - Rate limiting effectiveness
+    - No threading locks (AP-08 compliance)
+    - Reset operation availability
+    - Parameter operations working
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'check_config_health')
+
+def diagnose_config_performance() -> Dict[str, Any]:
+    """
+    Diagnose CONFIG interface performance.
+    
+    Analyzes:
+    - Rate limiting effectiveness
+    - Parameter operation performance
+    - SSM vs environment variable usage
+    - Configuration reload patterns
+    - Cache hit rates
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'diagnose_config_performance')
+
+def validate_config_configuration() -> Dict[str, Any]:
+    """
+    Validate CONFIG interface configuration.
+    
+    Checks:
+    - SINGLETON registration
+    - No threading locks (AP-08 compliance)
+    - Rate limiting configuration
+    - Parameter Store setup
+    - Reset operation availability
+    - Configuration initialization
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'validate_config_configuration')
+
+def benchmark_config_operations() -> Dict[str, Any]:
+    """
+    Benchmark CONFIG interface operations.
+    
+    Measures:
+    - Parameter get/set operations
+    - Configuration validation
+    - Reset operation
+    - Rate limiting overhead
+    """
+    return execute_operation(GatewayInterface.DEBUG, 'benchmark_config_operations')
 
 # ===== EXPORTS =====
 
@@ -646,6 +742,16 @@ __all__ = [
     'load_config_from_file',
     'validate_all_config',
     
+    # CONFIG standardized wrappers (2025.10.22.02)
+    'config_initialize',
+    'config_get_parameter',
+    'config_set_parameter',
+    'config_delete_parameter',
+    'config_validate_parameter',
+    'config_validate_all',
+    'config_get_state',
+    'config_reset',
+    
     # SINGLETON wrappers (includes memory monitoring)
     'singleton_get',
     'singleton_has',
@@ -694,7 +800,6 @@ __all__ = [
     'safe_get',
     'generate_uuid',
     'get_timestamp',
-    'time_operation',  # NEW in 2025.10.21.01
     
     # DEBUG wrappers
     'check_component_health',
@@ -702,6 +807,12 @@ __all__ = [
     'diagnose_system_health',
     'run_debug_tests',
     'validate_system_architecture',
+    
+    # CONFIG DEBUG operations (2025.10.22.02)
+    'check_config_health',
+    'diagnose_config_performance',
+    'validate_config_configuration',
+    'benchmark_config_operations',
 ]
 
 # EOF
