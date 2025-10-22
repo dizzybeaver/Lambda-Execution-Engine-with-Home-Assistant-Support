@@ -1,9 +1,14 @@
 """
 metrics_helper.py - Metrics utility functions
-Version: 2025.10.21.05
-Description: Added aggregate_stats() to genericize stats building pattern (Phase 2 Task 2.5)
+Version: 2025.10.21.06
+Description: Added get_percentile_stats() for comprehensive percentile calculations (Phase 2 Task 2.8)
 
 CHANGELOG:
+- 2025.10.21.06: PHASE 2 TASK 2.8 - Expand percentile usage
+  - Added: get_percentile_stats() helper function
+  - Purpose: Provide comprehensive percentile statistics (p50, p95, p99)
+  - Pattern: Rich stats with min, max, avg, and percentiles
+
 - 2025.10.21.05: PHASE 2 TASK 2.5 - Genericize stats aggregation
   - Added: aggregate_stats() helper function
   - Purpose: Eliminate 20 LOC duplication across 4 stats functions
