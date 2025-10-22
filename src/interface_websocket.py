@@ -1,6 +1,6 @@
 """
 interface_websocket.py - WebSocket CLIENT Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.18.01
+Version: 2025.10.22.02
 Description: Firewall router for WebSocket CLIENT interface with free tier compliance.
              Gateway calls only this file. Internal implementations in websocket_core.
 
@@ -30,6 +30,7 @@ If WebSocket SERVER functionality is ever needed:
 To maintain permanent free tier compliance, this implementation is CLIENT-ONLY.
 
 CHANGELOG:
+- 2025.10.22.02: Added get_stats and reset operations
 - 2025.10.18.01: Added free tier compliance documentation
 - 2025.10.17.14: FIXED Issue #20 - Added import error protection
 - 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
@@ -59,7 +60,9 @@ try:
         websocket_send_implementation,
         websocket_receive_implementation,
         websocket_close_implementation,
-        websocket_request_implementation
+        websocket_request_implementation,
+        websocket_get_stats_implementation,
+        websocket_reset_implementation
     )
     _WEBSOCKET_AVAILABLE = True
     _WEBSOCKET_IMPORT_ERROR = None
@@ -71,6 +74,8 @@ except ImportError as e:
     websocket_receive_implementation = None
     websocket_close_implementation = None
     websocket_request_implementation = None
+    websocket_get_stats_implementation = None
+    websocket_reset_implementation = None
 
 
 # ===== PARAMETER VALIDATION =====
@@ -139,6 +144,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _validate_request_params(kwargs),
             websocket_request_implementation(**kwargs)
         )[1],
+        
+        'get_stats': lambda **kwargs: websocket_get_stats_implementation(),
+        
+        'reset': lambda **kwargs: websocket_reset_implementation(),
     }
 
 
