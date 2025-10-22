@@ -1,7 +1,9 @@
 """
 debug_diagnostics.py - Debug Diagnostic Operations
-Version: 2025.10.14.01
+Version: 2025.10.21.01
 Description: System diagnostic operations for debug subsystem
+CHANGELOG:
+- 2025.10.21.01: Added _diagnose_metrics_performance() for METRICS Phase 3
 
 Copyright 2025 Joseph Hersey
 
@@ -20,6 +22,7 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 import gc
+import sys
 
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
@@ -66,10 +69,124 @@ def _diagnose_memory(**kwargs) -> Dict[str, Any]:
     }
 
 
+def _diagnose_metrics_performance(**kwargs) -> Dict[str, Any]:
+    """
+    Deep performance diagnostics for METRICS interface.
+    
+    Analyzes:
+    - Hot metrics (most frequent)
+    - Memory breakdown per metric
+    - Slow operations
+    - Optimization recommendations
+    
+    Returns:
+        Dict with:
+        - success: bool
+        - hot_metrics: list of (name, count) tuples
+        - largest_metrics: list of (name, bytes) tuples
+        - total_memory_bytes: int
+        - recommendations: list of optimization suggestions
+        
+    Example:
+        result = _diagnose_metrics_performance()
+        # {
+        #     'success': True,
+        #     'hot_metrics': [('operation.count', 5000), ...],
+        #     'largest_metrics': [('http.requests', 128000), ...],
+        #     'total_memory_bytes': 450000,
+        #     'recommendations': [
+        #         'Fast path candidates: operation.count, cache.hit',
+        #         'High memory (450KB), consider limits'
+        #     ]
+        # }
+    """
+    try:
+        from metrics_core import _MANAGER
+        
+        # Analyze metric distribution (frequency)
+        metric_sizes = {
+            name: len(values)
+            for name, values in _MANAGER._metrics.items()
+        }
+        
+        # Top 10 hot metrics (by call count)
+        hot_metrics = sorted(
+            metric_sizes.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+        
+        # Memory analysis per metric
+        memory_per_metric = {
+            name: sys.getsizeof(values)
+            for name, values in _MANAGER._metrics.items()
+        }
+        
+        # Top 10 largest metrics (by memory)
+        largest = sorted(
+            memory_per_metric.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+        
+        total_memory = sum(memory_per_metric.values())
+        
+        # Generate optimization recommendations
+        recommendations = []
+        
+        # Recommend fast path for hot metrics
+        if hot_metrics:
+            top_3 = ', '.join(m[0] for m in hot_metrics[:3])
+            recommendations.append(
+                f"Fast path candidates: {top_3}"
+            )
+        
+        # Memory warning
+        if total_memory > 1_000_000:
+            recommendations.append(
+                f"High memory ({total_memory/1024:.1f}KB), consider limits"
+            )
+        
+        # Check for metrics with excessive value counts
+        excessive = [
+            name for name, count in metric_sizes.items()
+            if count > 1000
+        ]
+        if excessive:
+            recommendations.append(
+                f"Metrics exceeding 1000 values: {len(excessive)} metrics"
+            )
+        
+        # Check for large individual metrics
+        large_metrics = [
+            name for name, size in memory_per_metric.items()
+            if size > 100_000
+        ]
+        if large_metrics:
+            recommendations.append(
+                f"Large metrics (>100KB): {', '.join(large_metrics[:3])}"
+            )
+        
+        return {
+            'success': True,
+            'hot_metrics': hot_metrics,
+            'largest_metrics': largest,
+            'total_memory_bytes': total_memory,
+            'unique_metrics': len(metric_sizes),
+            'recommendations': recommendations
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
 __all__ = [
     '_diagnose_system_health',
     '_diagnose_performance',
-    '_diagnose_memory'
+    '_diagnose_memory',
+    '_diagnose_metrics_performance'
 ]
 
 # EOF
