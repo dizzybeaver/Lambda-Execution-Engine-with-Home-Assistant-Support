@@ -1,9 +1,7 @@
 """
 debug_health.py - Debug Health Check Operations
-Version: 2025.10.21.01
+Version: 2025.10.14.01
 Description: Health check operations for debug subsystem
-CHANGELOG:
-- 2025.10.21.01: Added _check_metrics_health() for METRICS Phase 3
 
 Copyright 2025 Joseph Hersey
 
@@ -21,7 +19,6 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-import sys
 
 
 def _check_component_health(**kwargs) -> Dict[str, Any]:
@@ -47,83 +44,65 @@ def _check_gateway_health(**kwargs) -> Dict[str, Any]:
         return {'success': False, 'error': 'Gateway not available'}
 
 
-def _check_metrics_health(**kwargs) -> Dict[str, Any]:
+def _check_cache_health(**kwargs) -> Dict[str, Any]:
     """
-    Check metrics subsystem health.
+    Check cache subsystem health (CACHE Phase 3).
     
     Validates:
-    - Manager available
-    - Memory within bounds (< 500KB)
-    - Rate limiting working
-    - Stats accessible
-    - Unique metrics count reasonable (< 10,000)
+    - Cache manager available
+    - Memory within bounds (< 80MB threshold)
+    - Entry count reasonable (< 10,000 threshold)
+    - Rate limiting stats
+    - Eviction stats
     
     Returns:
         Dict with:
-        - component: 'metrics'
+        - component: 'cache'
         - healthy: bool
-        - issues: list of problems
-        - stats: performance metrics
-        
-    Example:
-        result = _check_metrics_health()
-        # {
-        #     'component': 'metrics',
-        #     'healthy': True,
-        #     'issues': [],
-        #     'stats': {
-        #         'total_metrics': 1234,
-        #         'memory_bytes': 450000,
-        #         'rate_limited': 0
-        #     }
-        # }
+        - issues: List[str]
+        - stats: Dict with health metrics
     """
     try:
-        from metrics_core import _MANAGER
+        # Import via gateway (SUGA pattern)
+        from gateway import cache_get_stats
         
-        # Get current stats
-        stats = _MANAGER.get_stats()
-        
-        # Calculate memory usage
-        memory_bytes = sum([
-            sys.getsizeof(_MANAGER._metrics),
-            sys.getsizeof(_MANAGER._counters),
-            sys.getsizeof(_MANAGER._gauges)
-        ])
+        stats = cache_get_stats()
         
         healthy = True
         issues = []
         
-        # Check memory threshold (500KB)
-        if memory_bytes > 500_000:
+        # Check memory usage
+        memory_bytes = stats.get('memory_bytes', 0)
+        if memory_bytes > 80_000_000:  # 80MB threshold
             healthy = False
-            issues.append(f"High memory: {memory_bytes/1024:.1f}KB")
+            issues.append(f"High memory: {memory_bytes/1024/1024:.1f}MB")
         
-        # Check unique metrics count (10,000 max)
-        unique_count = stats.get('unique_metrics', 0)
-        if unique_count > 10_000:
+        # Check entry count
+        entry_count = stats.get('size', 0)
+        if entry_count > 10000:
             healthy = False
-            issues.append(f"Too many metrics: {unique_count}")
+            issues.append(f"Too many entries: {entry_count}")
         
-        # Check rate limiting working
+        # Check rate limiting
         rate_limited = stats.get('rate_limited_count', 0)
-        if rate_limited > 1000:
-            issues.append(f"High rate limiting: {rate_limited} dropped")
+        if rate_limited > 100:
+            issues.append(f"Rate limiting active: {rate_limited} requests dropped")
         
         return {
-            'component': 'metrics',
+            'component': 'cache',
             'healthy': healthy,
             'issues': issues,
             'stats': {
-                'total_metrics': stats.get('total_metrics', 0),
-                'unique_metrics': unique_count,
+                'entry_count': entry_count,
                 'memory_bytes': memory_bytes,
-                'rate_limited': rate_limited
+                'memory_mb': stats.get('memory_mb', 0),
+                'memory_utilization_percent': stats.get('memory_utilization_percent', 0),
+                'rate_limited_count': rate_limited
             }
         }
     except Exception as e:
         return {
-            'component': 'metrics',
+            'component': 'cache',
             'healthy': False,
             'error': str(e)
         }
@@ -142,7 +121,7 @@ def _generate_health_report(**kwargs) -> Dict[str, Any]:
         dispatcher_stats = {'error': 'dispatcher stats not available'}
     
     return {
-        'timestamp': '2025.10.21',
+        'timestamp': '2025.10.14',
         'system_health': _diagnose_system_health(),
         'validation': {
             'architecture': _validate_system_architecture(),
@@ -152,15 +131,14 @@ def _generate_health_report(**kwargs) -> Dict[str, Any]:
         },
         'stats': _get_system_stats(),
         'optimization': _get_optimization_stats(),
-        'dispatcher_performance': dispatcher_stats,
-        'metrics_health': _check_metrics_health()
+        'dispatcher_performance': dispatcher_stats
     }
 
 
 __all__ = [
     '_check_component_health',
     '_check_gateway_health',
-    '_check_metrics_health',
+    '_check_cache_health',
     '_generate_health_report'
 ]
 
