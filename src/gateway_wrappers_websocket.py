@@ -3,6 +3,9 @@ gateway_wrappers_websocket.py - WEBSOCKET Interface Wrappers
 Version: 2025.10.22.02
 Description: Convenience wrappers for WEBSOCKET interface operations
 
+CHANGELOG:
+- 2025.10.22.02: Added get_stats and reset wrapper functions
+
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
@@ -36,10 +39,22 @@ def websocket_request(url: str, message: Any, timeout: Optional[float] = None, *
     return execute_operation(GatewayInterface.WEBSOCKET, 'request', url=url, message=message, timeout=timeout, **kwargs)
 
 
+def websocket_get_stats() -> Dict[str, Any]:
+    """Get WebSocket manager statistics."""
+    return execute_operation(GatewayInterface.WEBSOCKET, 'get_stats')
+
+
+def websocket_reset() -> Dict[str, Any]:
+    """Reset WebSocket manager state."""
+    return execute_operation(GatewayInterface.WEBSOCKET, 'reset')
+
+
 __all__ = [
     'websocket_connect',
     'websocket_send',
     'websocket_receive',
     'websocket_close',
     'websocket_request',
+    'websocket_get_stats',
+    'websocket_reset',
 ]
