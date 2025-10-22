@@ -48,17 +48,7 @@ _VALID_DEBUG_OPERATIONS = [
     'run_performance_profile',
     'run_memory_profile',
     'check_memory_usage',
-    'check_metrics_health',
-    'metrics_health',
-    'diagnose_metrics_performance',
-    'metrics_performance',
-    'metrics_diagnostics',
-    'validate_metrics_configuration',
-    'validate_metrics',
-    'metrics_validation',
-    'benchmark_metrics_operations',
-    'benchmark_metrics',
-    'metrics_benchmark',
+    # CACHE DEBUG OPERATIONS (Phase 3)
     'check_cache_health',
     'cache_health',
     'health_cache',
@@ -70,7 +60,7 @@ _VALID_DEBUG_OPERATIONS = [
     'validate_cache',
     'benchmark_cache_operations',
     'cache_benchmark',
-    'benchmark_cache'
+    'benchmark_cache',
 ]
 
 
