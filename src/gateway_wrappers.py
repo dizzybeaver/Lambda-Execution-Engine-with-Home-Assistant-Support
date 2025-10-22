@@ -38,7 +38,7 @@ Copyright 2025 Joseph Hersey
    limitations under the License.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable, Tuple
 from gateway_core import GatewayInterface, execute_operation
 
 # ===== CONFIGURATION HELPERS =====
@@ -535,6 +535,28 @@ def get_timestamp() -> float:
     """Get current timestamp."""
     return execute_operation(GatewayInterface.UTILITY, 'get_timestamp')
 
+def time_operation(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
+    """
+    Time an operation execution.
+    
+    Wrapper for UTILITY interface time_operation function.
+    Executes function and returns result with duration in milliseconds.
+    
+    Args:
+        func: Function to execute and time
+        *args: Positional arguments for func
+        **kwargs: Keyword arguments for func
+        
+    Returns:
+        Tuple of (result, duration_ms)
+        
+    Example:
+        >>> result, duration = time_operation(expensive_function, arg1, arg2)
+        >>> log_info(f"Operation completed in {duration:.2f}ms")
+        >>> record_metric('operation.duration_ms', duration)
+    """
+    return execute_operation(GatewayInterface.UTILITY, 'time_operation', func=func, args=args, kwargs=kwargs)
+
 # ===== DEBUG WRAPPERS =====
 
 def check_component_health(component: str) -> Dict[str, Any]:
@@ -672,6 +694,7 @@ __all__ = [
     'safe_get',
     'generate_uuid',
     'get_timestamp',
+    'time_operation',  # NEW in 2025.10.21.01
     
     # DEBUG wrappers
     'check_component_health',
