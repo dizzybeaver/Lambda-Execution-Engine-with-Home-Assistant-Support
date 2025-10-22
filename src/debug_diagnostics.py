@@ -1,14 +1,13 @@
 """
 debug_diagnostics.py - Debug Diagnostic Operations
-Version: 2025.10.22.02
+Version: 2025.10.22.01
 Description: System diagnostic operations for debug subsystem
 
 CHANGELOG:
-- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface diagnostics
-  - Added _diagnose_websocket_performance (connection stats, rate limiting)
-  - Added _diagnose_circuit_breaker_performance (breaker stats, rejection rates)
-  - Both support rate limiting analysis (LESS-21)
-  - Both analyze error rates and provide recommendations
+- 2025.10.22.01: Added INITIALIZATION, UTILITY, and SINGLETON diagnostics
+  - Added _diagnose_initialization_performance()
+  - Added _diagnose_utility_performance()
+  - Added _diagnose_singleton_performance()
 
 Copyright 2025 Joseph Hersey
 
@@ -27,6 +26,7 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 import gc
+import time
 
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
@@ -73,312 +73,252 @@ def _diagnose_memory(**kwargs) -> Dict[str, Any]:
     }
 
 
-def _diagnose_websocket_performance(**kwargs) -> Dict[str, Any]:
+def _diagnose_initialization_performance(**kwargs) -> Dict[str, Any]:
     """
-    Diagnose WEBSOCKET interface performance.
+    Diagnose INITIALIZATION interface performance patterns.
     
     Analyzes:
-    - Operation statistics (connections, messages, errors)
+    - Initialization status and timing
+    - Flag usage patterns
+    - Configuration size
     - Rate limiting effectiveness
-    - Success/failure rates
-    - Performance recommendations
-    
-    REF-IDs:
-    - LESS-21: Rate limiting monitoring
-    - DEC-04: Lambda performance patterns
     
     Returns:
-        Performance diagnostics and recommendations
+        Performance diagnostics
     """
-    from gateway import create_success_response, create_error_response
-    
-    diagnostics = {
-        'interface': 'WEBSOCKET',
-        'performance': {},
-        'statistics': {},
-        'analysis': {},
-        'recommendations': []
-    }
-    
     try:
-        # Get manager and statistics
-        from websocket_core import get_websocket_manager
-        manager = get_websocket_manager()
+        from gateway import initialization_get_status
         
-        stats_result = manager.get_stats()
-        if not stats_result.get('success'):
-            return create_error_response('Failed to get statistics', 'STATS_UNAVAILABLE')
-        
-        stats = stats_result.get('data', {})
-        
-        # Extract statistics
-        total_ops = stats.get('total_operations', 0)
-        connections = stats.get('connections_count', 0)
-        messages_sent = stats.get('messages_sent_count', 0)
-        messages_received = stats.get('messages_received_count', 0)
-        errors = stats.get('errors_count', 0)
-        rate_limited = stats.get('rate_limited_count', 0)
-        
-        diagnostics['statistics'] = {
-            'total_operations': total_ops,
-            'connections': connections,
-            'messages_sent': messages_sent,
-            'messages_received': messages_received,
-            'errors': errors,
-            'rate_limited': rate_limited
+        diagnostics = {
+            'interface': 'INITIALIZATION',
+            'timestamp': time.time(),
+            'metrics': {},
+            'patterns': {},
+            'recommendations': []
         }
         
-        # Performance analysis
-        if total_ops > 0:
-            error_rate = (errors / total_ops) * 100
-            rate_limit_impact = (rate_limited / total_ops) * 100
-            
-            diagnostics['analysis'] = {
-                'error_rate_percent': round(error_rate, 2),
-                'rate_limit_impact_percent': round(rate_limit_impact, 2),
-                'average_messages_per_connection': round(messages_sent / connections, 2) if connections > 0 else 0,
-                'send_receive_ratio': round(messages_sent / messages_received, 2) if messages_received > 0 else 0
+        # Get status
+        status = initialization_get_status()
+        
+        # Basic metrics
+        diagnostics['metrics']['initialized'] = status.get('initialized', False)
+        diagnostics['metrics']['flag_count'] = status.get('flag_count', 0)
+        diagnostics['metrics']['config_keys_count'] = len(status.get('config_keys', []))
+        diagnostics['metrics']['rate_limited_count'] = status.get('rate_limited_count', 0)
+        
+        # Timing analysis
+        if status.get('init_timestamp'):
+            diagnostics['metrics']['init_duration_ms'] = status.get('init_duration_ms', 0)
+            diagnostics['metrics']['uptime_seconds'] = status.get('uptime_seconds', 0)
+            diagnostics['patterns']['initialized_at'] = status.get('init_timestamp')
+        
+        # Flag patterns
+        flags = status.get('flags', {})
+        if flags:
+            diagnostics['patterns']['flag_types'] = {
+                k: type(v).__name__ for k, v in flags.items()
             }
-            
-            # Performance assessment
-            if error_rate < 1.0:
-                diagnostics['performance']['error_rate'] = 'excellent'
-            elif error_rate < 5.0:
-                diagnostics['performance']['error_rate'] = 'good'
-            elif error_rate < 10.0:
-                diagnostics['performance']['error_rate'] = 'fair'
-            else:
-                diagnostics['performance']['error_rate'] = 'poor'
-            
-            if rate_limit_impact < 0.1:
-                diagnostics['performance']['rate_limiting'] = 'minimal_impact'
-            elif rate_limit_impact < 1.0:
-                diagnostics['performance']['rate_limiting'] = 'low_impact'
-            elif rate_limit_impact < 5.0:
-                diagnostics['performance']['rate_limiting'] = 'moderate_impact'
-            else:
-                diagnostics['performance']['rate_limiting'] = 'high_impact'
-        else:
-            diagnostics['analysis']['no_operations'] = 'No operations executed yet'
+            diagnostics['patterns']['flag_count'] = len(flags)
         
-        # Rate limiting details
-        diagnostics['rate_limiting'] = {
-            'max_rate': stats.get('max_rate_limit', 300),
-            'window_ms': stats.get('rate_limit_window_ms', 1000),
-            'current_size': stats.get('current_rate_limit_size', 0),
-            'rate_limited_count': rate_limited
-        }
-        
-        # Recommendations
-        if errors > 0:
-            diagnostics['recommendations'].append(
-                'Review error logs for connection failures or message serialization issues'
-            )
-        
-        if rate_limited > total_ops * 0.05:  # > 5% rate limited
-            diagnostics['recommendations'].append(
-                'Consider implementing request batching or throttling to reduce rate limiting'
-            )
-        
-        if connections > 0 and messages_sent == 0:
-            diagnostics['recommendations'].append(
-                'Connections established but no messages sent - verify application logic'
-            )
-        
-        if messages_sent > messages_received * 2:
-            diagnostics['recommendations'].append(
-                'Send/receive ratio imbalanced - verify response handling logic'
-            )
-        
-        if not diagnostics['recommendations']:
-            diagnostics['recommendations'].append('Performance looks good - no issues detected')
-        
-        return create_success_response('WEBSOCKET performance diagnostics complete', diagnostics)
-        
-    except Exception as e:
-        return create_error_response(f'Performance diagnostics failed: {str(e)}', 'DIAGNOSTICS_FAILED')
-
-
-def _diagnose_circuit_breaker_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose CIRCUIT_BREAKER interface performance.
-    
-    Analyzes:
-    - Operation statistics across all breakers
-    - Rate limiting effectiveness
-    - Circuit breaker states and patterns
-    - Success/failure rates per breaker
-    - Performance recommendations
-    
-    REF-IDs:
-    - LESS-21: Rate limiting monitoring
-    - DEC-04: Lambda performance patterns
-    
-    Returns:
-        Performance diagnostics and recommendations
-    """
-    from gateway import create_success_response, create_error_response
-    
-    diagnostics = {
-        'interface': 'CIRCUIT_BREAKER',
-        'performance': {},
-        'statistics': {},
-        'breakers': {},
-        'analysis': {},
-        'recommendations': []
-    }
-    
-    try:
-        # Get manager and statistics
-        from circuit_breaker_core import get_circuit_breaker_manager
-        manager = get_circuit_breaker_manager()
-        
-        stats_result = manager.get_stats()
-        if not stats_result.get('success'):
-            return create_error_response('Failed to get statistics', 'STATS_UNAVAILABLE')
-        
-        stats = stats_result.get('data', {})
-        
-        # Extract global statistics
-        total_ops = stats.get('total_operations', 0)
-        breakers_count = stats.get('breakers_count', 0)
-        rate_limited = stats.get('rate_limited_count', 0)
-        
-        diagnostics['statistics'] = {
-            'total_operations': total_ops,
-            'breakers_count': breakers_count,
-            'rate_limited_count': rate_limited
-        }
-        
-        # Analyze individual breakers
-        breakers_data = stats.get('breakers', {})
-        total_calls = 0
-        total_successful = 0
-        total_failed = 0
-        total_rejected = 0
-        open_breakers = 0
-        half_open_breakers = 0
-        
-        for breaker_name, breaker_state in breakers_data.items():
-            breaker_stats = breaker_state.get('statistics', {})
-            calls = breaker_stats.get('total_calls', 0)
-            successful = breaker_stats.get('successful_calls', 0)
-            failed = breaker_stats.get('failed_calls', 0)
-            rejected = breaker_stats.get('rejected_calls', 0)
-            state = breaker_state.get('state', 'closed')
-            
-            total_calls += calls
-            total_successful += successful
-            total_failed += failed
-            total_rejected += rejected
-            
-            if state == 'open':
-                open_breakers += 1
-            elif state == 'half_open':
-                half_open_breakers += 1
-            
-            # Per-breaker analysis
-            if calls > 0:
-                success_rate = (successful / calls) * 100
-                failure_rate = (failed / calls) * 100
-                rejection_rate = (rejected / calls) * 100
-                
-                diagnostics['breakers'][breaker_name] = {
-                    'state': state,
-                    'calls': calls,
-                    'success_rate_percent': round(success_rate, 2),
-                    'failure_rate_percent': round(failure_rate, 2),
-                    'rejection_rate_percent': round(rejection_rate, 2),
-                    'threshold': breaker_state.get('threshold', 5),
-                    'current_failures': breaker_state.get('failures', 0)
-                }
-        
-        # Overall analysis
-        if total_calls > 0:
-            overall_success_rate = (total_successful / total_calls) * 100
-            overall_failure_rate = (total_failed / total_calls) * 100
-            overall_rejection_rate = (total_rejected / total_calls) * 100
-            
-            diagnostics['analysis'] = {
-                'total_calls': total_calls,
-                'overall_success_rate_percent': round(overall_success_rate, 2),
-                'overall_failure_rate_percent': round(overall_failure_rate, 2),
-                'overall_rejection_rate_percent': round(overall_rejection_rate, 2),
-                'open_breakers': open_breakers,
-                'half_open_breakers': half_open_breakers,
-                'healthy_breakers': breakers_count - open_breakers - half_open_breakers
-            }
-            
-            # Performance assessment
-            if overall_success_rate >= 95:
-                diagnostics['performance']['overall'] = 'excellent'
-            elif overall_success_rate >= 90:
-                diagnostics['performance']['overall'] = 'good'
-            elif overall_success_rate >= 80:
-                diagnostics['performance']['overall'] = 'fair'
-            else:
-                diagnostics['performance']['overall'] = 'poor'
-        else:
-            diagnostics['analysis']['no_calls'] = 'No circuit breaker calls executed yet'
+        # Config patterns
+        config_keys = status.get('config_keys', [])
+        if config_keys:
+            diagnostics['patterns']['config_keys'] = config_keys
+            diagnostics['patterns']['config_count'] = len(config_keys)
         
         # Rate limiting analysis
-        if total_ops > 0:
-            rate_limit_impact = (rate_limited / total_ops) * 100
-            diagnostics['analysis']['rate_limit_impact_percent'] = round(rate_limit_impact, 2)
-            
-            if rate_limit_impact < 0.1:
-                diagnostics['performance']['rate_limiting'] = 'minimal_impact'
-            elif rate_limit_impact < 1.0:
-                diagnostics['performance']['rate_limiting'] = 'low_impact'
-            elif rate_limit_impact < 5.0:
-                diagnostics['performance']['rate_limiting'] = 'moderate_impact'
-            else:
-                diagnostics['performance']['rate_limiting'] = 'high_impact'
-        
-        # Rate limiting details
-        diagnostics['rate_limiting'] = {
-            'max_rate': stats.get('max_rate_limit', 1000),
-            'window_ms': stats.get('rate_limit_window_ms', 1000),
-            'current_size': stats.get('current_rate_limit_size', 0),
-            'rate_limited_count': rate_limited
-        }
-        
-        # Recommendations
-        if open_breakers > 0:
+        rate_limited = status.get('rate_limited_count', 0)
+        if rate_limited > 0:
             diagnostics['recommendations'].append(
-                f'{open_breakers} circuit breaker(s) in OPEN state - investigate failures and consider increasing thresholds'
+                f"Rate limiting active: {rate_limited} requests blocked. Consider optimizing initialization calls."
             )
         
-        if total_rejected > total_calls * 0.05:  # > 5% rejected
+        # Initialization timing
+        init_duration = status.get('init_duration_ms', 0)
+        if init_duration > 100:
             diagnostics['recommendations'].append(
-                'High rejection rate - circuit breakers may be too sensitive, consider increasing failure thresholds'
+                f"Slow initialization: {init_duration:.2f}ms. Review initialization complexity."
             )
         
-        if rate_limited > total_ops * 0.05:  # > 5% rate limited
+        # Flag count
+        flag_count = status.get('flag_count', 0)
+        if flag_count > 50:
             diagnostics['recommendations'].append(
-                'Consider implementing request batching or throttling to reduce rate limiting'
+                f"High flag count: {flag_count}. Consider consolidating flags."
             )
         
-        if total_failed > total_successful:
-            diagnostics['recommendations'].append(
-                'Failures exceed successful calls - investigate underlying service health'
-            )
-        
-        if not diagnostics['recommendations']:
-            diagnostics['recommendations'].append('Performance looks good - no issues detected')
-        
-        return create_success_response('CIRCUIT_BREAKER performance diagnostics complete', diagnostics)
+        return diagnostics
         
     except Exception as e:
-        return create_error_response(f'Performance diagnostics failed: {str(e)}', 'DIAGNOSTICS_FAILED')
+        return {
+            'interface': 'INITIALIZATION',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
+
+
+def _diagnose_utility_performance(**kwargs) -> Dict[str, Any]:
+    """Diagnose UTILITY interface performance patterns."""
+    try:
+        from gateway import utility_get_performance_stats
+        
+        diagnostics = {
+            'interface': 'UTILITY',
+            'timestamp': time.time(),
+            'metrics': {},
+            'patterns': {},
+            'recommendations': []
+        }
+        
+        # Get stats
+        stats = utility_get_performance_stats()
+        
+        # Basic metrics
+        diagnostics['metrics']['id_pool_size'] = stats.get('id_pool_size', 0)
+        diagnostics['metrics']['json_cache_size'] = stats.get('json_cache_size', 0)
+        diagnostics['metrics']['cache_enabled'] = stats.get('cache_enabled', False)
+        diagnostics['metrics']['rate_limited_count'] = stats.get('rate_limited_count', 0)
+        
+        # Operation patterns
+        operation_stats = stats.get('operation_stats', {})
+        if operation_stats:
+            avg_durations = {op: s['avg_duration_ms'] for op, s in operation_stats.items()}
+            diagnostics['patterns']['slowest_operation'] = max(avg_durations, key=avg_durations.get) if avg_durations else None
+            diagnostics['patterns']['fastest_operation'] = min(avg_durations, key=avg_durations.get) if avg_durations else None
+            diagnostics['patterns']['total_operations'] = sum(s['call_count'] for s in operation_stats.values())
+        
+        # Cache analysis
+        json_cache_size = stats.get('json_cache_size', 0)
+        json_cache_limit = stats.get('json_cache_limit', 100)
+        if json_cache_size > json_cache_limit * 0.8:
+            diagnostics['recommendations'].append(
+                f"JSON cache near limit: {json_cache_size}/{json_cache_limit}. Consider cleanup."
+            )
+        
+        # Rate limiting analysis
+        rate_limited = stats.get('rate_limited_count', 0)
+        if rate_limited > 0:
+            diagnostics['recommendations'].append(
+                f"Rate limiting active: {rate_limited} requests blocked."
+            )
+        
+        # ID pool analysis
+        id_pool_size = stats.get('id_pool_size', 0)
+        if id_pool_size < 10:
+            diagnostics['recommendations'].append(
+                f"Low ID pool size: {id_pool_size}. Consider replenishment."
+            )
+        
+        return diagnostics
+        
+    except Exception as e:
+        return {
+            'interface': 'UTILITY',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
+
+
+def _diagnose_singleton_performance(**kwargs) -> Dict[str, Any]:
+    """
+    Diagnose SINGLETON interface performance patterns.
+    
+    Analyzes:
+    - Singleton count and types
+    - Access patterns
+    - Memory usage
+    - Rate limiting effectiveness
+    
+    Returns:
+        Performance diagnostics
+    """
+    try:
+        from gateway import singleton_get_stats
+        
+        diagnostics = {
+            'interface': 'SINGLETON',
+            'timestamp': time.time(),
+            'metrics': {},
+            'patterns': {},
+            'recommendations': []
+        }
+        
+        # Get stats
+        stats = singleton_get_stats()
+        
+        # Basic metrics
+        diagnostics['metrics']['total_singletons'] = stats.get('total_singletons', 0)
+        diagnostics['metrics']['rate_limited_count'] = stats.get('rate_limited_count', 0)
+        diagnostics['metrics']['estimated_memory_mb'] = stats.get('estimated_memory_mb', 0)
+        
+        # Singleton types breakdown
+        singleton_types = stats.get('singleton_types', {})
+        diagnostics['metrics']['singleton_types'] = singleton_types
+        
+        # Access patterns
+        access_counts = stats.get('access_counts', {})
+        if access_counts:
+            total_accesses = sum(access_counts.values())
+            avg_accesses = total_accesses / len(access_counts) if access_counts else 0
+            max_accesses = max(access_counts.values()) if access_counts else 0
+            min_accesses = min(access_counts.values()) if access_counts else 0
+            
+            diagnostics['patterns']['total_accesses'] = total_accesses
+            diagnostics['patterns']['average_accesses'] = avg_accesses
+            diagnostics['patterns']['max_accesses'] = max_accesses
+            diagnostics['patterns']['min_accesses'] = min_accesses
+            diagnostics['patterns']['most_accessed'] = max(access_counts, key=access_counts.get) if access_counts else None
+        
+        # Creation times analysis
+        creation_times = stats.get('creation_times', {})
+        if creation_times:
+            current_time = time.time()
+            ages = {name: current_time - created for name, created in creation_times.items()}
+            diagnostics['patterns']['oldest_singleton'] = max(ages, key=ages.get) if ages else None
+            diagnostics['patterns']['newest_singleton'] = min(ages, key=ages.get) if ages else None
+            diagnostics['patterns']['average_age_seconds'] = sum(ages.values()) / len(ages) if ages else 0
+        
+        # Rate limiting analysis
+        rate_limited = stats.get('rate_limited_count', 0)
+        if rate_limited > 0:
+            diagnostics['recommendations'].append(
+                f"Rate limiting active: {rate_limited} requests blocked. Consider optimizing access patterns."
+            )
+        
+        # Memory analysis
+        memory_mb = stats.get('estimated_memory_mb', 0)
+        if memory_mb > 10:
+            diagnostics['recommendations'].append(
+                f"High memory usage: {memory_mb:.2f} MB. Review singleton lifecycle."
+            )
+        
+        # Count analysis
+        count = stats.get('total_singletons', 0)
+        if count > 50:
+            diagnostics['recommendations'].append(
+                f"High singleton count: {count}. Consider consolidating managers."
+            )
+        
+        return diagnostics
+        
+    except Exception as e:
+        return {
+            'interface': 'SINGLETON',
+            'status': 'error',
+            'error': str(e),
+            'timestamp': time.time()
+        }
 
 
 __all__ = [
     '_diagnose_system_health',
     '_diagnose_performance',
     '_diagnose_memory',
-    '_diagnose_websocket_performance',
-    '_diagnose_circuit_breaker_performance'
+    '_diagnose_initialization_performance',
+    '_diagnose_utility_performance',
+    '_diagnose_singleton_performance'
 ]
 
 # EOF
