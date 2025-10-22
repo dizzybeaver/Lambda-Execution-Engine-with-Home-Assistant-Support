@@ -1,9 +1,7 @@
 """
 debug_validation.py - Debug Validation Operations
-Version: 2025.10.21.01
+Version: 2025.10.14.01
 Description: System validation operations for debug subsystem
-CHANGELOG:
-- 2025.10.21.01: Added _validate_metrics_configuration() for METRICS Phase 3
 
 Copyright 2025 Joseph Hersey
 
@@ -21,7 +19,6 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-import inspect
 
 
 def _validate_system_architecture(**kwargs) -> Dict[str, Any]:
@@ -89,86 +86,90 @@ def _validate_gateway_routing(**kwargs) -> Dict[str, Any]:
         return {'success': False, 'error': str(e)}
 
 
-def _validate_metrics_configuration(**kwargs) -> Dict[str, Any]:
+def _validate_cache_configuration(**kwargs) -> Dict[str, Any]:
     """
-    Validate METRICS configuration and compliance.
+    Validate cache configuration and compliance (CACHE Phase 3).
     
     Checks:
-    - No threading locks (DEC-04, AP-08)
     - SINGLETON registration (INT-06)
     - Security validations enabled
+    - Rate limiting configured
     - Memory limits configured
-    - Rate limiting present
+    - No threading locks (AP-08)
     
     Returns:
         Dict with:
-        - valid: bool (no critical issues)
-        - issues: list of critical violations
-        - warnings: list of non-critical issues
+        - valid: bool
+        - issues: List[str] (critical violations)
+        - warnings: List[str] (non-critical issues)
         - checks_passed: int
         - checks_total: int
-        
-    Example:
-        result = _validate_metrics_configuration()
-        # {
-        #     'valid': True,
-        #     'issues': [],
-        #     'warnings': ['⚠️ Not registered with SINGLETON'],
-        #     'checks_passed': 4,
-        #     'checks_total': 5
-        # }
     """
     issues = []
     warnings = []
-    checks_total = 5
     
+    # Check 1: SINGLETON registration
     try:
-        from metrics_core import MetricsCore, _MANAGER
+        from gateway import singleton_get
+        if singleton_get('cache_manager') is None:
+            warnings.append("⚠️ Not registered with SINGLETON (INT-06)")
+    except Exception:
+        warnings.append("⚠️ Could not verify SINGLETON registration")
+    
+    # Check 2: Security validations
+    try:
+        import cache_core
+        code = open(cache_core.__file__).read()
         
-        # Check 1: No threading locks (AP-08, DEC-04)
-        if hasattr(_MANAGER, '_lock'):
-            issues.append("❌ Threading lock present (AP-08, DEC-04)")
+        if 'validate_cache_key' not in code:
+            issues.append("❌ Cache key validation missing (CVE-SUGA-2025-001)")
         
-        # Check 2: SINGLETON registration (INT-06)
-        try:
-            from gateway import singleton_get
-            if singleton_get('metrics_core_manager') is None:
-                warnings.append("⚠️ Not registered with SINGLETON (INT-06)")
-        except:
-            warnings.append("⚠️ Could not verify SINGLETON registration")
-        
-        # Check 3: Security validations (name validation)
-        try:
-            import metrics_operations
-            code = inspect.getsource(metrics_operations)
-            if 'validate_metric_name' not in code:
-                warnings.append("⚠️ Name validation missing in operations")
-        except:
-            warnings.append("⚠️ Could not verify security validations")
-        
-        # Check 4: Rate limiting present
-        if not hasattr(_MANAGER, '_rate_limiter'):
-            warnings.append("⚠️ Rate limiting not configured")
-        
-        # Check 5: Memory limits configured
-        if not hasattr(_MANAGER, 'MAX_VALUES_PER_METRIC'):
-            warnings.append("⚠️ Memory limits not configured")
-        
-        checks_passed = checks_total - len(issues) - len(warnings)
-        
-        return {
-            'valid': len(issues) == 0,
-            'issues': issues,
-            'warnings': warnings,
-            'checks_passed': checks_passed,
-            'checks_total': checks_total,
-            'summary': f"{checks_passed}/{checks_total} checks passed"
-        }
+        if 'validate_ttl' not in code:
+            issues.append("❌ TTL validation missing (CVE-SUGA-2025-002)")
     except Exception as e:
-        return {
-            'valid': False,
-            'error': str(e)
-        }
+        warnings.append(f"⚠️ Could not verify security validations: {e}")
+    
+    # Check 3: Rate limiting
+    try:
+        from gateway import cache_get_stats
+        stats = cache_get_stats()
+        
+        if 'rate_limited_count' not in stats:
+            issues.append("❌ Rate limiting missing (LESS-21)")
+    except Exception:
+        warnings.append("⚠️ Could not verify rate limiting")
+    
+    # Check 4: Memory limits
+    try:
+        from gateway import cache_get_stats
+        stats = cache_get_stats()
+        
+        if 'max_bytes' not in stats:
+            issues.append("❌ Memory limits not configured (LESS-20)")
+    except Exception:
+        warnings.append("⚠️ Could not verify memory limits")
+    
+    # Check 5: No threading locks (AP-08)
+    try:
+        import cache_core
+        code = open(cache_core.__file__).read()
+        
+        if 'threading.Lock' in code or 'threading.RLock' in code:
+            issues.append("❌ Threading lock present (AP-08, DEC-04)")
+    except Exception:
+        warnings.append("⚠️ Could not verify threading compliance")
+    
+    checks_total = 5
+    checks_passed = checks_total - len(issues) - len(warnings)
+    
+    return {
+        'valid': len(issues) == 0,
+        'issues': issues,
+        'warnings': warnings,
+        'checks_passed': checks_passed,
+        'checks_total': checks_total,
+        'summary': f"{checks_passed}/{checks_total} checks passed"
+    }
 
 
 def _run_config_unit_tests(**kwargs) -> Dict[str, Any]:
@@ -200,7 +201,7 @@ __all__ = [
     '_validate_system_architecture',
     '_validate_imports',
     '_validate_gateway_routing',
-    '_validate_metrics_configuration',
+    '_validate_cache_configuration',
     '_run_config_unit_tests',
     '_run_config_integration_tests',
     '_run_config_performance_tests',
