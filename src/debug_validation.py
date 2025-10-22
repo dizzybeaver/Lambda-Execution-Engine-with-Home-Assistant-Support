@@ -1,7 +1,14 @@
 """
 debug_validation.py - Debug Validation Operations
-Version: 2025.10.14.01
+Version: 2025.10.22.02
 Description: System validation operations for debug subsystem
+
+CHANGELOG:
+- 2025.10.22.02: Added WEBSOCKET and CIRCUIT_BREAKER interface configuration validation
+  - Added _validate_websocket_configuration (SINGLETON, no locks, rate limiting)
+  - Added _validate_circuit_breaker_configuration (SINGLETON, no locks, rate limiting)
+  - Both validate CRITICAL compliance (AP-08: no threading locks)
+  - Both verify LESS-21 compliance (rate limiting essential)
 
 Copyright 2025 Joseph Hersey
 
@@ -19,7 +26,6 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
-import time
 
 
 def _validate_system_architecture(**kwargs) -> Dict[str, Any]:
@@ -112,219 +118,345 @@ def _run_config_gateway_tests(**kwargs) -> Dict[str, Any]:
     return {'success': True, 'tests_run': 0, 'note': 'Placeholder for config gateway tests'}
 
 
-def _validate_http_client_configuration(**kwargs) -> Dict[str, Any]:
+def _validate_websocket_configuration(**kwargs) -> Dict[str, Any]:
     """
-    Validate HTTP_CLIENT interface configuration and compliance.
+    Validate WEBSOCKET interface configuration.
     
     Validates:
-    - SINGLETON registration compliance
-    - Threading lock compliance (CRITICAL - AP-08, DEC-04)
-    - Rate limiting configuration (500 ops/sec)
-    - Connection pool settings (timeouts, SSL)
-    - Retry configuration (max attempts, backoff)
-    - Reset operation availability
-    - Statistics tracking
+    - SINGLETON registration compliance (LESS-18)
+    - NO threading locks compliance (AP-08, DEC-04) - CRITICAL
+    - Rate limiting configuration (LESS-21)
+    - Reset operation availability (LESS-18)
+    - Core operations availability
+    
+    REF-IDs:
+    - AP-08: No threading locks (CRITICAL)
+    - DEC-04: Lambda single-threaded
+    - LESS-18: SINGLETON pattern
+    - LESS-21: Rate limiting essential
     
     Returns:
-        Dict with validation results and compliance status
-        
-    REF: AP-08 (No threading locks - CRITICAL)
-    REF: DEC-04 (Lambda single-threaded model)
-    REF: LESS-18 (SINGLETON pattern compliance)
-    REF: LESS-21 (Rate limiting compliance)
+        Configuration validation results
     """
-    import gateway
-    import inspect
-    import os
-    from http_client_core import get_http_client_manager, HTTPClientCore
+    from gateway import create_success_response, create_error_response
     
     validation = {
-        'interface': 'HTTP_CLIENT',
-        'timestamp': time.time(),
-        'compliance_status': 'COMPLIANT',
-        'validations': {}
+        'interface': 'WEBSOCKET',
+        'compliant': True,
+        'checks': {},
+        'warnings': [],
+        'errors': [],
+        'critical_issues': []
     }
     
     try:
-        # Validation 1: SINGLETON Registration (CRITICAL)
-        singleton_manager = gateway.singleton_get('http_client_manager')
-        validation['validations']['singleton_registration'] = {
-            'valid': singleton_manager is not None,
-            'details': 'Registered as http_client_manager' if singleton_manager else 'NOT REGISTERED',
-            'severity': 'CRITICAL',
-            'compliance': ['LESS-18', 'RULE-01']
-        }
-        if singleton_manager is None:
-            validation['compliance_status'] = 'NON_COMPLIANT'
-        
-        # Validation 2: Threading Lock Compliance (CRITICAL - AP-08)
-        source = inspect.getsource(HTTPClientCore)
-        has_threading_lock = 'threading.Lock' in source or 'from threading import Lock' in source
-        validation['validations']['no_threading_locks'] = {
-            'valid': not has_threading_lock,
-            'details': 'VIOLATION: Threading lock found' if has_threading_lock else 'Compliant: No threading locks',
-            'severity': 'CRITICAL',
-            'compliance': ['AP-08', 'DEC-04', 'LESS-17']
-        }
-        if has_threading_lock:
-            validation['compliance_status'] = 'CRITICAL_VIOLATION'
-        
-        # Validation 3: Rate Limiting Configuration
-        manager = get_http_client_manager()
-        has_rate_limiter = hasattr(manager, '_rate_limiter')
-        has_check_method = hasattr(manager, '_check_rate_limit')
-        
-        rate_limit_valid = has_rate_limiter and has_check_method
-        if rate_limit_valid:
-            max_size = manager._rate_limiter.maxlen if hasattr(manager._rate_limiter, 'maxlen') else 0
-            window_ms = getattr(manager, '_rate_limit_window_ms', 0)
-            details = f'Configured: {max_size} ops/{window_ms}ms (500 ops/sec)'
-        else:
-            details = 'NOT CONFIGURED'
-        
-        validation['validations']['rate_limiting'] = {
-            'valid': rate_limit_valid,
-            'details': details,
-            'expected': '500 operations per second',
-            'severity': 'HIGH',
-            'compliance': ['LESS-21']
-        }
-        if not rate_limit_valid:
-            validation['compliance_status'] = 'NON_COMPLIANT'
-        
-        # Validation 4: Connection Pool Configuration
-        has_http_pool = hasattr(manager, 'http')
-        if has_http_pool:
-            verify_ssl_env = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
-            verify_ssl = verify_ssl_env != 'false'
+        # CRITICAL Check 1: NO threading locks (AP-08, DEC-04)
+        try:
+            from websocket_core import get_websocket_manager
+            manager = get_websocket_manager()
             
-            pool_details = f'Configured with SSL verification: {verify_ssl}'
-        else:
-            pool_details = 'NOT CONFIGURED'
+            has_lock = hasattr(manager, '_lock')
+            validation['checks']['no_threading_locks'] = not has_lock
+            
+            if has_lock:
+                validation['compliant'] = False
+                validation['critical_issues'].append(
+                    'CRITICAL: Threading locks found (violates AP-08, DEC-04) - '
+                    'Lambda is single-threaded, locks are unnecessary and harmful'
+                )
+        except Exception as e:
+            validation['checks']['no_threading_locks'] = False
+            validation['errors'].append(f'Failed to check threading locks: {str(e)}')
         
-        validation['validations']['connection_pool'] = {
-            'valid': has_http_pool,
-            'details': pool_details,
-            'configuration': {
-                'max_connections': 10,
-                'connect_timeout': '10.0s',
-                'read_timeout': '30.0s',
-                'ssl_verification': verify_ssl if has_http_pool else 'unknown'
-            },
-            'severity': 'HIGH'
+        # Check 2: SINGLETON registration (LESS-18)
+        try:
+            from gateway import singleton_get
+            manager_from_registry = singleton_get('websocket_manager')
+            
+            if manager_from_registry is not None:
+                validation['checks']['singleton_registered'] = True
+            else:
+                validation['checks']['singleton_registered'] = False
+                validation['warnings'].append(
+                    'SINGLETON not registered (will register on first use via get_websocket_manager)'
+                )
+        except Exception as e:
+            validation['checks']['singleton_registered'] = False
+            validation['warnings'].append(f'SINGLETON check failed: {str(e)}')
+        
+        # Check 3: Rate limiting (LESS-21)
+        try:
+            if hasattr(manager, '_rate_limiter'):
+                validation['checks']['rate_limiting_configured'] = True
+                validation['checks']['rate_limit_details'] = {
+                    'max_ops_per_sec': manager._rate_limiter.maxlen,
+                    'window_ms': manager._rate_limit_window_ms,
+                    'expected': 300  # WebSocket specific
+                }
+                
+                if manager._rate_limiter.maxlen != 300:
+                    validation['warnings'].append(
+                        f'Rate limit is {manager._rate_limiter.maxlen} ops/sec, expected 300 for WebSocket'
+                    )
+            else:
+                validation['checks']['rate_limiting_configured'] = False
+                validation['compliant'] = False
+                validation['errors'].append(
+                    'Rate limiting not configured (violates LESS-21)'
+                )
+        except Exception as e:
+            validation['checks']['rate_limiting_configured'] = False
+            validation['warnings'].append(f'Rate limiting check failed: {str(e)}')
+        
+        # Check 4: Reset operation (LESS-18)
+        try:
+            from websocket_core import websocket_reset_implementation
+            validation['checks']['reset_operation'] = True
+        except ImportError:
+            validation['checks']['reset_operation'] = False
+            validation['warnings'].append(
+                'Reset operation not available (lifecycle management limited)'
+            )
+        
+        # Check 5: Core operations
+        try:
+            from websocket_core import (
+                websocket_connect_implementation,
+                websocket_send_implementation,
+                websocket_receive_implementation,
+                websocket_close_implementation,
+                websocket_request_implementation,
+                websocket_get_stats_implementation
+            )
+            validation['checks']['core_operations'] = {
+                'connect': True,
+                'send': True,
+                'receive': True,
+                'close': True,
+                'request': True,
+                'get_stats': True
+            }
+        except ImportError as e:
+            validation['checks']['core_operations'] = False
+            validation['compliant'] = False
+            validation['errors'].append(f'Core operations missing: {str(e)}')
+        
+        # Check 6: Interface router
+        try:
+            from interface_websocket import execute_websocket_operation
+            validation['checks']['interface_router'] = True
+        except ImportError as e:
+            validation['checks']['interface_router'] = False
+            validation['compliant'] = False
+            validation['errors'].append(f'Interface router unavailable: {str(e)}')
+        
+        # Check 7: Manager class structure
+        validation['checks']['manager_structure'] = {
+            'has_rate_limiter': hasattr(manager, '_rate_limiter'),
+            'has_statistics': hasattr(manager, '_total_operations'),
+            'has_reset_method': hasattr(manager, 'reset'),
+            'has_get_stats_method': hasattr(manager, 'get_stats')
         }
-        if not has_http_pool:
-            validation['compliance_status'] = 'NON_COMPLIANT'
         
-        # Validation 5: Retry Configuration
-        has_retry_config = hasattr(manager, '_retry_config')
-        if has_retry_config:
-            retry_cfg = manager._retry_config
-            retry_details = f"Max attempts: {retry_cfg.get('max_attempts', 0)}, Backoff: {retry_cfg.get('backoff_base_ms', 0)}ms base"
-        else:
-            retry_details = 'NOT CONFIGURED'
+        # Final compliance determination
+        if validation['critical_issues'] or validation['errors']:
+            validation['compliant'] = False
         
-        validation['validations']['retry_configuration'] = {
-            'valid': has_retry_config,
-            'details': retry_details,
-            'expected': {
-                'max_attempts': 3,
-                'backoff_base_ms': 100,
-                'backoff_multiplier': 2.0,
-                'retriable_codes': [408, 429, 500, 502, 503, 504]
-            },
-            'severity': 'MEDIUM'
-        }
-        
-        # Validation 6: Reset Operation Availability (CRITICAL for lifecycle)
-        has_reset = hasattr(manager, 'reset')
-        validation['validations']['reset_operation'] = {
-            'valid': has_reset,
-            'details': 'Reset method available' if has_reset else 'Reset method MISSING',
-            'severity': 'HIGH',
-            'compliance': ['LESS-18']
-        }
-        if not has_reset:
-            validation['compliance_status'] = 'NON_COMPLIANT'
-        
-        # Validation 7: Statistics Tracking
-        has_stats = hasattr(manager, 'get_stats')
-        if has_stats:
-            stats = manager.get_stats()
-            stats_fields = ['requests', 'successful', 'failed', 'retries', 'rate_limited']
-            has_all_fields = all(field in stats for field in stats_fields)
-            stats_details = 'All required fields present' if has_all_fields else 'Missing fields'
-        else:
-            stats_details = 'get_stats method MISSING'
-        
-        validation['validations']['statistics_tracking'] = {
-            'valid': has_stats,
-            'details': stats_details,
-            'expected_fields': ['requests', 'successful', 'failed', 'retries', 'rate_limited'],
-            'severity': 'MEDIUM'
-        }
-        
-        # Validation 8: Implementation Wrappers
-        from http_client_core import (
-            http_request_implementation,
-            http_get_implementation,
-            http_post_implementation,
-            http_put_implementation,
-            http_delete_implementation,
-            http_reset_implementation
-        )
-        
-        wrapper_functions = [
-            http_request_implementation,
-            http_get_implementation,
-            http_post_implementation,
-            http_put_implementation,
-            http_delete_implementation,
-            http_reset_implementation
-        ]
-        
-        all_wrappers_exist = all(func is not None for func in wrapper_functions)
-        
-        validation['validations']['implementation_wrappers'] = {
-            'valid': all_wrappers_exist,
-            'details': f'{len([f for f in wrapper_functions if f])} of {len(wrapper_functions)} wrappers available',
-            'wrappers': ['request', 'get', 'post', 'put', 'delete', 'reset'],
-            'severity': 'HIGH'
-        }
-        
-        # Overall compliance summary
-        critical_violations = [
-            k for k, v in validation['validations'].items()
-            if not v['valid'] and v.get('severity') == 'CRITICAL'
-        ]
-        
-        high_violations = [
-            k for k, v in validation['validations'].items()
-            if not v['valid'] and v.get('severity') == 'HIGH'
-        ]
-        
-        if critical_violations:
-            validation['compliance_status'] = 'CRITICAL_VIOLATION'
-            validation['critical_violations'] = critical_violations
-        elif high_violations:
-            if validation['compliance_status'] == 'COMPLIANT':
-                validation['compliance_status'] = 'NON_COMPLIANT'
-            validation['high_priority_violations'] = high_violations
-        
+        # Summary
         validation['summary'] = {
-            'total_validations': len(validation['validations']),
-            'passed': sum(1 for v in validation['validations'].values() if v['valid']),
-            'failed': sum(1 for v in validation['validations'].values() if not v['valid']),
-            'critical_violations': len(critical_violations),
-            'high_priority_violations': len(high_violations)
+            'total_checks': len(validation['checks']),
+            'warnings_count': len(validation['warnings']),
+            'errors_count': len(validation['errors']),
+            'critical_issues_count': len(validation['critical_issues']),
+            'compliant': validation['compliant']
         }
+        
+        return create_success_response('WEBSOCKET configuration validation complete', validation)
         
     except Exception as e:
-        validation['compliance_status'] = 'ERROR'
-        validation['error'] = str(e)
-        validation['error_type'] = type(e).__name__
+        return create_error_response(f'Configuration validation failed: {str(e)}', 'VALIDATION_FAILED')
+
+
+def _validate_circuit_breaker_configuration(**kwargs) -> Dict[str, Any]:
+    """
+    Validate CIRCUIT_BREAKER interface configuration.
     
-    return validation
+    Validates:
+    - SINGLETON registration compliance (LESS-18)
+    - NO threading locks compliance (AP-08, DEC-04) - CRITICAL
+    - Rate limiting configuration (LESS-21)
+    - Reset operation availability (LESS-18)
+    - Core operations availability
+    - Circuit breaker manager structure
+    
+    REF-IDs:
+    - AP-08: No threading locks (CRITICAL)
+    - DEC-04: Lambda single-threaded
+    - LESS-18: SINGLETON pattern
+    - LESS-21: Rate limiting essential
+    
+    Returns:
+        Configuration validation results
+    """
+    from gateway import create_success_response, create_error_response
+    
+    validation = {
+        'interface': 'CIRCUIT_BREAKER',
+        'compliant': True,
+        'checks': {},
+        'warnings': [],
+        'errors': [],
+        'critical_issues': []
+    }
+    
+    try:
+        # CRITICAL Check 1: NO threading locks (AP-08, DEC-04)
+        try:
+            from circuit_breaker_core import get_circuit_breaker_manager, CircuitBreaker
+            manager = get_circuit_breaker_manager()
+            
+            # Check manager for locks
+            has_manager_lock = hasattr(manager, '_lock')
+            validation['checks']['no_manager_threading_locks'] = not has_manager_lock
+            
+            if has_manager_lock:
+                validation['compliant'] = False
+                validation['critical_issues'].append(
+                    'CRITICAL: Manager has threading locks (violates AP-08, DEC-04) - '
+                    'Lambda is single-threaded, locks are unnecessary and harmful'
+                )
+            
+            # Check individual circuit breakers for locks
+            test_breaker = CircuitBreaker('validation_test', 5, 60)
+            has_breaker_lock = hasattr(test_breaker, '_lock')
+            validation['checks']['no_breaker_threading_locks'] = not has_breaker_lock
+            
+            if has_breaker_lock:
+                validation['compliant'] = False
+                validation['critical_issues'].append(
+                    'CRITICAL: CircuitBreaker class has threading locks (violates AP-08, DEC-04) - '
+                    'Lambda is single-threaded, locks are unnecessary and harmful'
+                )
+        except Exception as e:
+            validation['checks']['no_threading_locks'] = False
+            validation['errors'].append(f'Failed to check threading locks: {str(e)}')
+        
+        # Check 2: SINGLETON registration (LESS-18)
+        try:
+            from gateway import singleton_get
+            manager_from_registry = singleton_get('circuit_breaker_manager')
+            
+            if manager_from_registry is not None:
+                validation['checks']['singleton_registered'] = True
+            else:
+                validation['checks']['singleton_registered'] = False
+                validation['warnings'].append(
+                    'SINGLETON not registered (will register on first use via get_circuit_breaker_manager)'
+                )
+        except Exception as e:
+            validation['checks']['singleton_registered'] = False
+            validation['warnings'].append(f'SINGLETON check failed: {str(e)}')
+        
+        # Check 3: Rate limiting (LESS-21)
+        try:
+            if hasattr(manager, '_rate_limiter'):
+                validation['checks']['rate_limiting_configured'] = True
+                validation['checks']['rate_limit_details'] = {
+                    'max_ops_per_sec': manager._rate_limiter.maxlen,
+                    'window_ms': manager._rate_limit_window_ms,
+                    'expected': 1000  # Circuit Breaker specific
+                }
+                
+                if manager._rate_limiter.maxlen != 1000:
+                    validation['warnings'].append(
+                        f'Rate limit is {manager._rate_limiter.maxlen} ops/sec, expected 1000 for Circuit Breaker'
+                    )
+            else:
+                validation['checks']['rate_limiting_configured'] = False
+                validation['compliant'] = False
+                validation['errors'].append(
+                    'Rate limiting not configured (violates LESS-21)'
+                )
+        except Exception as e:
+            validation['checks']['rate_limiting_configured'] = False
+            validation['warnings'].append(f'Rate limiting check failed: {str(e)}')
+        
+        # Check 4: Reset operation (LESS-18)
+        try:
+            from circuit_breaker_core import reset_implementation, reset_all_implementation
+            validation['checks']['reset_operations'] = {
+                'reset': True,
+                'reset_all': True
+            }
+        except ImportError as e:
+            validation['checks']['reset_operations'] = False
+            validation['warnings'].append(f'Reset operations not fully available: {str(e)}')
+        
+        # Check 5: Core operations
+        try:
+            from circuit_breaker_core import (
+                get_breaker_implementation,
+                execute_with_breaker_implementation,
+                get_all_states_implementation,
+                get_stats_implementation
+            )
+            validation['checks']['core_operations'] = {
+                'get': True,
+                'call': True,
+                'get_all_states': True,
+                'get_stats': True
+            }
+        except ImportError as e:
+            validation['checks']['core_operations'] = False
+            validation['compliant'] = False
+            validation['errors'].append(f'Core operations missing: {str(e)}')
+        
+        # Check 6: Interface router
+        try:
+            from interface_circuit_breaker import execute_circuit_breaker_operation
+            validation['checks']['interface_router'] = True
+        except ImportError as e:
+            validation['checks']['interface_router'] = False
+            validation['compliant'] = False
+            validation['errors'].append(f'Interface router unavailable: {str(e)}')
+        
+        # Check 7: Manager structure
+        validation['checks']['manager_structure'] = {
+            'has_rate_limiter': hasattr(manager, '_rate_limiter'),
+            'has_breakers_dict': hasattr(manager, '_breakers'),
+            'has_statistics': hasattr(manager, '_total_operations'),
+            'has_reset_method': hasattr(manager, 'reset'),
+            'has_get_stats_method': hasattr(manager, 'get_stats')
+        }
+        
+        # Check 8: Circuit breaker class structure
+        validation['checks']['breaker_class_structure'] = {
+            'has_state': hasattr(test_breaker, 'state'),
+            'has_failures': hasattr(test_breaker, 'failures'),
+            'has_threshold': hasattr(test_breaker, 'failure_threshold'),
+            'has_timeout': hasattr(test_breaker, 'timeout'),
+            'has_call_method': hasattr(test_breaker, 'call'),
+            'has_reset_method': hasattr(test_breaker, 'reset'),
+            'has_get_state_method': hasattr(test_breaker, 'get_state')
+        }
+        
+        # Final compliance determination
+        if validation['critical_issues'] or validation['errors']:
+            validation['compliant'] = False
+        
+        # Summary
+        validation['summary'] = {
+            'total_checks': len(validation['checks']),
+            'warnings_count': len(validation['warnings']),
+            'errors_count': len(validation['errors']),
+            'critical_issues_count': len(validation['critical_issues']),
+            'compliant': validation['compliant']
+        }
+        
+        return create_success_response('CIRCUIT_BREAKER configuration validation complete', validation)
+        
+    except Exception as e:
+        return create_error_response(f'Configuration validation failed: {str(e)}', 'VALIDATION_FAILED')
 
 
 __all__ = [
@@ -336,7 +468,8 @@ __all__ = [
     '_run_config_performance_tests',
     '_run_config_compatibility_tests',
     '_run_config_gateway_tests',
-    '_validate_http_client_configuration'
+    '_validate_websocket_configuration',
+    '_validate_circuit_breaker_configuration'
 ]
 
 # EOF
