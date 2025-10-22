@@ -1,12 +1,7 @@
 """
 debug_performance.py - Debug Performance Operations
-Version: 2025.10.22.01
+Version: 2025.10.14.01
 Description: Performance benchmarking operations for debug subsystem
-
-CHANGES (2025.10.22.01):
-- Added _benchmark_logging_operations()
-- Added _benchmark_security_operations()
-- Added _benchmark_config_operations()
 
 Copyright 2025 Joseph Hersey
 
@@ -86,417 +81,192 @@ def _get_performance_report(**kwargs) -> Dict[str, Any]:
     
     return {
         'success': True,
-        'timestamp': '2025.10.22',
+        'timestamp': '2025.10.14',
         'benchmark': benchmark_results,
         'dispatcher_stats': dispatcher_stats,
         'operation_metrics': operation_metrics
     }
 
 
-def _benchmark_logging_operations(**kwargs) -> Dict[str, Any]:
+def _benchmark_http_client_operations(**kwargs) -> Dict[str, Any]:
     """
-    Benchmark LOGGING interface operations.
+    Benchmark HTTP_CLIENT interface operations.
     
-    Measures:
-    - Log message throughput
-    - Different log levels performance
-    - Format string overhead
-    - Handler latency
+    Benchmarks:
+    1. GET request (100 ops) - Basic HTTP GET
+    2. POST request (100 ops) - HTTP POST with JSON
+    3. Connection setup (50 ops) - New connection overhead
+    4. get_stats (200 ops) - Statistics retrieval
+    5. reset (10 ops) - Reset operation
     
-    Returns:
-        Dict with benchmark results and recommendations
-    """
-    try:
-        import gateway
-        import time
-        
-        results = {}
-        
-        # Benchmark 1: log_info
-        start = time.perf_counter()
-        for i in range(1000):
-            gateway.log_info(f"Test message {i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['log_info'] = {
-            'ops': 1000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
-        }
-        
-        # Benchmark 2: log_error
-        start = time.perf_counter()
-        for i in range(500):
-            gateway.log_error(f"Test error {i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['log_error'] = {
-            'ops': 500,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
-        }
-        
-        # Benchmark 3: log_warning
-        start = time.perf_counter()
-        for i in range(500):
-            gateway.log_warning(f"Test warning {i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['log_warning'] = {
-            'ops': 500,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
-        }
-        
-        # Benchmark 4: log_debug
-        start = time.perf_counter()
-        for i in range(500):
-            gateway.log_debug(f"Test debug {i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['log_debug'] = {
-            'ops': 500,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
-        }
-        
-        # Analyze results and generate recommendations
-        recommendations = []
-        
-        # Check overall throughput
-        avg_ops_per_sec = sum(r['ops_per_sec'] for r in results.values()) / len(results)
-        
-        if avg_ops_per_sec > 50000:
-            recommendations.append("Logging throughput is EXCELLENT")
-        elif avg_ops_per_sec > 20000:
-            recommendations.append("Logging throughput is GOOD")
-        elif avg_ops_per_sec > 10000:
-            recommendations.append("Logging throughput is ACCEPTABLE")
-        else:
-            recommendations.append("Logging throughput is LOW - consider optimization")
-        
-        # Check for latency spikes
-        if results['log_error']['avg_latency_us'] > 100:
-            recommendations.append("log_error has high latency - check error handlers")
-        
-        # Performance rating
-        if avg_ops_per_sec > 20000:
-            performance_rating = "EXCELLENT"
-        elif avg_ops_per_sec > 10000:
-            performance_rating = "GOOD"
-        elif avg_ops_per_sec > 5000:
-            performance_rating = "ACCEPTABLE"
-        else:
-            performance_rating = "POOR"
-        
-        return {
-            'success': True,
-            'component': 'LOGGING',
-            'performance_rating': performance_rating,
-            'results': results,
-            'recommendations': recommendations,
-            'summary': {
-                'total_operations': sum(r['ops'] for r in results.values()),
-                'total_duration_ms': sum(r['duration_ms'] for r in results.values()),
-                'avg_ops_per_sec': round(avg_ops_per_sec, 0),
-                'fastest_operation': max(results.items(), key=lambda x: x[1]['ops_per_sec'])[0],
-                'slowest_operation': min(results.items(), key=lambda x: x[1]['ops_per_sec'])[0]
-            }
-        }
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'component': 'LOGGING',
-            'error': f'Gateway import failed: {str(e)}'
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'component': 'LOGGING',
-            'error': f'Benchmark failed: {str(e)}'
-        }
-
-
-def _benchmark_security_operations(**kwargs) -> Dict[str, Any]:
-    """
-    Benchmark SECURITY interface operations.
+    Total: 460 operations
     
-    Measures:
-    - Validation operation latency
-    - Hash computation performance
-    - Encryption/decryption throughput
-    - Sanitization overhead
+    NOTE: Actual HTTP requests are NOT made during benchmark.
+    This tests the client infrastructure, not network performance.
     
     Returns:
-        Dict with benchmark results and recommendations
+        Dict with benchmark results for each operation
+        
+    REF: LESS-21 (Rate limiting performance impact)
     """
-    try:
-        import gateway
-        import time
-        
-        results = {}
-        
-        # Benchmark 1: validate_string
-        start = time.perf_counter()
-        for i in range(10000):
-            gateway.validate_string("test_string", max_length=100)
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['validate_string'] = {
-            'ops': 10000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(10000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 10000, 2)
-        }
-        
-        # Benchmark 2: hash_data
-        start = time.perf_counter()
-        for i in range(1000):
-            gateway.hash_data(f"test_data_{i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['hash_data'] = {
-            'ops': 1000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
-        }
-        
-        # Benchmark 3: sanitize_input
-        start = time.perf_counter()
-        for i in range(5000):
-            gateway.sanitize_input(f"<script>alert('{i}')</script>")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['sanitize_input'] = {
-            'ops': 5000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(5000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 5000, 2)
-        }
-        
-        # Benchmark 4: generate_correlation_id
-        start = time.perf_counter()
-        for i in range(10000):
-            gateway.generate_correlation_id("test")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['generate_correlation_id'] = {
-            'ops': 10000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(10000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 10000, 2)
-        }
-        
-        # Analyze results and generate recommendations
-        recommendations = []
-        
-        # Check validation performance
-        if results['validate_string']['ops_per_sec'] < 50000:
-            recommendations.append("validate_string: Consider optimization or caching validation rules")
-        
-        # Check hash performance
-        if results['hash_data']['avg_latency_us'] > 1000:
-            recommendations.append("hash_data: HIGH latency, consider faster hash algorithm")
-        
-        # Check sanitization
-        if results['sanitize_input']['ops_per_sec'] < 10000:
-            recommendations.append("sanitize_input: Consider optimization or caching sanitization patterns")
-        
-        # Performance rating
-        avg_ops_per_sec = sum(r['ops_per_sec'] for r in results.values()) / len(results)
-        
-        if avg_ops_per_sec > 50000:
-            performance_rating = "EXCELLENT"
-        elif avg_ops_per_sec > 20000:
-            performance_rating = "GOOD"
-        elif avg_ops_per_sec > 10000:
-            performance_rating = "ACCEPTABLE"
-        else:
-            performance_rating = "POOR"
-            recommendations.append("CRITICAL: Overall SECURITY performance is low")
-        
-        if not recommendations:
-            recommendations.append("SECURITY operations performance is optimal")
-        
-        return {
-            'success': True,
-            'component': 'SECURITY',
-            'performance_rating': performance_rating,
-            'results': results,
-            'recommendations': recommendations,
-            'summary': {
-                'total_operations': sum(r['ops'] for r in results.values()),
-                'total_duration_ms': sum(r['duration_ms'] for r in results.values()),
-                'avg_ops_per_sec': round(avg_ops_per_sec, 0),
-                'fastest_operation': max(results.items(), key=lambda x: x[1]['ops_per_sec'])[0],
-                'slowest_operation': min(results.items(), key=lambda x: x[1]['ops_per_sec'])[0]
-            }
-        }
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'component': 'SECURITY',
-            'error': f'Gateway import failed: {str(e)}'
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'component': 'SECURITY',
-            'error': f'Benchmark failed: {str(e)}'
-        }
-
-
-def _benchmark_config_operations(**kwargs) -> Dict[str, Any]:
-    """
-    Benchmark CONFIG interface operations.
+    from http_client_core import get_http_client_manager
     
-    Measures:
-    - Parameter get/set operations
-    - Configuration validation
-    - Reset operation
-    - Rate limiting overhead
+    benchmark = {
+        'interface': 'HTTP_CLIENT',
+        'timestamp': time.time(),
+        'operations': {},
+        'total_operations': 460
+    }
     
-    Returns:
-        Dict with benchmark results and recommendations
-    """
     try:
-        import gateway
-        import time
+        manager = get_http_client_manager()
         
-        results = {}
-        
-        # Benchmark 1: config_get_parameter
+        # Benchmark 1: GET Request Infrastructure (not actual network call)
+        operation_count = 100
         start = time.perf_counter()
-        for i in range(1000):
-            gateway.config_get_parameter(f"TEST_PARAM_{i % 10}", default="default")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['get_parameter'] = {
-            'ops': 1000,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(1000 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 1000, 2)
-        }
         
-        # Benchmark 2: config_set_parameter
-        start = time.perf_counter()
-        for i in range(500):
-            gateway.config_set_parameter(f"TEST_KEY_{i}", f"test_value_{i}")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['set_parameter'] = {
-            'ops': 500,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
-        }
-        
-        # Benchmark 3: config_validate_parameter
-        start = time.perf_counter()
-        for i in range(200):
-            gateway.config_validate_parameter("TEST_KEY", "test_value")
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['validate_parameter'] = {
-            'ops': 200,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(200 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 200, 2)
-        }
-        
-        # Benchmark 4: config_get_state
-        start = time.perf_counter()
-        for i in range(500):
-            gateway.config_get_state()
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['get_state'] = {
-            'ops': 500,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(500 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 500, 2)
-        }
-        
-        # Benchmark 5: reset operation
-        start = time.perf_counter()
-        for i in range(100):
-            gateway.config_reset()
-        duration_ms = (time.perf_counter() - start) * 1000
-        results['reset'] = {
-            'ops': 100,
-            'duration_ms': round(duration_ms, 2),
-            'ops_per_sec': round(100 / (duration_ms / 1000), 0),
-            'avg_latency_us': round((duration_ms * 1000) / 100, 2)
-        }
-        
-        # Analyze results and generate recommendations
-        recommendations = []
-        
-        # Check get_parameter performance
-        if results['get_parameter']['ops_per_sec'] < 5000:
-            recommendations.append("get_parameter: Consider caching frequently accessed parameters")
-        elif results['get_parameter']['ops_per_sec'] > 50000:
-            recommendations.append("get_parameter: EXCELLENT performance")
-        
-        # Check set_parameter performance
-        if results['set_parameter']['ops_per_sec'] < 1000:
-            recommendations.append("set_parameter: Performance degraded, check validation overhead")
-        
-        # Check validation overhead
-        if results['validate_parameter']['avg_latency_us'] > 500:
-            recommendations.append("validate_parameter: HIGH latency, simplify validation rules")
-        
-        # Check reset performance
-        if results['reset']['avg_latency_us'] > 1000:
-            recommendations.append("reset: Slow operation, optimize state clearing")
-        
-        # Overall assessment
-        avg_ops_per_sec = sum(r['ops_per_sec'] for r in results.values()) / len(results)
-        
-        if avg_ops_per_sec > 20000:
-            performance_rating = "EXCELLENT"
-        elif avg_ops_per_sec > 10000:
-            performance_rating = "GOOD"
-        elif avg_ops_per_sec > 5000:
-            performance_rating = "ACCEPTABLE"
-        else:
-            performance_rating = "POOR"
-            recommendations.append("CRITICAL: Overall CONFIG performance is low")
-        
-        if not recommendations:
-            recommendations.append("CONFIG performance is optimal")
-        
-        return {
-            'success': True,
-            'component': 'CONFIG',
-            'performance_rating': performance_rating,
-            'results': results,
-            'recommendations': recommendations,
-            'summary': {
-                'total_operations': sum(r['ops'] for r in results.values()),
-                'total_duration_ms': sum(r['duration_ms'] for r in results.values()),
-                'avg_ops_per_sec': round(avg_ops_per_sec, 0),
-                'fastest_operation': max(results.items(), key=lambda x: x[1]['ops_per_sec'])[0],
-                'slowest_operation': min(results.items(), key=lambda x: x[1]['ops_per_sec'])[0]
+        for _ in range(operation_count):
+            _ = {
+                'method': 'GET',
+                'url': 'http://test.local/api',
+                'headers': {'Content-Type': 'application/json'}
             }
+        
+        elapsed = time.perf_counter() - start
+        
+        benchmark['operations']['get_request_setup'] = {
+            'operation_count': operation_count,
+            'total_time_ms': round(elapsed * 1000, 3),
+            'avg_time_ms': round((elapsed * 1000) / operation_count, 3),
+            'ops_per_second': round(operation_count / elapsed, 2),
+            'description': 'GET request parameter setup (no network)'
         }
         
-    except ImportError as e:
-        return {
-            'success': False,
-            'component': 'CONFIG',
-            'error': f'Gateway import failed: {str(e)}'
+        # Benchmark 2: POST Request Infrastructure
+        operation_count = 100
+        start = time.perf_counter()
+        
+        for _ in range(operation_count):
+            _ = {
+                'method': 'POST',
+                'url': 'http://test.local/api',
+                'json': {'test': 'data'},
+                'headers': {'Content-Type': 'application/json'}
+            }
+        
+        elapsed = time.perf_counter() - start
+        
+        benchmark['operations']['post_request_setup'] = {
+            'operation_count': operation_count,
+            'total_time_ms': round(elapsed * 1000, 3),
+            'avg_time_ms': round((elapsed * 1000) / operation_count, 3),
+            'ops_per_second': round(operation_count / elapsed, 2),
+            'description': 'POST request parameter setup with JSON (no network)'
         }
+        
+        # Benchmark 3: Manager Retrieval (SINGLETON lookup)
+        operation_count = 50
+        start = time.perf_counter()
+        
+        for _ in range(operation_count):
+            _ = get_http_client_manager()
+        
+        elapsed = time.perf_counter() - start
+        
+        benchmark['operations']['manager_retrieval'] = {
+            'operation_count': operation_count,
+            'total_time_ms': round(elapsed * 1000, 3),
+            'avg_time_ms': round((elapsed * 1000) / operation_count, 3),
+            'ops_per_second': round(operation_count / elapsed, 2),
+            'description': 'SINGLETON manager retrieval'
+        }
+        
+        # Benchmark 4: Get Statistics
+        operation_count = 200
+        start = time.perf_counter()
+        
+        for _ in range(operation_count):
+            _ = manager.get_stats()
+        
+        elapsed = time.perf_counter() - start
+        
+        benchmark['operations']['get_stats'] = {
+            'operation_count': operation_count,
+            'total_time_ms': round(elapsed * 1000, 3),
+            'avg_time_ms': round((elapsed * 1000) / operation_count, 3),
+            'ops_per_second': round(operation_count / elapsed, 2),
+            'description': 'Statistics retrieval'
+        }
+        
+        # Benchmark 5: Reset Operation
+        operation_count = 10
+        start = time.perf_counter()
+        
+        for _ in range(operation_count):
+            manager.reset()
+        
+        elapsed = time.perf_counter() - start
+        
+        benchmark['operations']['reset'] = {
+            'operation_count': operation_count,
+            'total_time_ms': round(elapsed * 1000, 3),
+            'avg_time_ms': round((elapsed * 1000) / operation_count, 3),
+            'ops_per_second': round(operation_count / elapsed, 2),
+            'description': 'Reset operation (recreates connection pool)'
+        }
+        
+        # Calculate totals
+        total_time = sum(op['total_time_ms'] for op in benchmark['operations'].values())
+        total_ops = sum(op['operation_count'] for op in benchmark['operations'].values())
+        
+        benchmark['summary'] = {
+            'total_operations': total_ops,
+            'total_time_ms': round(total_time, 3),
+            'avg_time_per_op_ms': round(total_time / total_ops, 3),
+            'overall_ops_per_second': round((total_ops / total_time) * 1000, 2),
+            'fastest_operation': min(
+                benchmark['operations'].items(),
+                key=lambda x: x[1]['avg_time_ms']
+            )[0],
+            'slowest_operation': max(
+                benchmark['operations'].items(),
+                key=lambda x: x[1]['avg_time_ms']
+            )[0]
+        }
+        
+        # Performance assessment
+        avg_time = benchmark['summary']['avg_time_per_op_ms']
+        if avg_time < 0.1:
+            assessment = 'EXCELLENT - Sub-100μs per operation'
+        elif avg_time < 1.0:
+            assessment = 'GOOD - Sub-millisecond per operation'
+        elif avg_time < 10.0:
+            assessment = 'ACCEPTABLE - Single-digit milliseconds'
+        else:
+            assessment = 'SLOW - Consider optimization'
+        
+        benchmark['summary']['performance_assessment'] = assessment
+        
+        # Note about network operations
+        benchmark['note'] = (
+            'This benchmark tests HTTP client infrastructure only, '
+            'not actual network performance. Real HTTP requests will be '
+            'significantly slower due to network latency, DNS resolution, '
+            'and remote server processing time.'
+        )
+        
     except Exception as e:
-        return {
-            'success': False,
-            'component': 'CONFIG',
-            'error': f'Benchmark failed: {str(e)}'
-        }
+        benchmark['error'] = str(e)
+        benchmark['error_type'] = type(e).__name__
+    
+    return benchmark
 
 
 __all__ = [
     '_run_performance_benchmark',
     '_compare_dispatcher_modes',
     '_get_performance_report',
-    '_benchmark_logging_operations',
-    '_benchmark_security_operations',
-    '_benchmark_config_operations'
+    '_benchmark_http_client_operations'
 ]
 
 # EOF
