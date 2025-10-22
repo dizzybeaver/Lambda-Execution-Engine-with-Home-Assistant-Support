@@ -1,21 +1,15 @@
 """
 metrics_helper.py - Metrics utility functions
-Version: 2025.10.14.04
-Description: Helper functions for metrics operations
+Version: 2025.10.21.01
+Description: Helper functions for metrics operations with security validations
+
+PHASE 1 CHANGES:
+✅ Added dimension value validation to build_metric_key()
+✅ Prevents dimension value injection attacks (Finding 5.3)
+✅ Uses gateway for validation per SIMA pattern (RULE-01)
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 from typing import List, Dict, Optional
@@ -43,16 +37,32 @@ def build_metric_key(name: str, dimensions: Optional[Dict[str, str]] = None) -> 
     """
     Build metric key with optional dimensions.
     
+    SECURITY:
+    - Validates all dimension values (Finding 5.3)
+    - Prevents path traversal attacks in dimensions
+    - Prevents control character injection
+    
     Args:
         name: Base metric name
         dimensions: Optional dimensions dictionary
         
     Returns:
         Formatted metric key with dimensions
+        
+    Raises:
+        ValueError: If any dimension value is invalid
     """
     if not dimensions:
         return name
     
+    # Validate dimension values (Finding 5.3)
+    # Import from gateway per SIMA pattern (RULE-01)
+    from gateway import validate_dimension_value
+    
+    for key, value in dimensions.items():
+        validate_dimension_value(str(value))
+    
+    # Build key with sorted dimensions for consistency
     sorted_dims = sorted(dimensions.items())
     dim_str = ','.join(f"{k}={v}" for k, v in sorted_dims)
     return f"{name}[{dim_str}]"
