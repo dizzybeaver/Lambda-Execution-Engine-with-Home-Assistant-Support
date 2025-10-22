@@ -1,12 +1,7 @@
 """
 debug_diagnostics.py - Debug Diagnostic Operations
-Version: 2025.10.22.01
+Version: 2025.10.14.01
 Description: System diagnostic operations for debug subsystem
-
-CHANGES (2025.10.22.01):
-- Added _diagnose_logging_performance()
-- Added _diagnose_security_performance()
-- Added _diagnose_config_performance()
 
 Copyright 2025 Joseph Hersey
 
@@ -25,6 +20,7 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 import gc
+import time
 
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
@@ -71,312 +67,148 @@ def _diagnose_memory(**kwargs) -> Dict[str, Any]:
     }
 
 
-def _diagnose_logging_performance(**kwargs) -> Dict[str, Any]:
+def _diagnose_http_client_performance(**kwargs) -> Dict[str, Any]:
     """
-    Diagnose LOGGING interface performance.
+    Diagnose HTTP_CLIENT interface performance characteristics.
     
     Analyzes:
-    - Log message throughput
-    - Buffer usage patterns
-    - Rate limiting effectiveness
-    - Handler performance
-    - Format overhead
+    - Request patterns and statistics
+    - Connection pool utilization
+    - Retry behavior and effectiveness
+    - Rate limiting impact
+    - Response time patterns
+    - Error rates and types
+    - SSL verification overhead
     
     Returns:
-        Dict with performance analysis and recommendations
+        Dict with performance diagnostics
+        
+    REF: LESS-21 (Rate limiting performance impact)
+    REF: DEC-04 (Lambda performance characteristics)
     """
+    from http_client_core import get_http_client_manager
+    
+    diagnostics = {
+        'interface': 'HTTP_CLIENT',
+        'timestamp': time.time(),
+        'analysis': {}
+    }
+    
     try:
-        import gateway
+        manager = get_http_client_manager()
+        stats = manager.get_stats()
         
-        # Get logging stats
-        stats = gateway.get_logging_stats()
+        # Analysis 1: Request statistics
+        total_requests = stats.get('requests', 0)
+        successful = stats.get('successful', 0)
+        failed = stats.get('failed', 0)
+        retries = stats.get('retries', 0)
+        rate_limited = stats.get('rate_limited', 0)
         
-        insights = []
+        success_rate = (successful / total_requests * 100) if total_requests > 0 else 0
+        failure_rate = (failed / total_requests * 100) if total_requests > 0 else 0
+        retry_rate = (retries / total_requests * 100) if total_requests > 0 else 0
+        
+        diagnostics['analysis']['request_statistics'] = {
+            'total_requests': total_requests,
+            'successful': successful,
+            'failed': failed,
+            'retries': retries,
+            'rate_limited': rate_limited,
+            'success_rate_percent': round(success_rate, 2),
+            'failure_rate_percent': round(failure_rate, 2),
+            'retry_rate_percent': round(retry_rate, 2),
+            'assessment': 'Good' if success_rate >= 95 else 'Needs attention' if success_rate >= 80 else 'Poor'
+        }
+        
+        # Analysis 2: Rate limiting impact
+        if total_requests > 0:
+            rate_limit_impact = (rate_limited / total_requests * 100)
+            diagnostics['analysis']['rate_limiting_impact'] = {
+                'rate_limited_requests': rate_limited,
+                'percentage_of_total': round(rate_limit_impact, 2),
+                'current_queue_size': stats.get('rate_limiter_size', 0),
+                'max_queue_size': 500,
+                'limit_per_second': 500,
+                'assessment': 'Effective' if rate_limit_impact < 1 else 'High traffic' if rate_limit_impact < 5 else 'Overloaded'
+            }
+        else:
+            diagnostics['analysis']['rate_limiting_impact'] = {
+                'rate_limited_requests': 0,
+                'percentage_of_total': 0,
+                'assessment': 'No traffic yet'
+            }
+        
+        # Analysis 3: Retry effectiveness
+        if retries > 0:
+            diagnostics['analysis']['retry_effectiveness'] = {
+                'total_retries': retries,
+                'retry_rate_percent': round(retry_rate, 2),
+                'max_attempts': 3,
+                'backoff_strategy': 'Exponential (100ms base, 2.0 multiplier)',
+                'assessment': 'Normal' if retry_rate < 10 else 'High retry rate - check network'
+            }
+        else:
+            diagnostics['analysis']['retry_effectiveness'] = {
+                'total_retries': 0,
+                'assessment': 'No retries needed - good network conditions'
+            }
+        
+        # Analysis 4: Connection pool configuration
+        if hasattr(manager, 'http'):
+            diagnostics['analysis']['connection_pool'] = {
+                'pool_configured': True,
+                'max_connections': 10,
+                'connect_timeout_sec': 10.0,
+                'read_timeout_sec': 30.0,
+                'ssl_verification': 'Enabled (HOME_ASSISTANT_VERIFY_SSL != false)',
+                'assessment': 'Configured'
+            }
+        else:
+            diagnostics['analysis']['connection_pool'] = {
+                'pool_configured': False,
+                'assessment': 'Pool not initialized'
+            }
+        
+        # Analysis 5: Performance recommendations
         recommendations = []
-        metrics = {}
         
-        # Analyze message counts
-        total_messages = stats.get('total_messages', 0)
-        if total_messages == 0:
-            insights.append("No log messages recorded yet")
-            recommendations.append("Initialize logging to start collecting metrics")
-        elif total_messages < 1000:
-            insights.append(f"Logging: {total_messages} messages (light usage)")
-        elif total_messages < 10000:
-            insights.append(f"Logging: {total_messages} messages (moderate usage)")
-        else:
-            insights.append(f"Logging: {total_messages} messages (heavy usage)")
-            recommendations.append("Consider log rotation or archival strategy")
+        if failure_rate > 10:
+            recommendations.append('High failure rate - check network connectivity and target service health')
         
-        metrics['total_messages'] = total_messages
+        if retry_rate > 15:
+            recommendations.append('High retry rate - consider increasing timeouts or checking network stability')
         
-        # Analyze by level
-        by_level = stats.get('by_level', {})
-        error_count = by_level.get('ERROR', 0)
-        warning_count = by_level.get('WARNING', 0)
+        if rate_limit_impact > 5:
+            recommendations.append('High rate limiting - consider implementing request batching or caching')
         
-        if error_count > 0:
-            error_rate = (error_count / total_messages * 100) if total_messages > 0 else 0
-            if error_rate > 10:
-                insights.append(f"HIGH error rate: {error_rate:.1f}% ({error_count} errors)")
-                recommendations.append("CRITICAL: Investigate error patterns")
-            else:
-                insights.append(f"Error rate: {error_rate:.1f}% ({error_count} errors)")
-        
-        if warning_count > 0:
-            warning_rate = (warning_count / total_messages * 100) if total_messages > 0 else 0
-            if warning_rate > 20:
-                insights.append(f"HIGH warning rate: {warning_rate:.1f}%")
-                recommendations.append("Review warning patterns for potential issues")
-        
-        metrics['by_level'] = by_level
-        
-        # Performance rating
-        if error_count > total_messages * 0.1:
-            performance_rating = "POOR"
-        elif warning_count > total_messages * 0.2:
-            performance_rating = "DEGRADED"
-        else:
-            performance_rating = "GOOD"
+        if total_requests == 0:
+            recommendations.append('No requests processed yet - HTTP client is initialized but unused')
         
         if not recommendations:
-            recommendations.append("Logging performance is optimal")
+            recommendations.append('Performance looks good - no immediate concerns')
         
-        return {
-            'success': True,
-            'interface': 'LOGGING',
-            'performance_rating': performance_rating,
-            'insights': insights,
-            'recommendations': recommendations,
-            'metrics': metrics
+        diagnostics['analysis']['recommendations'] = recommendations
+        
+        # Analysis 6: Cold start impact estimation
+        diagnostics['analysis']['cold_start_impact'] = {
+            'urllib3_preloaded': True,
+            'estimated_overhead_ms': 5,
+            'assessment': 'Minimal - urllib3 preloaded in lambda_preload'
         }
         
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'LOGGING'
-        }
     except Exception as e:
-        return {
-            'success': False,
-            'error': f'Performance diagnosis failed: {str(e)}',
-            'interface': 'LOGGING'
-        }
-
-
-def _diagnose_security_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose SECURITY interface performance.
+        diagnostics['error'] = str(e)
+        diagnostics['error_type'] = type(e).__name__
     
-    Analyzes:
-    - Validation operation latency
-    - Encryption/decryption throughput
-    - Rate limiting effectiveness
-    - Token validation performance
-    - Hash computation overhead
-    
-    Returns:
-        Dict with performance analysis and recommendations
-    """
-    try:
-        import gateway
-        
-        insights = []
-        recommendations = []
-        metrics = {}
-        
-        # Check if security operations are available
-        try:
-            test_result = gateway.validate_string("test", max_length=10)
-            insights.append("Security validation operations: AVAILABLE")
-        except Exception as e:
-            insights.append(f"Security validation operations: ERROR - {str(e)}")
-            recommendations.append("CRITICAL: Fix security validation errors")
-        
-        # Estimate typical operation costs
-        insights.append("Typical operation costs (estimated):")
-        insights.append("  - validate_string: <1ms")
-        insights.append("  - hash_data: 1-5ms")
-        insights.append("  - encrypt/decrypt: 5-20ms")
-        
-        recommendations.append("Security operations have minimal overhead")
-        recommendations.append("Monitor for any validation bottlenecks in production")
-        
-        performance_rating = "GOOD"
-        
-        return {
-            'success': True,
-            'interface': 'SECURITY',
-            'performance_rating': performance_rating,
-            'insights': insights,
-            'recommendations': recommendations,
-            'metrics': metrics
-        }
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'SECURITY'
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f'Performance diagnosis failed: {str(e)}',
-            'interface': 'SECURITY'
-        }
-
-
-def _diagnose_config_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose CONFIG interface performance.
-    
-    Analyzes:
-    - Rate limiting effectiveness
-    - Parameter operation performance
-    - SSM vs environment variable usage
-    - Configuration reload patterns
-    - Cache hit rates
-    
-    Returns:
-        Dict with performance analysis and recommendations
-    """
-    try:
-        import gateway
-        
-        # Get state info
-        state = gateway.config_get_state()
-        
-        insights = []
-        recommendations = []
-        metrics = {}
-        
-        # Analyze rate limiting
-        rate_limited_count = state.get('rate_limited_count', 0)
-        
-        if rate_limited_count == 0:
-            insights.append("Rate limiting: No rejections (healthy)")
-        elif rate_limited_count < 10:
-            insights.append(f"Rate limiting: {rate_limited_count} rejections (acceptable)")
-        elif rate_limited_count < 100:
-            insights.append(f"Rate limiting: {rate_limited_count} rejections (moderate)")
-            recommendations.append("Monitor config operation frequency")
-        else:
-            insights.append(f"Rate limiting: {rate_limited_count} rejections (HIGH)")
-            recommendations.append("CRITICAL: Review config operation patterns, possible abuse")
-        
-        metrics['rate_limited_count'] = rate_limited_count
-        
-        # Analyze Parameter Store usage
-        use_parameter_store = state.get('use_parameter_store', False)
-        parameter_prefix = state.get('parameter_prefix', '/lambda-execution-engine')
-        
-        if use_parameter_store:
-            insights.append(f"Parameter Store ENABLED: Using prefix '{parameter_prefix}'")
-            insights.append("Priority: SSM → Environment → Default")
-            recommendations.append("Ensure SSM parameters are cached to minimize API calls")
-        else:
-            insights.append("Parameter Store DISABLED: Using environment variables only")
-            insights.append("Priority: Environment → Default")
-            recommendations.append("Consider enabling USE_PARAMETER_STORE=true for centralized config")
-        
-        metrics['use_parameter_store'] = use_parameter_store
-        metrics['parameter_prefix'] = parameter_prefix
-        
-        # Analyze configuration keys
-        config_keys = state.get('config_keys', [])
-        key_count = len(config_keys)
-        
-        if key_count == 0:
-            insights.append("Configuration EMPTY: No parameters loaded")
-            recommendations.append("Initialize configuration with config_initialize()")
-        elif key_count < 10:
-            insights.append(f"Configuration: {key_count} parameters (light)")
-        elif key_count < 50:
-            insights.append(f"Configuration: {key_count} parameters (moderate)")
-        else:
-            insights.append(f"Configuration: {key_count} parameters (heavy)")
-            recommendations.append("Consider categorizing config for better organization")
-        
-        metrics['config_key_count'] = key_count
-        metrics['config_keys'] = config_keys
-        
-        # Check initialization status
-        initialized = state.get('initialized', False)
-        
-        if initialized:
-            insights.append("Initialization: COMPLETE")
-        else:
-            insights.append("Initialization: PENDING")
-            recommendations.append("Call config_initialize() to load configuration")
-        
-        metrics['initialized'] = initialized
-        
-        # Estimate cold start impact
-        cold_start_estimate_ms = 0
-        
-        if use_parameter_store:
-            # SSM calls add ~50-100ms per parameter
-            cold_start_estimate_ms += key_count * 75
-            insights.append(f"Cold start estimate: ~{cold_start_estimate_ms}ms (SSM enabled)")
-            
-            if cold_start_estimate_ms > 500:
-                recommendations.append("HIGH cold start impact: Consider caching SSM parameters")
-        else:
-            # Environment variables are instant
-            cold_start_estimate_ms = key_count * 0.1
-            insights.append(f"Cold start estimate: ~{cold_start_estimate_ms:.1f}ms (environment only)")
-        
-        metrics['cold_start_estimate_ms'] = cold_start_estimate_ms
-        
-        # Overall performance rating
-        if rate_limited_count > 100:
-            performance_rating = "POOR"
-        elif cold_start_estimate_ms > 500:
-            performance_rating = "DEGRADED"
-        elif not initialized:
-            performance_rating = "UNINITIALIZED"
-        else:
-            performance_rating = "GOOD"
-        
-        return {
-            'success': True,
-            'interface': 'CONFIG',
-            'performance_rating': performance_rating,
-            'insights': insights,
-            'recommendations': recommendations,
-            'metrics': metrics,
-            'summary': {
-                'rate_limited_count': rate_limited_count,
-                'config_keys': key_count,
-                'use_parameter_store': use_parameter_store,
-                'initialized': initialized,
-                'cold_start_ms': cold_start_estimate_ms
-            }
-        }
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'CONFIG'
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f'Performance diagnosis failed: {str(e)}',
-            'interface': 'CONFIG'
-        }
+    return diagnostics
 
 
 __all__ = [
     '_diagnose_system_health',
     '_diagnose_performance',
     '_diagnose_memory',
-    '_diagnose_logging_performance',
-    '_diagnose_security_performance',
-    '_diagnose_config_performance'
+    '_diagnose_http_client_performance'
 ]
 
 # EOF
