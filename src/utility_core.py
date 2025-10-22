@@ -1,7 +1,13 @@
 """
 utility_core.py - Core Utility Implementation (Internal)
-Version: 2025.10.16.04
-Description: SharedUtilityCore class with data operations, validation, and performance
+Version: 2025.10.21.01
+Description: PHASE 2 TASK 2.6 - Added time_operation() for centralized timing functionality
+
+CHANGELOG:
+- 2025.10.21.01: PHASE 2 TASK 2.6 - Move timing to UTILITY interface
+  - Added: time_operation() function for executing and timing operations
+  - Purpose: Centralize timing logic, eliminate METRICS duplication
+  - Pattern: Execute function, return (result, duration_ms) tuple
 
 SUGA-ISP: Internal module - only accessed via interface_utility.py
 
@@ -14,12 +20,45 @@ import time
 import uuid
 import threading
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, Tuple
 import logging as stdlib_logging
 
 from utility_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
 
 logger = stdlib_logging.getLogger(__name__)
+
+
+# ===== TIMING UTILITY =====
+
+def time_operation(
+    func: Callable,
+    *args,
+    **kwargs
+) -> Tuple[Any, float]:
+    """
+    Execute operation and return result with duration.
+    
+    Centralized timing utility that eliminates timing duplication across interfaces.
+    Used by METRICS and other interfaces for consistent timing measurements.
+    
+    Args:
+        func: Function to execute and time
+        *args: Positional arguments for func
+        **kwargs: Keyword arguments for func
+        
+    Returns:
+        Tuple of (result, duration_ms) where:
+        - result: Return value from func
+        - duration_ms: Execution time in milliseconds
+        
+    Example:
+        >>> result, duration = time_operation(expensive_function, arg1, arg2)
+        >>> print(f"Completed in {duration:.2f}ms")
+    """
+    start = time.perf_counter()
+    result = func(*args, **kwargs)
+    duration_ms = (time.perf_counter() - start) * 1000
+    return result, duration_ms
 
 
 # ===== CONSOLIDATED UTILITY CORE =====
@@ -406,6 +445,7 @@ class SharedUtilityCore:
 
 __all__ = [
     'SharedUtilityCore',
+    'time_operation',
 ]
 
 # EOF
