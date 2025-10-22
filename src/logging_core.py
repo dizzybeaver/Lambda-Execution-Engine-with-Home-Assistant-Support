@@ -210,6 +210,13 @@ def _execute_log_operation_success_implementation(operation_name: str, duration_
     core.log(f"Operation completed: {operation_name} ({duration_ms:.2f}ms)", 
              level=logging.INFO, **kwargs)
 
+# Add to logging_core.py
+def _execute_log_reset_implementation(**kwargs) -> bool:
+    """Reset logging core (Phase 1 addition)."""
+    _print_debug("_execute_log_reset_implementation called")
+    core = get_logging_core()
+    return core.reset()
+
 def _execute_log_operation_failure_implementation(operation_name: str, error: Union[str, Exception], **kwargs) -> None:
     """
     Log operation failure with sanitized error.
@@ -245,6 +252,7 @@ __all__ = [
     '_execute_log_operation_start_implementation',
     '_execute_log_operation_success_implementation',
     '_execute_log_operation_failure_implementation',
+    
 ]
 
 # EOF
