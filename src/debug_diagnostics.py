@@ -1,9 +1,7 @@
 """
 debug_diagnostics.py - Debug Diagnostic Operations
-Version: 2025.10.21.01
+Version: 2025.10.14.01
 Description: System diagnostic operations for debug subsystem
-CHANGELOG:
-- 2025.10.21.01: Added _diagnose_metrics_performance() for METRICS Phase 3
 
 Copyright 2025 Joseph Hersey
 
@@ -22,7 +20,6 @@ Copyright 2025 Joseph Hersey
 
 from typing import Dict, Any
 import gc
-import sys
 
 
 def _diagnose_system_health(**kwargs) -> Dict[str, Any]:
@@ -69,111 +66,82 @@ def _diagnose_memory(**kwargs) -> Dict[str, Any]:
     }
 
 
-def _diagnose_metrics_performance(**kwargs) -> Dict[str, Any]:
+def _diagnose_cache_performance(**kwargs) -> Dict[str, Any]:
     """
-    Deep performance diagnostics for METRICS interface.
+    Deep performance diagnostics for cache subsystem (CACHE Phase 3).
     
-    Analyzes:
-    - Hot metrics (most frequent)
-    - Memory breakdown per metric
-    - Slow operations
+    Analysis:
+    - Memory distribution analysis
+    - Entry size analysis
+    - TTL distribution
+    - Module dependency mapping
     - Optimization recommendations
     
     Returns:
         Dict with:
         - success: bool
-        - hot_metrics: list of (name, count) tuples
-        - largest_metrics: list of (name, bytes) tuples
-        - total_memory_bytes: int
-        - recommendations: list of optimization suggestions
-        
-    Example:
-        result = _diagnose_metrics_performance()
-        # {
-        #     'success': True,
-        #     'hot_metrics': [('operation.count', 5000), ...],
-        #     'largest_metrics': [('http.requests', 128000), ...],
-        #     'total_memory_bytes': 450000,
-        #     'recommendations': [
-        #         'Fast path candidates: operation.count, cache.hit',
-        #         'High memory (450KB), consider limits'
-        #     ]
-        # }
+        - memory_analysis: Dict
+        - module_dependencies: Set[str]
+        - recommendations: List[str]
     """
     try:
-        from metrics_core import _MANAGER
+        from gateway import cache_get_stats, cache_get_module_dependencies
         
-        # Analyze metric distribution (frequency)
-        metric_sizes = {
-            name: len(values)
-            for name, values in _MANAGER._metrics.items()
-        }
+        stats = cache_get_stats()
+        modules = cache_get_module_dependencies()
         
-        # Top 10 hot metrics (by call count)
-        hot_metrics = sorted(
-            metric_sizes.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:10]
+        # Memory analysis
+        memory_bytes = stats.get('memory_bytes', 0)
+        memory_mb = stats.get('memory_mb', 0)
+        memory_utilization = stats.get('memory_utilization_percent', 0)
+        max_mb = stats.get('max_mb', 100)
         
-        # Memory analysis per metric
-        memory_per_metric = {
-            name: sys.getsizeof(values)
-            for name, values in _MANAGER._metrics.items()
-        }
-        
-        # Top 10 largest metrics (by memory)
-        largest = sorted(
-            memory_per_metric.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:10]
-        
-        total_memory = sum(memory_per_metric.values())
-        
-        # Generate optimization recommendations
+        # Generate recommendations
         recommendations = []
         
-        # Recommend fast path for hot metrics
-        if hot_metrics:
-            top_3 = ', '.join(m[0] for m in hot_metrics[:3])
+        # Memory recommendations
+        if memory_utilization > 80:
             recommendations.append(
-                f"Fast path candidates: {top_3}"
+                f"High memory utilization ({memory_utilization:.1f}%), consider increasing MAX_CACHE_BYTES"
             )
         
-        # Memory warning
-        if total_memory > 1_000_000:
+        if memory_mb > 50:
             recommendations.append(
-                f"High memory ({total_memory/1024:.1f}KB), consider limits"
+                f"Cache using {memory_mb:.1f}MB, monitor for memory pressure"
             )
         
-        # Check for metrics with excessive value counts
-        excessive = [
-            name for name, count in metric_sizes.items()
-            if count > 1000
-        ]
-        if excessive:
+        # Entry count recommendations
+        entry_count = stats.get('size', 0)
+        if entry_count > 5000:
             recommendations.append(
-                f"Metrics exceeding 1000 values: {len(excessive)} metrics"
+                f"High entry count ({entry_count}), consider shorter TTL or cleanup"
             )
         
-        # Check for large individual metrics
-        large_metrics = [
-            name for name, size in memory_per_metric.items()
-            if size > 100_000
-        ]
-        if large_metrics:
+        # Rate limiting recommendations
+        rate_limited = stats.get('rate_limited_count', 0)
+        if rate_limited > 0:
             recommendations.append(
-                f"Large metrics (>100KB): {', '.join(large_metrics[:3])}"
+                f"Rate limiting active ({rate_limited} drops), possible DoS or bug"
+            )
+        
+        # Module dependencies
+        if len(modules) > 10:
+            recommendations.append(
+                f"Many module dependencies ({len(modules)}), LUGS may unload frequently"
             )
         
         return {
             'success': True,
-            'hot_metrics': hot_metrics,
-            'largest_metrics': largest,
-            'total_memory_bytes': total_memory,
-            'unique_metrics': len(metric_sizes),
-            'recommendations': recommendations
+            'memory_analysis': {
+                'current_mb': memory_mb,
+                'max_mb': max_mb,
+                'utilization_percent': memory_utilization,
+                'entry_count': entry_count
+            },
+            'module_dependencies': list(modules),
+            'module_count': len(modules),
+            'rate_limited_count': rate_limited,
+            'recommendations': recommendations if recommendations else ['Cache healthy, no optimization needed']
         }
     except Exception as e:
         return {
@@ -186,7 +154,7 @@ __all__ = [
     '_diagnose_system_health',
     '_diagnose_performance',
     '_diagnose_memory',
-    '_diagnose_metrics_performance'
+    '_diagnose_cache_performance'
 ]
 
 # EOF
