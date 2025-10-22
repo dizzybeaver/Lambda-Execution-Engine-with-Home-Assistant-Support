@@ -21,7 +21,7 @@ def _run_performance_benchmark(**kwargs) -> Dict[str, Any]:
     """Run performance benchmark with dispatcher metrics."""
     try:
         from gateway import cache_get, cache_set, log_info, get_metrics_stats
-        from debug.debug_stats import _get_dispatcher_stats
+        from debug_stats import _get_dispatcher_stats
         
         start = time.time()
         cache_set('benchmark_key', 'test_value', ttl=60)
@@ -268,7 +268,7 @@ def _benchmark_security_operations(**kwargs) -> Dict[str, Any]:
 
 def _get_performance_report(**kwargs) -> Dict[str, Any]:
     """Get comprehensive performance report."""
-    from debug.debug_stats import _get_dispatcher_stats, _get_operation_metrics
+    from debug_stats import _get_dispatcher_stats, _get_operation_metrics
     
     benchmark_results = _run_performance_benchmark()
     
