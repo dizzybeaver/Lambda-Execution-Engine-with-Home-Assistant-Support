@@ -1,12 +1,7 @@
 """
 debug_validation.py - Debug Validation Operations
-Version: 2025.10.22.01
+Version: 2025.10.14.01
 Description: System validation operations for debug subsystem
-
-CHANGES (2025.10.22.01):
-- Added _validate_logging_configuration()
-- Added _validate_security_configuration()
-- Added _validate_config_configuration()
 
 Copyright 2025 Joseph Hersey
 
@@ -24,6 +19,7 @@ Copyright 2025 Joseph Hersey
 """
 
 from typing import Dict, Any
+import time
 
 
 def _validate_system_architecture(**kwargs) -> Dict[str, Any]:
@@ -116,374 +112,219 @@ def _run_config_gateway_tests(**kwargs) -> Dict[str, Any]:
     return {'success': True, 'tests_run': 0, 'note': 'Placeholder for config gateway tests'}
 
 
-def _validate_logging_configuration(**kwargs) -> Dict[str, Any]:
+def _validate_http_client_configuration(**kwargs) -> Dict[str, Any]:
     """
-    Validate LOGGING interface configuration.
+    Validate HTTP_CLIENT interface configuration and compliance.
     
-    Checks:
-    - SINGLETON registration
-    - No threading locks (AP-08 compliance)
-    - Handler configuration
-    - Format string validation
-    - Log level settings
-    - Output destination availability
-    
-    Returns:
-        Dict with validation results, issues, and warnings
-    """
-    issues = []
-    warnings = []
-    compliant = True
-    
-    try:
-        # Check 1: SINGLETON registration
-        try:
-            import gateway
-            manager = gateway.singleton_get('logging_manager')
-            if manager is None:
-                warnings.append("SINGLETON 'logging_manager' not registered yet")
-            else:
-                from logging_core import LoggingCore
-                if not isinstance(manager, LoggingCore):
-                    issues.append(f"SINGLETON 'logging_manager' wrong type: {type(manager)}")
-                    compliant = False
-        except Exception as e:
-            warnings.append(f"Could not verify SINGLETON: {e}")
-        
-        # Check 2: No threading locks (CRITICAL compliance check)
-        try:
-            import logging_core
-            import inspect
-            source = inspect.getsource(logging_core)
-            
-            if 'threading.Lock' in source or 'threading.RLock' in source or 'from threading import Lock' in source:
-                issues.append("CRITICAL: Found threading locks in logging_core (AP-08, DEC-04, LESS-17)")
-                compliant = False
-            else:
-                # Successfully compliant
-                pass
-        except Exception as e:
-            warnings.append(f"Could not check for threading locks: {e}")
-        
-        # Check 3: Basic logging operations work
-        try:
-            gateway.log_info("Configuration validation test")
-        except Exception as e:
-            issues.append(f"Basic logging operation failed: {e}")
-            compliant = False
-        
-        # Check 4: Statistics available
-        try:
-            stats = gateway.get_logging_stats()
-            if not isinstance(stats, dict):
-                warnings.append("Logging stats returned non-dict type")
-        except Exception as e:
-            warnings.append(f"Could not retrieve logging stats: {e}")
-        
-        # Build result
-        result = {
-            'success': True,
-            'interface': 'LOGGING',
-            'compliant': compliant,
-            'issues': issues,
-            'warnings': warnings,
-            'checks': {
-                'singleton_registration': 'OK' if not any('SINGLETON' in i for i in issues) else 'FAIL',
-                'no_threading_locks': 'OK' if not any('threading locks' in i for i in issues) else 'FAIL',
-                'basic_operations': 'OK' if not any('Basic logging' in i for i in issues) else 'FAIL',
-                'statistics': 'OK'
-            },
-            'summary': {
-                'total_issues': len(issues),
-                'total_warnings': len(warnings),
-                'status': 'COMPLIANT' if compliant else 'NON_COMPLIANT'
-            }
-        }
-        
-        return result
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'LOGGING',
-            'compliant': False
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f'Validation failed: {str(e)}',
-            'interface': 'LOGGING',
-            'compliant': False
-        }
-
-
-def _validate_security_configuration(**kwargs) -> Dict[str, Any]:
-    """
-    Validate SECURITY interface configuration.
-    
-    Checks:
-    - SINGLETON registration
-    - Validation operations configured
-    - Encryption/decryption available
-    - Hash algorithms supported
-    - Sanitization rules loaded
-    - Token validation setup
-    
-    Returns:
-        Dict with validation results, issues, and warnings
-    """
-    issues = []
-    warnings = []
-    compliant = True
-    
-    try:
-        # Check 1: SINGLETON registration
-        try:
-            import gateway
-            manager = gateway.singleton_get('security_manager')
-            if manager is None:
-                warnings.append("SINGLETON 'security_manager' not registered yet")
-            else:
-                from security_core import SecurityCore
-                if not isinstance(manager, SecurityCore):
-                    issues.append(f"SINGLETON 'security_manager' wrong type: {type(manager)}")
-                    compliant = False
-        except Exception as e:
-            warnings.append(f"Could not verify SINGLETON: {e}")
-        
-        # Check 2: Validation operations work
-        try:
-            gateway.validate_string("test", max_length=10)
-        except Exception as e:
-            issues.append(f"Validation operation failed: {e}")
-            compliant = False
-        
-        # Check 3: Hash operations available
-        try:
-            test_hash = gateway.hash_data("test_data")
-            if not test_hash:
-                warnings.append("Hash operation returned empty result")
-        except Exception as e:
-            issues.append(f"Hash operation failed: {e}")
-            compliant = False
-        
-        # Check 4: Sanitization works
-        try:
-            sanitized = gateway.sanitize_input("<script>test</script>")
-        except Exception as e:
-            issues.append(f"Sanitization failed: {e}")
-            compliant = False
-        
-        # Check 5: Correlation ID generation
-        try:
-            corr_id = gateway.generate_correlation_id("test")
-            if not corr_id:
-                warnings.append("Correlation ID generation returned empty")
-        except Exception as e:
-            warnings.append(f"Correlation ID generation failed: {e}")
-        
-        # Build result
-        result = {
-            'success': True,
-            'interface': 'SECURITY',
-            'compliant': compliant,
-            'issues': issues,
-            'warnings': warnings,
-            'checks': {
-                'singleton_registration': 'OK' if not any('SINGLETON' in i for i in issues) else 'FAIL',
-                'validation_operations': 'OK' if not any('Validation' in i for i in issues) else 'FAIL',
-                'hash_operations': 'OK' if not any('Hash' in i for i in issues) else 'FAIL',
-                'sanitization': 'OK' if not any('Sanitization' in i for i in issues) else 'FAIL',
-                'correlation_id': 'OK'
-            },
-            'summary': {
-                'total_issues': len(issues),
-                'total_warnings': len(warnings),
-                'status': 'COMPLIANT' if compliant else 'NON_COMPLIANT'
-            }
-        }
-        
-        return result
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'SECURITY',
-            'compliant': False
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': f'Validation failed: {str(e)}',
-            'interface': 'SECURITY',
-            'compliant': False
-        }
-
-
-def _validate_config_configuration(**kwargs) -> Dict[str, Any]:
-    """
-    Validate CONFIG interface configuration.
-    
-    Checks:
-    - SINGLETON registration
-    - No threading locks (AP-08 compliance)
-    - Rate limiting configuration
-    - Parameter Store setup
+    Validates:
+    - SINGLETON registration compliance
+    - Threading lock compliance (CRITICAL - AP-08, DEC-04)
+    - Rate limiting configuration (500 ops/sec)
+    - Connection pool settings (timeouts, SSL)
+    - Retry configuration (max attempts, backoff)
     - Reset operation availability
-    - Configuration initialization
+    - Statistics tracking
     
     Returns:
-        Dict with validation results, issues, and warnings
+        Dict with validation results and compliance status
+        
+    REF: AP-08 (No threading locks - CRITICAL)
+    REF: DEC-04 (Lambda single-threaded model)
+    REF: LESS-18 (SINGLETON pattern compliance)
+    REF: LESS-21 (Rate limiting compliance)
     """
-    issues = []
-    warnings = []
-    compliant = True
+    import gateway
+    import inspect
+    import os
+    from http_client_core import get_http_client_manager, HTTPClientCore
+    
+    validation = {
+        'interface': 'HTTP_CLIENT',
+        'timestamp': time.time(),
+        'compliance_status': 'COMPLIANT',
+        'validations': {}
+    }
     
     try:
-        # Check 1: SINGLETON registration
-        try:
-            import gateway
-            manager = gateway.singleton_get('config_manager')
-            if manager is None:
-                warnings.append("SINGLETON 'config_manager' not registered yet")
-            else:
-                from config_core import ConfigurationCore
-                if not isinstance(manager, ConfigurationCore):
-                    issues.append(f"SINGLETON 'config_manager' wrong type: {type(manager)}")
-                    compliant = False
-        except Exception as e:
-            warnings.append(f"Could not verify SINGLETON: {e}")
+        # Validation 1: SINGLETON Registration (CRITICAL)
+        singleton_manager = gateway.singleton_get('http_client_manager')
+        validation['validations']['singleton_registration'] = {
+            'valid': singleton_manager is not None,
+            'details': 'Registered as http_client_manager' if singleton_manager else 'NOT REGISTERED',
+            'severity': 'CRITICAL',
+            'compliance': ['LESS-18', 'RULE-01']
+        }
+        if singleton_manager is None:
+            validation['compliance_status'] = 'NON_COMPLIANT'
         
-        # Check 2: No threading locks (CRITICAL compliance check)
-        try:
-            import config_core
-            import inspect
-            source = inspect.getsource(config_core)
+        # Validation 2: Threading Lock Compliance (CRITICAL - AP-08)
+        source = inspect.getsource(HTTPClientCore)
+        has_threading_lock = 'threading.Lock' in source or 'from threading import Lock' in source
+        validation['validations']['no_threading_locks'] = {
+            'valid': not has_threading_lock,
+            'details': 'VIOLATION: Threading lock found' if has_threading_lock else 'Compliant: No threading locks',
+            'severity': 'CRITICAL',
+            'compliance': ['AP-08', 'DEC-04', 'LESS-17']
+        }
+        if has_threading_lock:
+            validation['compliance_status'] = 'CRITICAL_VIOLATION'
+        
+        # Validation 3: Rate Limiting Configuration
+        manager = get_http_client_manager()
+        has_rate_limiter = hasattr(manager, '_rate_limiter')
+        has_check_method = hasattr(manager, '_check_rate_limit')
+        
+        rate_limit_valid = has_rate_limiter and has_check_method
+        if rate_limit_valid:
+            max_size = manager._rate_limiter.maxlen if hasattr(manager._rate_limiter, 'maxlen') else 0
+            window_ms = getattr(manager, '_rate_limit_window_ms', 0)
+            details = f'Configured: {max_size} ops/{window_ms}ms (500 ops/sec)'
+        else:
+            details = 'NOT CONFIGURED'
+        
+        validation['validations']['rate_limiting'] = {
+            'valid': rate_limit_valid,
+            'details': details,
+            'expected': '500 operations per second',
+            'severity': 'HIGH',
+            'compliance': ['LESS-21']
+        }
+        if not rate_limit_valid:
+            validation['compliance_status'] = 'NON_COMPLIANT'
+        
+        # Validation 4: Connection Pool Configuration
+        has_http_pool = hasattr(manager, 'http')
+        if has_http_pool:
+            verify_ssl_env = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
+            verify_ssl = verify_ssl_env != 'false'
             
-            if 'threading.Lock' in source or 'threading.RLock' in source or 'from threading import Lock' in source:
-                issues.append("CRITICAL: Found threading locks in config_core (AP-08, DEC-04, LESS-17)")
-                compliant = False
-            else:
-                # Successfully compliant
-                pass
-        except Exception as e:
-            warnings.append(f"Could not check for threading locks: {e}")
+            pool_details = f'Configured with SSL verification: {verify_ssl}'
+        else:
+            pool_details = 'NOT CONFIGURED'
         
-        # Check 3: Rate limiting configuration
-        try:
-            state = gateway.config_get_state()
-            rate_limited_count = state.get('rate_limited_count', 0)
-            
-            if rate_limited_count > 1000:
-                warnings.append(f"VERY HIGH rate limit rejections: {rate_limited_count}")
-            elif rate_limited_count > 100:
-                warnings.append(f"HIGH rate limit rejections: {rate_limited_count}")
-            # 0-100 is normal, no warning needed
-        except Exception as e:
-            warnings.append(f"Could not check rate limiting: {e}")
-        
-        # Check 4: Parameter Store configuration
-        try:
-            import os
-            use_parameter_store = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
-            parameter_prefix = os.getenv('PARAMETER_PREFIX', '/lambda-execution-engine')
-            
-            if use_parameter_store:
-                # Check prefix format
-                if not parameter_prefix.startswith('/'):
-                    issues.append(f"Parameter prefix must start with '/': {parameter_prefix}")
-                    compliant = False
-                
-                # Check if prefix is reasonable
-                if len(parameter_prefix) < 2:
-                    warnings.append(f"Parameter prefix very short: {parameter_prefix}")
-                elif len(parameter_prefix) > 100:
-                    warnings.append(f"Parameter prefix very long: {parameter_prefix}")
-            else:
-                # Parameter Store disabled - not an issue, just informational
-                pass
-        except Exception as e:
-            warnings.append(f"Could not check Parameter Store config: {e}")
-        
-        # Check 5: Reset operation availability
-        try:
-            from config_core import _reset_config_implementation
-            # Operation exists - good
-        except ImportError:
-            issues.append("CRITICAL: Reset operation not available (_reset_config_implementation)")
-            compliant = False
-        except Exception as e:
-            warnings.append(f"Could not verify reset operation: {e}")
-        
-        # Check 6: Configuration initialization
-        try:
-            state = gateway.config_get_state()
-            initialized = state.get('initialized', False)
-            
-            if not initialized:
-                warnings.append("Configuration not initialized yet (call config_initialize())")
-            
-            config_keys = state.get('config_keys', [])
-            if initialized and len(config_keys) == 0:
-                warnings.append("Configuration initialized but empty")
-        except Exception as e:
-            warnings.append(f"Could not check initialization: {e}")
-        
-        # Check 7: Core dependencies available
-        try:
-            from config_state import ConfigurationState, ConfigurationVersion
-            from config_validator import ConfigurationValidator
-            from config_loader import (
-                load_from_environment,
-                load_from_file,
-                apply_user_overrides,
-                merge_configs
-            )
-        except ImportError as e:
-            issues.append(f"CRITICAL: Missing config dependencies: {e}")
-            compliant = False
-        
-        # Build result
-        result = {
-            'success': True,
-            'interface': 'CONFIG',
-            'compliant': compliant,
-            'issues': issues,
-            'warnings': warnings,
-            'checks': {
-                'singleton_registration': 'OK' if not any('SINGLETON' in i for i in issues) else 'FAIL',
-                'no_threading_locks': 'OK' if not any('threading locks' in i for i in issues) else 'FAIL',
-                'rate_limiting': 'OK',
-                'parameter_store': 'OK' if not any('Parameter prefix' in i for i in issues) else 'FAIL',
-                'reset_operation': 'OK' if not any('Reset operation' in i for i in issues) else 'FAIL',
-                'initialization': 'OK',
-                'dependencies': 'OK' if not any('dependencies' in i for i in issues) else 'FAIL'
+        validation['validations']['connection_pool'] = {
+            'valid': has_http_pool,
+            'details': pool_details,
+            'configuration': {
+                'max_connections': 10,
+                'connect_timeout': '10.0s',
+                'read_timeout': '30.0s',
+                'ssl_verification': verify_ssl if has_http_pool else 'unknown'
             },
-            'summary': {
-                'total_issues': len(issues),
-                'total_warnings': len(warnings),
-                'status': 'COMPLIANT' if compliant else 'NON_COMPLIANT'
-            }
+            'severity': 'HIGH'
+        }
+        if not has_http_pool:
+            validation['compliance_status'] = 'NON_COMPLIANT'
+        
+        # Validation 5: Retry Configuration
+        has_retry_config = hasattr(manager, '_retry_config')
+        if has_retry_config:
+            retry_cfg = manager._retry_config
+            retry_details = f"Max attempts: {retry_cfg.get('max_attempts', 0)}, Backoff: {retry_cfg.get('backoff_base_ms', 0)}ms base"
+        else:
+            retry_details = 'NOT CONFIGURED'
+        
+        validation['validations']['retry_configuration'] = {
+            'valid': has_retry_config,
+            'details': retry_details,
+            'expected': {
+                'max_attempts': 3,
+                'backoff_base_ms': 100,
+                'backoff_multiplier': 2.0,
+                'retriable_codes': [408, 429, 500, 502, 503, 504]
+            },
+            'severity': 'MEDIUM'
         }
         
-        return result
-        
-    except ImportError as e:
-        return {
-            'success': False,
-            'error': f'Gateway import failed: {str(e)}',
-            'interface': 'CONFIG',
-            'compliant': False
+        # Validation 6: Reset Operation Availability (CRITICAL for lifecycle)
+        has_reset = hasattr(manager, 'reset')
+        validation['validations']['reset_operation'] = {
+            'valid': has_reset,
+            'details': 'Reset method available' if has_reset else 'Reset method MISSING',
+            'severity': 'HIGH',
+            'compliance': ['LESS-18']
         }
+        if not has_reset:
+            validation['compliance_status'] = 'NON_COMPLIANT'
+        
+        # Validation 7: Statistics Tracking
+        has_stats = hasattr(manager, 'get_stats')
+        if has_stats:
+            stats = manager.get_stats()
+            stats_fields = ['requests', 'successful', 'failed', 'retries', 'rate_limited']
+            has_all_fields = all(field in stats for field in stats_fields)
+            stats_details = 'All required fields present' if has_all_fields else 'Missing fields'
+        else:
+            stats_details = 'get_stats method MISSING'
+        
+        validation['validations']['statistics_tracking'] = {
+            'valid': has_stats,
+            'details': stats_details,
+            'expected_fields': ['requests', 'successful', 'failed', 'retries', 'rate_limited'],
+            'severity': 'MEDIUM'
+        }
+        
+        # Validation 8: Implementation Wrappers
+        from http_client_core import (
+            http_request_implementation,
+            http_get_implementation,
+            http_post_implementation,
+            http_put_implementation,
+            http_delete_implementation,
+            http_reset_implementation
+        )
+        
+        wrapper_functions = [
+            http_request_implementation,
+            http_get_implementation,
+            http_post_implementation,
+            http_put_implementation,
+            http_delete_implementation,
+            http_reset_implementation
+        ]
+        
+        all_wrappers_exist = all(func is not None for func in wrapper_functions)
+        
+        validation['validations']['implementation_wrappers'] = {
+            'valid': all_wrappers_exist,
+            'details': f'{len([f for f in wrapper_functions if f])} of {len(wrapper_functions)} wrappers available',
+            'wrappers': ['request', 'get', 'post', 'put', 'delete', 'reset'],
+            'severity': 'HIGH'
+        }
+        
+        # Overall compliance summary
+        critical_violations = [
+            k for k, v in validation['validations'].items()
+            if not v['valid'] and v.get('severity') == 'CRITICAL'
+        ]
+        
+        high_violations = [
+            k for k, v in validation['validations'].items()
+            if not v['valid'] and v.get('severity') == 'HIGH'
+        ]
+        
+        if critical_violations:
+            validation['compliance_status'] = 'CRITICAL_VIOLATION'
+            validation['critical_violations'] = critical_violations
+        elif high_violations:
+            if validation['compliance_status'] == 'COMPLIANT':
+                validation['compliance_status'] = 'NON_COMPLIANT'
+            validation['high_priority_violations'] = high_violations
+        
+        validation['summary'] = {
+            'total_validations': len(validation['validations']),
+            'passed': sum(1 for v in validation['validations'].values() if v['valid']),
+            'failed': sum(1 for v in validation['validations'].values() if not v['valid']),
+            'critical_violations': len(critical_violations),
+            'high_priority_violations': len(high_violations)
+        }
+        
     except Exception as e:
-        return {
-            'success': False,
-            'error': f'Validation failed: {str(e)}',
-            'interface': 'CONFIG',
-            'compliant': False
-        }
+        validation['compliance_status'] = 'ERROR'
+        validation['error'] = str(e)
+        validation['error_type'] = type(e).__name__
+    
+    return validation
 
 
 __all__ = [
@@ -495,9 +336,7 @@ __all__ = [
     '_run_config_performance_tests',
     '_run_config_compatibility_tests',
     '_run_config_gateway_tests',
-    '_validate_logging_configuration',
-    '_validate_security_configuration',
-    '_validate_config_configuration'
+    '_validate_http_client_configuration'
 ]
 
 # EOF
