@@ -130,6 +130,32 @@ _RATE_LIMITER = RateLimitTracker()
 class LoggingCore:
     """Unified logging manager with template optimization and rate limiting."""
     
+    # Add reset method to LoggingCore class
+
+    def reset(self) -> bool:
+        """
+        Reset logging core to initial state (Phase 1 addition).
+    
+        Clears all logs, templates, errors, and resets counters.
+        Useful for testing and debugging.
+    
+        Returns:
+            True on success
+        """
+        self._templates.clear()
+        self._template_hits = 0
+        self._template_misses = 0
+        self._error_log.clear()
+        self._error_count_by_type.clear()
+    
+        # Reset rate limiter
+        global _RATE_LIMITER
+        _RATE_LIMITER.log_count = 0
+        _RATE_LIMITER.limit_warning_shown = False
+    
+        _print_debug("LoggingCore reset complete")
+        return True
+    
     def __init__(self):
         """Initialize logging core."""
         self.logger = logging.getLogger('SUGA-ISP')
@@ -233,8 +259,33 @@ _LOGGING_CORE = LoggingCore()
 _print_debug("Module-level singleton _LOGGING_CORE created")
 
 def get_logging_core() -> LoggingCore:
-    """Get the module-level logging core singleton."""
-    return _LOGGING_CORE
+    """
+    Get the logging core singleton (Phase 1 SINGLETON integration).
+    
+    SINGLETON Pattern:
+    Tries to use SINGLETON interface for lifecycle management.
+    Falls back to module-level singleton if SINGLETON unavailable.
+    
+    Returns:
+        LoggingCore instance
+    """
+    global _LOGGING_CORE
+    
+    # Try SINGLETON interface first (Phase 1)
+    try:
+        from gateway import singleton_get, singleton_register
+        
+        core = singleton_get('logging_core')
+        if core is None:
+            if _LOGGING_CORE is None:
+                _LOGGING_CORE = LoggingCore()
+            singleton_register('logging_core', _LOGGING_CORE)
+            core = _LOGGING_CORE
+        
+        return core
+    except (ImportError, Exception):
+        # Fallback to module-level singleton
+        return _LOGGING_CORE
 
 # ===== EXPORTS =====
 
