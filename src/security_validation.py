@@ -1,20 +1,13 @@
 """
-security_validation.py - ADDITION: Metrics Security Validations
-Version: 2025.10.21.01
-Description: Add metric name and dimension value validation functions
-
-ADD THESE FUNCTIONS to the existing security_validation.py file.
+security_validation.py - Security Validation Functions
+Version: 2025.10.22.01
+Description: COMPLETE FILE - All validators including SecurityValidator class
 
 CHANGELOG:
+- 2025.10.22.01: CRITICAL FIX - Added missing SecurityValidator class
+  - Resolves ImportError: cannot import name 'SecurityValidator'
+  - Class was missing from deployed file
 - 2025.10.21.01: Added metrics security validations
-  - validate_metric_name() - Prevent metric name injection (CVE-SUGA-2025-001 pattern)
-  - validate_dimension_value() - Prevent dimension value injection
-  - validate_metric_value() - Prevent NaN/Infinity/invalid numeric values
-  
-REF: Finding 5.1 (Metric name validation)
-REF: Finding 5.3 (Dimension value validation)
-REF: Finding 5.5 (Input type validation)
-REF: CVE-SUGA-2025-001 (Cache key injection pattern - similar attack vector)
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -22,7 +15,151 @@ Licensed under the Apache License, Version 2.0
 
 import re
 import math
-from typing import Any
+from typing import Dict, Any
+
+
+# ===== SECURITY VALIDATOR CLASS =====
+
+class SecurityValidator:
+    """Core security validator for requests, tokens, strings, emails, URLs."""
+    
+    def __init__(self):
+        self._stats = {
+            'validations_performed': 0,
+            'validations_passed': 0,
+            'validations_failed': 0
+        }
+    
+    def validate_request(self, request: Dict[str, Any]) -> bool:
+        """Validate HTTP request structure and content."""
+        self._stats['validations_performed'] += 1
+        
+        try:
+            if not isinstance(request, dict):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            # Basic request validation
+            if 'method' in request and not isinstance(request['method'], str):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if 'headers' in request and not isinstance(request['headers'], dict):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            self._stats['validations_passed'] += 1
+            return True
+            
+        except Exception:
+            self._stats['validations_failed'] += 1
+            return False
+    
+    def validate_token(self, token: str) -> bool:
+        """Validate authentication token format."""
+        self._stats['validations_performed'] += 1
+        
+        try:
+            if not isinstance(token, str):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if not token or not token.strip():
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if len(token) < 10:
+                self._stats['validations_failed'] += 1
+                return False
+            
+            self._stats['validations_passed'] += 1
+            return True
+            
+        except Exception:
+            self._stats['validations_failed'] += 1
+            return False
+    
+    def validate_string(self, value: str, min_length: int = 0, max_length: int = 1000) -> bool:
+        """Validate string length and content."""
+        self._stats['validations_performed'] += 1
+        
+        try:
+            if not isinstance(value, str):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if len(value) < min_length:
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if len(value) > max_length:
+                self._stats['validations_failed'] += 1
+                return False
+            
+            self._stats['validations_passed'] += 1
+            return True
+            
+        except Exception:
+            self._stats['validations_failed'] += 1
+            return False
+    
+    def validate_email(self, email: str) -> bool:
+        """Validate email address format."""
+        self._stats['validations_performed'] += 1
+        
+        try:
+            if not isinstance(email, str):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            # Basic email pattern
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            self._stats['validations_passed'] += 1
+            return True
+            
+        except Exception:
+            self._stats['validations_failed'] += 1
+            return False
+    
+    def validate_url(self, url: str) -> bool:
+        """Validate URL format."""
+        self._stats['validations_performed'] += 1
+        
+        try:
+            if not isinstance(url, str):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            if not url.startswith(('http://', 'https://')):
+                self._stats['validations_failed'] += 1
+                return False
+            
+            self._stats['validations_passed'] += 1
+            return True
+            
+        except Exception:
+            self._stats['validations_failed'] += 1
+            return False
+    
+    def sanitize_input(self, data: Any) -> Any:
+        """Sanitize input data for safe processing."""
+        if isinstance(data, str):
+            # Remove control characters
+            return ''.join(char for char in data if ord(char) >= 32 or char in '\n\r\t')
+        elif isinstance(data, dict):
+            return {k: self.sanitize_input(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self.sanitize_input(item) for item in data]
+        else:
+            return data
+    
+    def get_stats(self) -> Dict[str, int]:
+        """Get validation statistics."""
+        return self._stats.copy()
 
 
 # ===== METRICS SECURITY VALIDATIONS =====
@@ -39,25 +176,11 @@ def validate_metric_name(name: str) -> None:
     - No leading/trailing whitespace
     - Cannot start/end with . or -
     
-    Attack Vectors Prevented:
-    - Path traversal: "../../system/password"
-    - Control character injection: "\\x00\\x01\\x02"
-    - Memory exhaustion: "x" * 10000
-    - Code injection via special characters
-    
-    REF: Finding 5.1 (Unvalidated metric names)
-    REF: CVE-SUGA-2025-001 pattern (similar to cache key injection)
-    
     Args:
         name: Metric name to validate
         
     Raises:
         ValueError: If name is invalid with specific reason
-        
-    Example:
-        >>> validate_metric_name("operation.cache.hit")  # ✅ Valid
-        >>> validate_metric_name("../../etc/passwd")     # ❌ Raises ValueError
-        >>> validate_metric_name("x" * 300)              # ❌ Raises ValueError
     """
     # Check empty/whitespace
     if not name or not name.strip():
@@ -76,28 +199,25 @@ def validate_metric_name(name: str) -> None:
     if len(name) < 1:
         raise ValueError("Metric name must be at least 1 character")
     
-    # Check character set - only alphanumeric, underscore, dot, hyphen
+    # Check character set
     if not re.match(r'^[a-zA-Z0-9_.\-]+$', name):
         raise ValueError(
             f"Metric name contains invalid characters: '{name}'. "
             f"Allowed characters: [a-zA-Z0-9_.-]"
         )
     
-    # Check for path separators (security: prevent traversal)
+    # Check for path separators
     if '/' in name or '\\' in name:
         raise ValueError(
             f"Metric name cannot contain path separators: '{name}'. "
             f"This may be a path traversal attack."
         )
     
-    # Check for leading/trailing special chars (data quality)
+    # Check for leading/trailing special chars
     if name.startswith(('.', '-')) or name.endswith(('.', '-')):
         raise ValueError(
             f"Metric name cannot start or end with '.' or '-': '{name}'"
         )
-    
-    # Passed all checks
-    return
 
 
 def validate_dimension_value(value: str) -> None:
@@ -106,27 +226,15 @@ def validate_dimension_value(value: str) -> None:
     
     Security Rules:
     - Length: 1-100 characters
-    - No control characters (\\x00-\\x1F, \\x7F-\\x9F)
-    - No path separators (/, \\)
+    - No control characters
+    - No path separators
     - Must be printable
-    
-    Attack Vectors Prevented:
-    - Path traversal in dimensions: {'user': '../../etc/passwd'}
-    - Control character injection: {'status': '\\x00' * 1000}
-    - Memory exhaustion: {'operation': 'x' * 10000}
-    
-    REF: Finding 5.3 (Dimension value injection)
     
     Args:
         value: Dimension value to validate (will be converted to string)
         
     Raises:
         ValueError: If value is invalid with specific reason
-        
-    Example:
-        >>> validate_dimension_value("success")      # ✅ Valid
-        >>> validate_dimension_value("../../passwd") # ❌ Raises ValueError
-        >>> validate_dimension_value("\\x00\\x01")   # ❌ Raises ValueError
     """
     # Convert to string if not already
     value = str(value)
@@ -152,15 +260,12 @@ def validate_dimension_value(value: str) -> None:
             f"This may be a control character injection attack."
         )
     
-    # Check for path separators (security: prevent traversal)
+    # Check for path separators
     if '/' in value or '\\' in value:
         raise ValueError(
             f"Dimension value cannot contain path separators: '{value}'. "
             f"This may be a path traversal attack."
         )
-    
-    # Passed all checks
-    return
 
 
 def validate_metric_value(value: float, allow_negative: bool = True) -> None:
@@ -170,15 +275,7 @@ def validate_metric_value(value: float, allow_negative: bool = True) -> None:
     Validates that metric values are valid floats:
     - Rejects: NaN (Not a Number)
     - Rejects: Infinity (positive or negative)
-    - Optionally rejects: Negative values (for counters, timings)
-    
-    Attack Vectors Prevented:
-    - NaN injection causing calculation errors
-    - Infinity causing overflow
-    - Negative durations causing confusion
-    
-    REF: Finding 5.5 (Missing input type validation)
-    REF: Bug #13 (Input validation for negative durations)
+    - Optionally rejects: Negative values
     
     Args:
         value: Numeric value to validate
@@ -186,12 +283,6 @@ def validate_metric_value(value: float, allow_negative: bool = True) -> None:
         
     Raises:
         ValueError: If value is invalid with specific reason
-        
-    Example:
-        >>> validate_metric_value(123.45)           # ✅ Valid
-        >>> validate_metric_value(float('nan'))     # ❌ Raises ValueError
-        >>> validate_metric_value(float('inf'))     # ❌ Raises ValueError
-        >>> validate_metric_value(-5.0, False)      # ❌ Raises ValueError
     """
     # Check for NaN
     if math.isnan(value):
@@ -213,60 +304,15 @@ def validate_metric_value(value: float, allow_negative: bool = True) -> None:
             f"Metric value cannot be negative: {value}. "
             f"This is likely an error (e.g., negative duration)."
         )
-    
-    # Passed all checks
-    return
-
-
-# ===== USAGE EXAMPLES =====
-
-if __name__ == '__main__':
-    # Example: Metric name validation
-    try:
-        validate_metric_name("operation.cache.hit")
-        print("✅ Valid metric name")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")
-    
-    try:
-        validate_metric_name("../../etc/passwd")
-        print("✅ Valid metric name")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")  # Expected
-    
-    # Example: Dimension value validation
-    try:
-        validate_dimension_value("success")
-        print("✅ Valid dimension value")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")
-    
-    try:
-        validate_dimension_value("\x00\x01\x02")
-        print("✅ Valid dimension value")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")  # Expected
-    
-    # Example: Metric value validation
-    try:
-        validate_metric_value(123.45)
-        print("✅ Valid metric value")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")
-    
-    try:
-        validate_metric_value(float('nan'))
-        print("✅ Valid metric value")
-    except ValueError as e:
-        print(f"❌ Invalid: {e}")  # Expected
 
 
 # ===== EXPORTS =====
 
 __all__ = [
+    'SecurityValidator',
     'validate_metric_name',
     'validate_dimension_value',
     'validate_metric_value',
 ]
 
-# EOF - Add these functions to existing security_validation.py
+# EOF
