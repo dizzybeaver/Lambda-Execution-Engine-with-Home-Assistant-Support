@@ -1,6 +1,6 @@
 # Lambda Environment Variables and SSM Parameters Reference
-**Version:** 2025.10.20.01  
-**Updated:** SSM now token-only, LAMBDA_MODE replaces LEE_FAILSAFE_ENABLED
+**Version:** 2025.10.22.01  
+**Updated:** Added METRICS optimization variables from v2025.10.22 changelog
 
 ---
 
@@ -25,10 +25,10 @@
 
 ## LAMBDA_MODE (Operation Mode)
 
-**NEW:** Replaces deprecated `LEE_FAILSAFE_ENABLED`
+**Controls Lambda execution mode**
 
 ```bash
-LAMBDA_MODE=normal      # Default - Full LEE operation
+LAMBDA_MODE=normal      # Default - Full LEE operation (default if not set)
 LAMBDA_MODE=failsafe    # Emergency - Direct HA passthrough
 LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 ```
@@ -43,7 +43,9 @@ LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 | All Features | ✅ | ❌ | ⚠️ |
 | Use Case | Production | Emergency | Testing |
 
-**Default:** If not set, defaults to `normal`
+**Default:** If `LAMBDA_MODE` is not set, defaults to `normal` mode. You do not need to explicitly set `LAMBDA_MODE=normal` for normal operation.
+
+**Deprecated:** `LEE_FAILSAFE_ENABLED` has been removed. Use `LAMBDA_MODE=failsafe` instead.
 
 ---
 
@@ -57,12 +59,12 @@ LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 | `LOG_LEVEL` | String | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL` | CloudWatch logging verbosity |
 | `CONFIGURATION_TIER` | String | `minimum`/`standard`/`maximum`/`user` | Circuit breaker tier |
 
-### Debug Settings (NEW)
+### Debug Settings
 
-| Variable | Type | Values | Description |
-|----------|------|--------|-------------|
-| `DEBUG_MODE` | Boolean | `true`/`false` | Enable debug statements |
-| `DEBUG_TIMINGS` | Boolean | `true`/`false` | Enable timing measurements |
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DEBUG_MODE` | Boolean | `false` | Enable debug statements |
+| `DEBUG_TIMINGS` | Boolean | `false` | Enable timing measurements |
 
 **Debug Output:**
 - `DEBUG_MODE=true` → Shows execution flow, routing decisions, configuration loading
@@ -73,6 +75,91 @@ LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 - `DEBUG_MODE`: 3-5x log volume increase (~$0.50-$1.00 per million requests)
 - `DEBUG_TIMINGS`: 2-3x log volume increase (~$0.30-$0.60 per million requests)
 - **Recommendation:** Enable only for troubleshooting, disable immediately after
+
+---
+
+## METRICS Interface Configuration (NEW in v2025.10.22)
+
+### METRICS Optimization Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `METRICS_FAST_PATH` | Boolean | `true` | Enable fast path optimization for hot metrics |
+| `MAX_VALUES_PER_METRIC` | Integer | `1000` | Maximum values stored per metric (FIFO eviction) |
+| `METRICS_ENABLE_STATS` | Boolean | `false` | Enable detailed rate limiting statistics |
+
+### METRICS_FAST_PATH
+
+**Purpose:** Bypasses validation for known hot metrics (30-50% performance improvement)
+
+```bash
+METRICS_FAST_PATH=true   # Default - enabled (recommended)
+METRICS_FAST_PATH=false  # Disable if issues occur
+```
+
+**Benefits:**
+- 30-50% faster on frequently accessed metrics
+- Automatic hot path detection
+- Zero configuration required
+
+**When to Disable:**
+- Debugging validation issues
+- Testing new metric names
+- Development environments only
+
+**Performance:** +50ns per metric operation when disabled
+
+### MAX_VALUES_PER_METRIC
+
+**Purpose:** Controls memory usage by limiting metric history with FIFO eviction
+
+```bash
+MAX_VALUES_PER_METRIC=1000  # Default - balanced
+MAX_VALUES_PER_METRIC=500   # Low memory (128MB Lambda)
+MAX_VALUES_PER_METRIC=2000  # High memory (512MB+ Lambda)
+```
+
+**Memory Impact:**
+- 1 metric, 1000 values: ~16KB
+- 10,000 metrics @ 1000 values each: ~160MB
+
+**Security:**
+- Prevents unbounded memory growth
+- Mitigates memory exhaustion DoS attacks
+- FIFO eviction (oldest data removed first)
+
+**Tuning Guidelines:**
+
+| Lambda Memory | Recommended Value | Max Metrics |
+|---------------|-------------------|-------------|
+| 128MB | 500 | ~5,000 |
+| 256MB | 1000 (default) | ~10,000 |
+| 512MB+ | 2000 | ~20,000 |
+
+### METRICS_ENABLE_STATS
+
+**Purpose:** Tracks detailed statistics for rate limiting and performance monitoring
+
+```bash
+METRICS_ENABLE_STATS=false  # Default - disabled
+METRICS_ENABLE_STATS=true   # Enable for monitoring
+```
+
+**Statistics Tracked:**
+- Rate limiting hits/blocks
+- Operation frequency
+- Memory usage patterns
+- Performance bottlenecks
+
+**Use Cases:**
+- Production monitoring
+- Capacity planning
+- Performance tuning
+- Security auditing
+
+**Overhead:** <1ms per 1000 operations, minimal impact
+
+**CloudWatch Integration:** Exports statistics as custom CloudWatch metrics when enabled
 
 ---
 
@@ -99,7 +186,7 @@ LAMBDA_MODE=diagnostic  # Testing - Diagnostic mode
 
 ---
 
-## SSM Parameter Store Configuration (SIMPLIFIED)
+## SSM Parameter Store Configuration (TOKEN-ONLY)
 
 ### Enabling SSM
 
@@ -108,7 +195,7 @@ USE_PARAMETER_STORE=true
 PARAMETER_PREFIX=/lambda-execution-engine
 ```
 
-### CRITICAL CHANGE: Token Only
+### CRITICAL: Token Only in SSM
 
 **SSM now stores ONLY the Home Assistant token.**
 
@@ -120,6 +207,7 @@ PARAMETER_PREFIX=/lambda-execution-engine
 **All other configuration MUST be in Lambda environment variables:**
 - URL, timeout, verify_ssl, assistant_name, features, websocket settings
 - Log level, environment, debug mode, configuration tier
+- METRICS optimization variables (METRICS_FAST_PATH, MAX_VALUES_PER_METRIC, etc.)
 - Everything except the token
 
 ### SSM Priority
@@ -177,6 +265,46 @@ HOME_ASSISTANT_URL=http://192.168.1.100:8123
 HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
 ```
 
+### Optimized METRICS (NEW)
+```bash
+# Standard configuration with METRICS optimization
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+
+# METRICS optimization (all optional)
+METRICS_FAST_PATH=true          # Default - enable fast path
+MAX_VALUES_PER_METRIC=1000      # Default - 1000 values per metric
+METRICS_ENABLE_STATS=false      # Default - disable stats
+```
+
+### High-Performance METRICS
+```bash
+# For high-traffic deployments with 512MB+ Lambda
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+USE_PARAMETER_STORE=true
+PARAMETER_PREFIX=/lambda-execution-engine
+
+# Maximize METRICS performance
+METRICS_FAST_PATH=true          # Enable hot path optimization
+MAX_VALUES_PER_METRIC=2000      # More history (requires more memory)
+METRICS_ENABLE_STATS=true       # Enable monitoring
+```
+
+### Memory-Constrained (128MB Lambda)
+```bash
+# Minimal memory footprint
+HOME_ASSISTANT_ENABLED=true
+HOME_ASSISTANT_URL=http://192.168.1.100:8123
+HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
+
+# Reduce METRICS memory usage
+CONFIGURATION_TIER=minimum
+MAX_VALUES_PER_METRIC=500       # Reduce metric history
+METRICS_FAST_PATH=true          # Keep fast path (minimal overhead)
+```
+
 ### Secure (Token in SSM)
 ```bash
 # Lambda environment
@@ -187,13 +315,18 @@ HOME_ASSISTANT_VERIFY_SSL=true
 USE_PARAMETER_STORE=true
 PARAMETER_PREFIX=/lambda-execution-engine
 
+# METRICS optimization (optional)
+METRICS_FAST_PATH=true
+MAX_VALUES_PER_METRIC=1000
+METRICS_ENABLE_STATS=false
+
 # SSM parameter (create separately)
-/lambda-execution-engine/home_assistant/token (SecureString)
+# /lambda-execution-engine/home_assistant/token (SecureString)
 ```
 
 ### Emergency Failsafe
 ```bash
-LAMBDA_MODE=failsafe
+LAMBDA_MODE=failsafe           # Bypass LEE, direct HA passthrough
 HOME_ASSISTANT_URL=http://192.168.1.100:8123
 HOME_ASSISTANT_TOKEN=eyJ0eXAiOiJKV1Qi...
 HOME_ASSISTANT_VERIFY_SSL=false
@@ -211,6 +344,11 @@ HOME_ASSISTANT_ENABLED=true
 HOME_ASSISTANT_URL=http://192.168.1.100:8123
 HOME_ASSISTANT_TOKEN=your_token
 HA_FEATURES=development
+
+# METRICS development settings
+METRICS_FAST_PATH=false        # Disable fast path for testing
+MAX_VALUES_PER_METRIC=500      # Smaller history for dev
+METRICS_ENABLE_STATS=true      # Enable monitoring
 ```
 
 ### Production (High Reliability)
@@ -225,6 +363,12 @@ PARAMETER_PREFIX=/lambda-prod
 HOME_ASSISTANT_ENABLED=true
 HOME_ASSISTANT_URL=https://ha.example.com
 HOME_ASSISTANT_VERIFY_SSL=true
+
+# METRICS production optimization
+METRICS_FAST_PATH=true         # Enable fast path
+MAX_VALUES_PER_METRIC=1000     # Standard history
+METRICS_ENABLE_STATS=true      # Monitor in production
+
 # Token in SSM: /lambda-prod/home_assistant/token
 ```
 
@@ -239,6 +383,7 @@ Estimated memory overhead for different configurations (128MB Lambda):
 CONFIGURATION_TIER=minimum
 HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=false
+MAX_VALUES_PER_METRIC=500      # Reduced for low memory
 ```
 **Overhead:** ~15-20MB  
 **Available:** ~108-113MB
@@ -248,6 +393,8 @@ HA_WEBSOCKET_ENABLED=false
 CONFIGURATION_TIER=standard
 HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=false
+MAX_VALUES_PER_METRIC=1000     # Default
+METRICS_FAST_PATH=true         # Minimal overhead
 ```
 **Overhead:** ~20-25MB  
 **Available:** ~103-108MB
@@ -257,6 +404,8 @@ HA_WEBSOCKET_ENABLED=false
 CONFIGURATION_TIER=maximum
 HOME_ASSISTANT_ENABLED=true
 HA_WEBSOCKET_ENABLED=true
+MAX_VALUES_PER_METRIC=2000     # Increased history
+METRICS_ENABLE_STATS=true      # Stats tracking
 ```
 **Overhead:** ~30-35MB  
 **Available:** ~93-98MB
@@ -266,7 +415,8 @@ HA_WEBSOCKET_ENABLED=true
 LAMBDA_MODE=failsafe
 ```
 **Overhead:** ~5-8MB  
-**Available:** ~120-123MB
+**Available:** ~120-123MB  
+**Note:** METRICS optimization variables ignored in failsafe mode
 
 ---
 
@@ -285,9 +435,54 @@ LAMBDA_MODE=failsafe
 
 **Check:**
 1. Variable is exactly: `LAMBDA_MODE=failsafe` (lowercase)
-2. Not `LEE_FAILSAFE_ENABLED` (deprecated, no longer works)
+2. Not `LEE_FAILSAFE_ENABLED` (deprecated, removed)
 3. `lambda_failsafe.py` exists in deployment package
 4. Check CloudWatch logs for activation message
+
+### Issue: METRICS Performance Issues
+
+**Check METRICS_FAST_PATH:**
+```bash
+DEBUG_MODE=true
+DEBUG_TIMINGS=true
+```
+
+**Look for in CloudWatch:**
+```
+[METRICS_DEBUG] Fast path hit: metric_name
+[METRICS_DEBUG] Validation path: metric_name (first access)
+[METRICS_TIMING] Fast path operation: 5μs
+[METRICS_TIMING] Validation path operation: 15μs
+```
+
+**Solutions:**
+1. Verify `METRICS_FAST_PATH=true` (should be default)
+2. Check hot metric promotion (50 calls threshold)
+3. Increase `MAX_VALUES_PER_METRIC` if evicting too frequently
+4. Enable `METRICS_ENABLE_STATS=true` to diagnose
+
+### Issue: Memory Exhaustion
+
+**Check MAX_VALUES_PER_METRIC:**
+```bash
+# Enable stats to see memory usage
+METRICS_ENABLE_STATS=true
+DEBUG_MODE=true
+```
+
+**CloudWatch Output:**
+```
+[METRICS_STATS] Total metrics: 15,000
+[METRICS_STATS] Total values: 15,000,000 (15M)
+[METRICS_STATS] Estimated memory: 240MB
+[METRICS_STATS] Evictions triggered: 12,500
+```
+
+**Solutions:**
+1. Reduce `MAX_VALUES_PER_METRIC` (e.g., 1000 → 500)
+2. Increase Lambda memory allocation
+3. Review metric usage patterns
+4. Consider metric aggregation
 
 ### Issue: Token Not Loading
 
@@ -338,10 +533,20 @@ aws logs describe-log-groups --log-group-name-prefix /aws/lambda/
 
 ### Performance
 - ✅ Use `CONFIGURATION_TIER=standard` for most cases
+- ✅ Keep `METRICS_FAST_PATH=true` (default) for performance
+- ✅ Use `MAX_VALUES_PER_METRIC=1000` (default) for balanced memory/history
 - ✅ Disable unused features (websocket if not needed)
 - ❌ Avoid `DEBUG_MODE=true` in production (log volume)
 - ✅ Token caching automatic (300s TTL)
 - ✅ Monitor cold start times with `DEBUG_TIMINGS`
+
+### METRICS Optimization (NEW)
+- ✅ Leave `METRICS_FAST_PATH=true` (30-50% faster, minimal risk)
+- ✅ Adjust `MAX_VALUES_PER_METRIC` based on Lambda memory
+- ✅ Enable `METRICS_ENABLE_STATS=true` for production monitoring
+- ❌ Don't set `MAX_VALUES_PER_METRIC` too high (memory exhaustion risk)
+- ✅ Monitor eviction rates with stats enabled
+- ✅ Test metric memory usage in staging first
 
 ### Reliability
 - ✅ Configure failsafe mode for emergencies (`LAMBDA_MODE=failsafe`)
@@ -349,6 +554,7 @@ aws logs describe-log-groups --log-group-name-prefix /aws/lambda/
 - ✅ Set appropriate timeouts for your network
 - ✅ Monitor CloudWatch logs regularly
 - ✅ Test failsafe activation periodically
+- ✅ Monitor METRICS memory usage with stats
 
 ### Cost Optimization
 - ✅ Minimize log volume (disable debug in production)
@@ -356,6 +562,7 @@ aws logs describe-log-groups --log-group-name-prefix /aws/lambda/
 - ✅ Use short CloudWatch log retention (7 days for debug)
 - ✅ Monitor Lambda invocation count
 - ✅ Consider reserved concurrency for predictable costs
+- ✅ METRICS optimization reduces memory costs (bounded growth)
 
 ---
 
@@ -365,7 +572,7 @@ aws logs describe-log-groups --log-group-name-prefix /aws/lambda/
 
 **If you have:**
 ```bash
-LEE_FAILSAFE_ENABLED=true  # ❌ No longer works
+LEE_FAILSAFE_ENABLED=true  # ❌ No longer works (removed)
 USE_PARAMETER_STORE=true
 # Multiple SSM parameters for URL, timeout, etc.
 ```
@@ -381,13 +588,28 @@ HOME_ASSISTANT_TIMEOUT=30  # ✅ Now in environment
 # SSM: Only /path/to/token remains
 ```
 
-**See:** `MIGRATION GUIDE - SSM Simplification (Token Only).md`
+### New in v2025.10.22
+
+**METRICS optimization variables are all optional:**
+```bash
+# These all have sensible defaults, only set if customization needed:
+METRICS_FAST_PATH=true          # Default - no need to set
+MAX_VALUES_PER_METRIC=1000      # Default - no need to set
+METRICS_ENABLE_STATS=false      # Default - set true for monitoring
+```
+
+**Benefits of v2025.10.22:**
+- 30-50% faster metrics operations (fast path)
+- Protection against memory exhaustion (bounded storage)
+- Better observability (stats tracking)
+- Zero breaking changes
 
 ---
 
 ## Notes
 
-- `LAMBDA_MODE` replaces deprecated `LEE_FAILSAFE_ENABLED`
+- `LAMBDA_MODE` replaces deprecated `LEE_FAILSAFE_ENABLED` (removed)
+- Default `LAMBDA_MODE` is `normal` - no need to set explicitly
 - SSM now stores ONLY the token (all other config in environment)
 - Debug modes add <1ms overhead but increase log volume significantly
 - Boolean values: use lowercase `true`/`false` not `True`/`False`
@@ -395,6 +617,9 @@ HOME_ASSISTANT_TIMEOUT=30  # ✅ Now in environment
 - Failsafe mode bypasses ALL LEE infrastructure
 - Toggle failsafe without code changes or redeployment
 - Circuit breaker configuration is tier-based, not per-variable
+- **NEW:** METRICS optimization variables provide 30-50% performance improvement
+- **NEW:** Bounded metric storage prevents memory exhaustion attacks
+- **NEW:** METRICS stats enable production monitoring and capacity planning
 
 ---
 
