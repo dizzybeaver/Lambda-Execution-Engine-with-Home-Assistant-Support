@@ -1,5 +1,5 @@
 # Lambda Configuration Scenarios
-**Version:** 2025.10.23.01  
+**Version:** 2025.10.22.01  
 **Updated:** Added METRICS optimization scenarios from v2025.10.22 changelog
 
 ---
