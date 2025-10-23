@@ -1,9 +1,10 @@
 """
 interface_initialization.py - Initialization Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.14
+Version: 2025.10.22.03
 Description: Firewall router for Initialization interface with import protection
 
 CHANGELOG:
+- 2025.10.22.03: Added get_stats operation dispatch
 - 2025.10.17.14: FIXED Issue #20 - Added import error protection
   - Added try/except wrapper for initialization_core imports
   - Sets _INITIALIZATION_AVAILABLE flag on success/failure
@@ -45,6 +46,7 @@ try:
         _execute_is_initialized_implementation,
         _execute_reset_implementation,
         _execute_get_status_implementation,
+        _execute_get_stats_implementation,
         _execute_set_flag_implementation,
         _execute_get_flag_implementation
     )
@@ -58,13 +60,14 @@ except ImportError as e:
     _execute_is_initialized_implementation = None
     _execute_reset_implementation = None
     _execute_get_status_implementation = None
+    _execute_get_stats_implementation = None
     _execute_set_flag_implementation = None
     _execute_get_flag_implementation = None
 
 
 _VALID_INITIALIZATION_OPERATIONS = [
     'initialize', 'get_config', 'is_initialized', 'reset',
-    'get_status', 'set_flag', 'get_flag'
+    'get_status', 'get_stats', 'set_flag', 'get_flag'
 ]
 
 
@@ -111,6 +114,9 @@ def execute_initialization_operation(operation: str, **kwargs) -> Any:
     
     elif operation == 'get_status':
         return _execute_get_status_implementation(**kwargs)
+    
+    elif operation == 'get_stats':
+        return _execute_get_stats_implementation(**kwargs)
     
     elif operation == 'set_flag':
         if 'flag_name' not in kwargs:

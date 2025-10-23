@@ -1,27 +1,18 @@
 """
 interface_cache.py - Cache Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.19.21
+Version: 2025.10.21.01
 Description: Router for Cache interface with SENTINEL SANITIZATION on GET
 
 CHANGELOG:
-- 2025.10.19.21: CRITICAL FIX - Sanitize sentinel on cache_get returns
-  - Modified 'get' dispatch to sanitize return value from cache_core
-  - Converts _CACHE_MISS sentinel to None before returning to caller
-  - Prevents sentinel leak that causes ~535ms cold start penalty
-  - Callers can now safely check `if cached is not None`
-  - Maintains existing sanitization on cache_set
-  - SUGA-compliant: Infrastructure logic in gateway layer
-- 2025.10.19.20: CRITICAL FIX - Added deep recursive sentinel sanitization
-  - New _is_sentinel_object() - Detects object() sentinels
-  - New _sanitize_value_deep() - Deep recursive sanitization
-  - Modified _validate_set_params() - Sanitizes before cache_set
-  - Prevents cache pollution from object() sentinels
-  - Saves ~535ms per cold start by eliminating cache invalidation
-  - SUGA-compliant: Infrastructure logic in gateway layer
-- 2025.10.17.18: Added get_metadata operation (Issue #25 fix)
+- 2025.10.21.01: PHASE 1 OPTIMIZATION
+  - Added reset operation to dispatch
+  - Added import for _execute_reset_implementation
+  - No breaking changes
+
+- 2025.10.19.21: Sanitize sentinel on cache_get returns
+- 2025.10.19.20: Added deep recursive sentinel sanitization
+- 2025.10.17.18: Added get_metadata operation
 - 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-- 2025.10.17.13: FIXED Issue #20 - Added import error protection
-- 2025.10.17.05: Added parameter validation for all operations
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -38,6 +29,7 @@ try:
         _execute_exists_implementation,
         _execute_delete_implementation,
         _execute_clear_implementation,
+        _execute_reset_implementation,  # Phase 1 addition
         _execute_cleanup_expired_implementation,
         _execute_get_stats_implementation,
         _execute_get_metadata_implementation
@@ -52,6 +44,7 @@ except ImportError as e:
     _execute_exists_implementation = None
     _execute_delete_implementation = None
     _execute_clear_implementation = None
+    _execute_reset_implementation = None  # Phase 1 addition
     _execute_cleanup_expired_implementation = None
     _execute_get_stats_implementation = None
     _execute_get_metadata_implementation = None
@@ -60,18 +53,7 @@ except ImportError as e:
 # ===== SENTINEL DETECTION & SANITIZATION =====
 
 def _is_sentinel_object(value: Any) -> bool:
-    """
-    Detect if value is object() sentinel.
-    
-    Sentinels are used by cache_core as _CACHE_MISS markers.
-    They must NEVER be stored in cache OR returned to callers.
-    
-    Args:
-        value: Value to check
-        
-    Returns:
-        True if value is object() sentinel, False otherwise
-    """
+    """Detect if value is object() sentinel."""
     return (
         type(value).__name__ == 'object' and
         not isinstance(value, (str, int, float, bool, list, dict, tuple, set, type(None))) and
@@ -80,37 +62,22 @@ def _is_sentinel_object(value: Any) -> bool:
 
 
 def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
-    """
-    Recursively remove sentinel objects from any data structure.
-    
-    This is the CRITICAL FIX for cold start performance:
-    - Prevents object() sentinels from entering cache
-    - Eliminates cache invalidation on every cold start
-    - Saves ~535ms per cold start (SSM lookups avoided)
-    
-    Args:
-        value: Value to sanitize (any type)
-        path: Current path for logging (helps debug sentinel sources)
-        
-    Returns:
-        Sanitized value with sentinels removed
-    """
+    """Recursively remove sentinel objects from any data structure."""
     # Detect sentinel at current level
     if _is_sentinel_object(value):
-        # Log sentinel detection (helps identify sources)
         try:
             from gateway import log_warning
             log_warning(f"[CACHE_SANITIZE] Removed sentinel at path: {path}")
         except:
             pass
-        return None  # Replace sentinel with None
+        return None
     
     # Recursively sanitize nested dict
     if isinstance(value, dict):
         return {
             k: _sanitize_value_deep(v, f"{path}.{k}")
             for k, v in value.items()
-            if not _is_sentinel_object(v)  # Skip sentinel entries entirely
+            if not _is_sentinel_object(v)
         }
     
     # Recursively sanitize list/tuple
@@ -120,7 +87,7 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
             for i, item in enumerate(value)
             if not _is_sentinel_object(item)
         ]
-        return type(value)(sanitized)  # Preserve list vs tuple type
+        return type(value)(sanitized)
     
     # Recursively sanitize set
     if isinstance(value, set):
@@ -130,7 +97,7 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
             if not _is_sentinel_object(item)
         }
     
-    # Scalar values (str, int, float, bool, None) - pass through
+    # Scalar values - pass through
     return value
 
 
@@ -147,12 +114,7 @@ def _validate_key_param(kwargs: Dict[str, Any], operation: str) -> None:
 
 
 def _validate_set_params(kwargs: Dict[str, Any]) -> None:
-    """
-    Validate and SANITIZE set operation parameters.
-    
-    CRITICAL: This is where sentinel sanitization happens on cache_set.
-    ALL cache_set operations go through this validation.
-    """
+    """Validate and SANITIZE set operation parameters."""
     _validate_key_param(kwargs, 'set')
     if 'value' not in kwargs:
         raise ValueError("cache.set requires 'value' parameter")
@@ -168,11 +130,10 @@ def _validate_set_params(kwargs: Dict[str, Any]) -> None:
 # ===== OPERATION DISPATCH =====
 
 def _build_dispatch_dict() -> Dict[str, Callable]:
-    """Build dispatch dictionary for cache operations. Only called if cache available."""
+    """Build dispatch dictionary for cache operations."""
     return {
         'get': lambda **kwargs: (
             _validate_key_param(kwargs, 'get'),
-            # CRITICAL FIX: Sanitize return value to convert sentinel to None
             _sanitize_value_deep(
                 _execute_get_implementation(**kwargs),
                 f"cache[{kwargs['key']}]"
@@ -180,7 +141,7 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         )[1],
         
         'set': lambda **kwargs: (
-            _validate_set_params(kwargs),  # Sanitizes sentinels!
+            _validate_set_params(kwargs),
             _execute_set_implementation(**kwargs)
         )[1],
         
@@ -200,6 +161,8 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         )[1],
         
         'clear': _execute_clear_implementation,
+        'reset': _execute_reset_implementation,  # Phase 1 addition
+        'reset_cache': _execute_reset_implementation,  # Alias
         'cleanup_expired': _execute_cleanup_expired_implementation,
         'get_stats': _execute_get_stats_implementation,
     }
@@ -214,12 +177,13 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
     Route cache operation requests using dispatch dictionary pattern.
     
     Operations:
-    - get: Get cached value by key (AUTOMATICALLY SANITIZES SENTINEL TO NONE)
-    - set: Set cached value with optional TTL (AUTOMATICALLY SANITIZED)
+    - get: Get cached value by key
+    - set: Set cached value with optional TTL
     - exists: Check if key exists
     - delete: Delete cached value
-    - get_metadata: Get metadata for cache entry (fast path, Issue #25)
+    - get_metadata: Get metadata for cache entry
     - clear: Clear all cache entries
+    - reset: Reset cache to initial state (Phase 1 addition)
     - cleanup_expired: Remove expired entries
     - get_stats: Get cache statistics
     
@@ -229,17 +193,12 @@ def execute_cache_operation(operation: str, **kwargs) -> Any:
         
     Returns:
         Operation result (type varies by operation)
-        - get: Returns cached value or None (sentinel converted to None)
-        - set: Returns None
-        - exists: Returns bool
-        - delete: Returns bool
-        - Others: Varies by operation
         
     Raises:
         RuntimeError: If cache interface unavailable
         ValueError: If operation unknown or parameters invalid
     """
-    # Check cache availability first
+    # Check cache availability
     if not _CACHE_AVAILABLE:
         raise RuntimeError(
             f"Cache interface unavailable: {_CACHE_IMPORT_ERROR}. "

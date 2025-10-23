@@ -1,9 +1,15 @@
 """
 debug_core.py - Debug Operation Dispatcher
-Version: 2025.10.17.18
+Version: 2025.10.22.01
 Description: Dispatch dictionary pattern for debug operations
 
 CHANGELOG:
+- 2025.10.22.01: Added INITIALIZATION, UTILITY, SINGLETON, and SYSTEM-WIDE operations
+  - Added 12 INITIALIZATION interface operations with aliases
+  - Added 12 UTILITY interface operations with aliases
+  - Added 12 SINGLETON interface operations with aliases
+  - Added 6 SYSTEM-WIDE debug operations with aliases
+  - Total: 42 new operation mappings
 - 2025.10.17.18: MODERNIZED with dispatch dictionary pattern (Issue #47)
   - Converted from ~30+ elif chain to dispatch dictionary
   - O(1) operation lookup vs O(n) elif chain
@@ -110,6 +116,66 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         'GENERATE_VERIFICATION_REPORT': lambda **kwargs: __import__('debug_verification', fromlist=['_generate_verification_report'])._generate_verification_report(**kwargs),
         'VERIFICATION_REPORT': lambda **kwargs: __import__('debug_verification', fromlist=['_generate_verification_report'])._generate_verification_report(**kwargs),
+        
+        # INITIALIZATION interface operations (12 entries - 4 ops × 3 aliases each)
+        'CHECK_INITIALIZATION_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_initialization_health'])._check_initialization_health(**kwargs),
+        'INITIALIZATION_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_initialization_health'])._check_initialization_health(**kwargs),
+        'HEALTH_INITIALIZATION': lambda **kwargs: __import__('debug_health', fromlist=['_check_initialization_health'])._check_initialization_health(**kwargs),
+        
+        'DIAGNOSE_INITIALIZATION_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_initialization_performance'])._diagnose_initialization_performance(**kwargs),
+        'INITIALIZATION_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_initialization_performance'])._diagnose_initialization_performance(**kwargs),
+        'PERFORMANCE_INITIALIZATION': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_initialization_performance'])._diagnose_initialization_performance(**kwargs),
+        
+        'VALIDATE_INITIALIZATION_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_initialization_configuration'])._validate_initialization_configuration(**kwargs),
+        'INITIALIZATION_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_initialization_configuration'])._validate_initialization_configuration(**kwargs),
+        'CONFIGURATION_INITIALIZATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_initialization_configuration'])._validate_initialization_configuration(**kwargs),
+        
+        'BENCHMARK_INITIALIZATION_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_initialization_operations'])._benchmark_initialization_operations(**kwargs),
+        'INITIALIZATION_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_initialization_operations'])._benchmark_initialization_operations(**kwargs),
+        'BENCHMARK_INITIALIZATION': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_initialization_operations'])._benchmark_initialization_operations(**kwargs),
+        
+        # UTILITY interface operations (12 entries - 4 ops × 3 aliases each)
+        'CHECK_UTILITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_utility_health'])._check_utility_health(**kwargs),
+        'UTILITY_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_utility_health'])._check_utility_health(**kwargs),
+        'HEALTH_UTILITY': lambda **kwargs: __import__('debug_health', fromlist=['_check_utility_health'])._check_utility_health(**kwargs),
+        
+        'DIAGNOSE_UTILITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_utility_performance'])._diagnose_utility_performance(**kwargs),
+        'UTILITY_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_utility_performance'])._diagnose_utility_performance(**kwargs),
+        'PERFORMANCE_UTILITY': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_utility_performance'])._diagnose_utility_performance(**kwargs),
+        
+        'VALIDATE_UTILITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_utility_configuration'])._validate_utility_configuration(**kwargs),
+        'UTILITY_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_utility_configuration'])._validate_utility_configuration(**kwargs),
+        'CONFIGURATION_UTILITY': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_utility_configuration'])._validate_utility_configuration(**kwargs),
+        
+        'BENCHMARK_UTILITY_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_utility_operations'])._benchmark_utility_operations(**kwargs),
+        'UTILITY_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_utility_operations'])._benchmark_utility_operations(**kwargs),
+        'BENCHMARK_UTILITY': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_utility_operations'])._benchmark_utility_operations(**kwargs),
+        
+        # SYSTEM-WIDE DEBUG OPERATIONS (6 entries - 2 ops × 3 aliases each)
+        'CHECK_SYSTEM_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_system_health'])._check_system_health(**kwargs),
+        'SYSTEM_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_system_health'])._check_system_health(**kwargs),
+        'HEALTH_SYSTEM': lambda **kwargs: __import__('debug_health', fromlist=['_check_system_health'])._check_system_health(**kwargs),
+        
+        'VALIDATE_SYSTEM_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_configuration'])._validate_system_configuration(**kwargs),
+        'SYSTEM_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_configuration'])._validate_system_configuration(**kwargs),
+        'CONFIGURATION_SYSTEM': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_system_configuration'])._validate_system_configuration(**kwargs),
+        
+        # SINGLETON interface operations (12 entries - 4 ops × 3 aliases each)
+        'CHECK_SINGLETON_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_singleton_health'])._check_singleton_health(**kwargs),
+        'SINGLETON_HEALTH': lambda **kwargs: __import__('debug_health', fromlist=['_check_singleton_health'])._check_singleton_health(**kwargs),
+        'HEALTH_SINGLETON': lambda **kwargs: __import__('debug_health', fromlist=['_check_singleton_health'])._check_singleton_health(**kwargs),
+        
+        'DIAGNOSE_SINGLETON_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_singleton_performance'])._diagnose_singleton_performance(**kwargs),
+        'SINGLETON_PERFORMANCE': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_singleton_performance'])._diagnose_singleton_performance(**kwargs),
+        'PERFORMANCE_SINGLETON': lambda **kwargs: __import__('debug_diagnostics', fromlist=['_diagnose_singleton_performance'])._diagnose_singleton_performance(**kwargs),
+        
+        'VALIDATE_SINGLETON_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_singleton_configuration'])._validate_singleton_configuration(**kwargs),
+        'SINGLETON_CONFIGURATION': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_singleton_configuration'])._validate_singleton_configuration(**kwargs),
+        'CONFIGURATION_SINGLETON': lambda **kwargs: __import__('debug_validation', fromlist=['_validate_singleton_configuration'])._validate_singleton_configuration(**kwargs),
+        
+        'BENCHMARK_SINGLETON_OPERATIONS': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_singleton_operations'])._benchmark_singleton_operations(**kwargs),
+        'SINGLETON_BENCHMARK': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_singleton_operations'])._benchmark_singleton_operations(**kwargs),
+        'BENCHMARK_SINGLETON': lambda **kwargs: __import__('debug_performance', fromlist=['_benchmark_singleton_operations'])._benchmark_singleton_operations(**kwargs),
         
         # Placeholder operations (not yet implemented)
         'RUN_DEBUG_TESTS': lambda **kwargs: {'success': True, 'message': 'Debug tests placeholder', 'tests_run': 0},

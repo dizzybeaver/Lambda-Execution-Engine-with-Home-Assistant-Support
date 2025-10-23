@@ -1,16 +1,13 @@
 """
 interface_security.py - Security Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.20.01
-Description: ENHANCED with cache-specific validators (CVE fixes)
+Version: 2025.10.22.01
+Description: ENHANCED with cache validators and reset operation
+
+CHANGES (2025.10.22.01):
+- Added reset operation to dispatch table (Phase 1 compliance)
 
 CHANGELOG:
 - 2025.10.20.01: SECURITY HARDENING - Added cache validator operations
-  - Added validate_cache_key operation (CVE-SUGA-2025-001 fix)
-  - Added validate_ttl operation (CVE-SUGA-2025-002 fix)
-  - Added validate_module_name operation (CVE-SUGA-2025-004 fix)
-  - Added validate_number_range operation (generic validator)
-  - Updated dispatch dictionary with 4 new operations
-  - Added validation helpers for new operations
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -33,11 +30,11 @@ try:
         _execute_validate_string_implementation,
         _execute_validate_email_implementation,
         _execute_validate_url_implementation,
-        # NEW: Cache validators
         _execute_validate_cache_key_implementation,
         _execute_validate_ttl_implementation,
         _execute_validate_module_name_implementation,
         _execute_validate_number_range_implementation,
+        _execute_security_reset_implementation,
         get_security_stats
     )
     _SECURITY_AVAILABLE = True
@@ -45,10 +42,9 @@ try:
 except ImportError as e:
     _SECURITY_AVAILABLE = False
     _SECURITY_IMPORT_ERROR = str(e)
-    # Set all to None (implementation omitted for brevity)
 
 
-# ===== VALIDATION HELPERS (EXISTING) =====
+# ===== VALIDATION HELPERS =====
 
 def _validate_request_param(kwargs: Dict[str, Any]) -> None:
     """Validate request parameter exists."""
@@ -96,8 +92,6 @@ def _validate_sanitize_data_param(kwargs: Dict[str, Any], operation: str) -> Non
         raise ValueError(f"security.{operation} requires 'data' parameter")
 
 
-# ===== NEW VALIDATION HELPERS =====
-
 def _validate_cache_key_param(kwargs: Dict[str, Any]) -> None:
     """Validate cache key parameter."""
     if 'key' not in kwargs:
@@ -135,9 +129,8 @@ def _validate_number_range_params(kwargs: Dict[str, Any]) -> None:
 # ===== OPERATION DISPATCH =====
 
 def _build_dispatch_dict() -> Dict[str, Callable]:
-    """Build dispatch dictionary for security operations. Only called if security available."""
+    """Build dispatch dictionary for security operations."""
     return {
-        # EXISTING OPERATIONS
         'validate_request': lambda **kwargs: (
             _validate_request_param(kwargs),
             _execute_validate_request_implementation(**kwargs)
@@ -197,7 +190,6 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         
         'get_stats': get_security_stats,
         
-        # NEW: CACHE VALIDATOR OPERATIONS (CVE FIXES)
         'validate_cache_key': lambda **kwargs: (
             _validate_cache_key_param(kwargs),
             _execute_validate_cache_key_implementation(**kwargs)
@@ -217,6 +209,10 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
             _validate_number_range_params(kwargs),
             _execute_validate_number_range_implementation(**kwargs)
         )[1],
+        
+        # PHASE 1: Reset operation
+        'reset': _execute_security_reset_implementation,
+        'reset_security': _execute_security_reset_implementation,
     }
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _SECURITY_AVAILABLE else {}
@@ -228,10 +224,7 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
     """
     Route security operation requests using dispatch dictionary pattern.
     
-    NOW INCLUDES: Cache-specific validators (CVE-SUGA-2025-001/002/004 fixes)
-    
-    Operations (17 total, +4 new):
-    EXISTING:
+    Operations (19 total):
     - validate_request: Validate HTTP request
     - validate_token: Validate auth token
     - encrypt: Encrypt data
@@ -243,13 +236,12 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
     - validate_string: Validate string constraints
     - validate_email: Validate email format
     - validate_url: Validate URL format
-    - get_stats: Get security statistics
-    
-    NEW (Cache Security):
-    - validate_cache_key: Comprehensive cache key validation (CVE-SUGA-2025-001)
+    - validate_cache_key: Cache key validation (CVE-SUGA-2025-001)
     - validate_ttl: TTL boundary protection (CVE-SUGA-2025-002)
-    - validate_module_name: LUGS module name validation (CVE-SUGA-2025-004)
-    - validate_number_range: Generic numeric range validation
+    - validate_module_name: Module name validation (CVE-SUGA-2025-004)
+    - validate_number_range: Numeric range validation
+    - reset: Reset security core state (also reset_security)
+    - get_stats: Get security statistics
     
     Args:
         operation: Security operation to execute
@@ -262,21 +254,18 @@ def execute_security_operation(operation: str, **kwargs) -> Any:
         RuntimeError: If Security interface unavailable
         ValueError: If operation is unknown or required parameters missing
     """
-    # Check Security availability
     if not _SECURITY_AVAILABLE:
         raise RuntimeError(
             f"Security interface unavailable: {_SECURITY_IMPORT_ERROR}. "
             "This may indicate missing security_core module or circular import."
         )
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown security operation: '{operation}'. "
             f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
         )
     
-    # Dispatch using dictionary lookup (O(1))
     return _OPERATION_DISPATCH[operation](**kwargs)
 
 

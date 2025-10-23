@@ -1,28 +1,18 @@
 """
 ha_common.py
-Version: 2025.10.19.04
+Version: 2025.10.22.02
 Description: Home Assistant common utilities
 
 CHANGELOG:
+- 2025.10.22.02: CRITICAL FIX - Corrected gateway import names
+  - Fixed: make_request → http_request
+  - Fixed: make_get_request → http_get
+  - Fixed: make_post_request → http_post
+  - Resolves ImportError on deployment
 - 2025.10.19.04: ARCHITECTURE FIX - Removed duplicate get_ha_config()
-  - Replaced duplicate get_ha_config() with import from ha_config.py
-  - Fixes SSM Parameter Store lookup bug (was using wrong keys)
-  - Single source of truth for HA configuration
-  - Eliminates <object object> serialization error in HTTP requests
 
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 import time
@@ -99,10 +89,7 @@ def get_ha_config() -> Dict[str, Any]:
     
     ARCHITECTURE NOTE (2025.10.19.04):
     This function now delegates to ha_config.load_ha_config() to ensure
-    single source of truth for HA configuration. The previous implementation
-    had wrong parameter names ('ha_base_url', 'ha_access_token') which 
-    didn't match SSM Parameter Store keys ('home_assistant/url', 
-    'home_assistant/token'), causing <object object> serialization errors.
+    single source of truth for HA configuration.
     
     Returns:
         Dict containing:
@@ -122,7 +109,7 @@ def call_ha_api(
     data: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """Call Home Assistant API with circuit breaker protection."""
-    from gateway import make_request, make_get_request, make_post_request, execute_with_circuit_breaker
+    from gateway import http_request, http_get, http_post, execute_with_circuit_breaker
     from shared_utilities import (
         create_operation_context, close_operation_context, 
         handle_operation_error, cache_operation_result
@@ -141,11 +128,11 @@ def call_ha_api(
         
         def _make_ha_request():
             if method.upper() == 'GET':
-                return make_get_request(url=url, headers=headers, timeout=config.get('timeout', 30))
+                return http_get(url=url, headers=headers, timeout=config.get('timeout', 30))
             elif method.upper() == 'POST':
-                return make_post_request(url=url, data=data or {}, headers=headers, timeout=config.get('timeout', 30))
+                return http_post(url=url, json=data or {}, headers=headers, timeout=config.get('timeout', 30))
             else:
-                return make_request(method, url, headers=headers, data=data, timeout=config.get('timeout', 30))
+                return http_request(method, url=url, headers=headers, json=data, timeout=config.get('timeout', 30))
         
         result = execute_with_circuit_breaker(HA_CIRCUIT_BREAKER_NAME, _make_ha_request)
         

@@ -1,7 +1,14 @@
 """
 ha_managers.py - Entity Management
-Version: 2025.10.14.01
+Version: 2025.10.16.02
 Description: Generic entity managers for devices/areas using Gateway services.
+
+CHANGELOG:
+- 2025.10.16.02: CRITICAL FIX - Corrected ha_core import names
+  - Fixed: call_service → call_ha_service
+  - Fixed: get_states → get_ha_states
+  - Resolves ImportError on deployment
+- 2025.10.14.01: Initial version with Gateway services
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -16,8 +23,8 @@ from gateway import (
 from ha_core import (
     ha_operation_wrapper,
     get_ha_config,
-    call_service,
-    get_states,
+    call_ha_service,
+    get_ha_states,
     fuzzy_match_name,
     HA_CACHE_TTL_ENTITIES
 )
@@ -36,11 +43,11 @@ class HAGenericManager:
                      filters: Optional[Dict] = None) -> Dict[str, Any]:
         """List entities for this domain."""
         def _list(config, **kwargs):
-            response = get_states()
+            response = get_ha_states()
             if not response.get('success'):
                 return response
             
-            states = response.get('data', {}).get('states', [])
+            states = response.get('data', [])
             entities = [
                 {
                     'entity_id': s.get('entity_id'),
@@ -80,7 +87,7 @@ class HAGenericManager:
                     ha_config: Optional[Dict] = None) -> Dict[str, Any]:
         """Call service on entity."""
         def _call(config, **kwargs):
-            result = call_service(self.domain, service, entity_id, service_data)
+            result = call_ha_service(self.domain, service, entity_id, service_data)
             
             if result.get('success'):
                 self._stats['successes'] += 1
@@ -174,11 +181,11 @@ def manage_area(area_name: str, action: str,
     """Manage all devices in an area."""
     try:
         # Get all states to find area devices
-        response = get_states()
+        response = get_ha_states()
         if not response.get('success'):
             return response
         
-        states = response.get('data', {}).get('states', [])
+        states = response.get('data', [])
         area_name_lower = area_name.lower()
         
         # Find entities in area

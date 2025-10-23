@@ -1,39 +1,49 @@
 """
 circuit_breaker_core.py - Circuit Breaker Pattern Implementation
-Version: 2025.10.17.08
-Description: Circuit breaker with utility cross-interface integration for metrics
+Version: 2025.10.22.01 (OPTIMIZED - Phase 1 + SINGLETON + Rate Limiting)
+Description: Circuit breaker with SIMA compliance and Phase 1 optimizations
 
-CHANGELOG:
-- 2025.10.17.08: Fixed Issue #16 - Moved shared_utilities imports to module level
-  - Changed from lazy imports (inside methods) to module-level imports
-  - Import from utility_cross_interface instead of shared_utilities
-  - Eliminates import overhead on every call() invocation
-  - Improves performance and code consistency
-  - Lines: 209 (unchanged from 2025.10.17.01)
-- 2025.10.17.01: Added design decision documentation for threading and direct gateway access
-- 2025.10.16.01: Fixed record_operation_metrics calls - changed execution_time 
-                 to duration parameter, removed unsupported parameters
+PHASE 1 OPTIMIZATIONS APPLIED:
+==============================
+✅ REMOVED THREADING LOCKS (AP-08, DEC-04) - CRITICAL FIX
+✅ SINGLETON pattern via get_circuit_breaker_manager() (LESS-18)
+✅ Rate limiting: 1000 ops/sec (LESS-21) - Higher for infrastructure
+✅ Reset operation enhanced (LESS-18)
+✅ Added get_stats operation
 
-DESIGN DECISIONS DOCUMENTED:
+CRITICAL CHANGES (2025.10.22):
+- REMOVED all threading.Lock() usage (was violating AP-08, DEC-04)
+- Lambda is single-threaded, locks are unnecessary and harmful
+- Added rate limiting (1000 ops/sec) for DoS protection
+- Added SINGLETON pattern for proper lifecycle management
+- Added statistics tracking
+- Previous "future-proofing" rationale was incorrect
 
-1. Threading Locks in Lambda Environment:
-   DESIGN DECISION: Uses threading.Lock() despite Lambda being single-threaded
-   Reason: Future-proofing for potential multi-threaded execution environments
-   Lambda Context: Adds minimal overhead in single-threaded Lambda containers
-   NOT A BUG: Intentional defensive programming for portability
-   
-2. Direct Gateway Access (No Interface Router):
-   DESIGN DECISION: Gateway registry points directly to this file (bypasses interface router)
-   Reason: Circuit breaker is performance-critical hot path, called frequently
-   SUGA-ISP Compliance: Acceptable for performance-critical internal infrastructure
-   NOT A BUG: Documented in gateway_core.py as intentional optimization
+DESIGN DECISIONS:
 
-3. Import Pattern (FIXED in v2025.10.17.08):
-   DESIGN DECISION: Uses lazy imports from gateway for cross-interface utilities
-   Reason: SUGA-ISP compliance - circuit_breaker must use gateway for cross-interface access
-   Pattern: Lazy imports inside methods to avoid circular dependencies
-   Previous: Direct imports from utility_cross_interface (SUGA violation)
-   Current: Lazy imports from gateway (SUGA compliant)
+1. NO Threading Locks (AP-08, DEC-04):
+   Lambda is single-threaded per container
+   Threading locks add overhead without benefit
+   Rate limiting provides DoS protection
+   This is the correct Lambda pattern
+
+2. Direct Gateway Access (Performance Optimization):
+   Gateway registry points directly to this file
+   Bypasses interface router for performance-critical path
+   Circuit breaker called frequently, optimization justified
+   SIMA-compliant exception for infrastructure components
+
+3. Rate Limiting Instead of Locks:
+   1000 ops/sec limit (higher than WebSocket's 300)
+   Circuit breaker is infrastructure, needs higher throughput
+   Provides DoS protection without lock overhead
+
+REF-IDs:
+- AP-08: No threading locks (CRITICAL)
+- DEC-04: Lambda single-threaded model
+- LESS-17: Threading locks unnecessary in Lambda
+- LESS-18: SINGLETON pattern for lifecycle management
+- LESS-21: Rate limiting essential for DoS protection
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -42,7 +52,7 @@ Licensed under Apache 2.0 (see LICENSE).
 import time
 import uuid
 from typing import Callable, Dict, Any, Optional
-from threading import Lock
+from collections import deque
 from enum import Enum
 
 
@@ -59,11 +69,12 @@ class CircuitState(Enum):
 
 class CircuitBreaker:
     """
-    Single circuit breaker instance with cross-interface utility integration.
+    Single circuit breaker instance.
     
-    DESIGN DECISION: Uses threading.Lock()
-    Reason: Thread-safety for future-proofing, minimal overhead in Lambda
-    NOT A BUG: Intentional defensive programming pattern
+    COMPLIANCE:
+    - AP-08: No threading locks (Lambda single-threaded)
+    - DEC-04: Lambda single-threaded model
+    - LESS-21: Rate limiting for DoS protection
     """
     
     def __init__(self, name: str, failure_threshold: int = 5, timeout: int = 60):
@@ -73,52 +84,50 @@ class CircuitBreaker:
         self.state = CircuitState.CLOSED
         self.failures = 0
         self.last_failure_time = None
-        self._lock = Lock()
+        
+        # Statistics
+        self._total_calls = 0
+        self._successful_calls = 0
+        self._failed_calls = 0
+        self._rejected_calls = 0
     
-    def call(self, func: Callable, *args, **kwargs) -> Any:
+    def call(self, func: Callable, rate_limit_check: Callable, *args, **kwargs) -> Any:
         """
         Execute function with circuit breaker protection.
         
-        FIXED (Issue #16): Uses lazy gateway imports (SUGA-ISP compliant)
-        Performance: Small import overhead per call, but maintains architecture compliance
-        """
-        # Check if circuit is open
-        with self._lock:
-            if self.state == CircuitState.OPEN:
-                if time.time() - self.last_failure_time > self.timeout:
-                    self.state = CircuitState.HALF_OPEN
-                else:
-                    raise Exception(f"Circuit breaker '{self.name}' is OPEN")
+        Args:
+            func: Function to execute
+            rate_limit_check: Callable that returns True if within rate limit
+            *args, **kwargs: Arguments for func
         
-        # SUGA-ISP COMPLIANT: Import from gateway for cross-interface utilities
-        # Lazy import to avoid circular dependencies
-        try:
-            from gateway import execute_operation, GatewayInterface
-        except ImportError:
-            # Fallback: create minimal context without gateway
-            context = {
-                'correlation_id': str(uuid.uuid4()),
-                'start_time': time.time()
-            }
-            start_time = time.time()
+        Returns:
+            Function result
             
-            try:
-                result = func(*args, **kwargs)
-                self._on_success()
-                return result
-            except Exception as e:
-                self._on_failure()
-                raise
+        Raises:
+            Exception: If circuit is open or function fails
+        """
+        # Check rate limit first
+        if not rate_limit_check():
+            raise Exception(f"Circuit breaker '{self.name}': Rate limit exceeded")
         
-        # Create operation context via gateway
+        self._total_calls += 1
+        
+        # Check if circuit is open
+        if self.state == CircuitState.OPEN:
+            if time.time() - self.last_failure_time > self.timeout:
+                self.state = CircuitState.HALF_OPEN
+            else:
+                self._rejected_calls += 1
+                raise Exception(f"Circuit breaker '{self.name}' is OPEN")
+        
+        # Create operation context
         correlation_id = str(uuid.uuid4())
-        context = {
-            'correlation_id': correlation_id,
-            'start_time': time.time()
-        }
         start_time = time.time()
         
         try:
+            # Import from gateway for cross-interface utilities
+            from gateway import execute_operation, GatewayInterface
+            
             # Execute the function
             result = func(*args, **kwargs)
             
@@ -142,10 +151,21 @@ class CircuitBreaker:
             self._on_success()
             return result
             
+        except ImportError:
+            # Fallback: execute without gateway
+            try:
+                result = func(*args, **kwargs)
+                self._on_success()
+                return result
+            except Exception as e:
+                self._on_failure()
+                raise
+        
         except Exception as e:
             # Record failure metrics via gateway
             duration_ms = (time.time() - start_time) * 1000
             try:
+                from gateway import execute_operation, GatewayInterface
                 execute_operation(
                     GatewayInterface.METRICS,
                     'record_metric',
@@ -171,141 +191,273 @@ class CircuitBreaker:
             raise
     
     def _on_success(self):
-        """Handle successful call."""
-        with self._lock:
-            self.failures = 0
-            if self.state == CircuitState.HALF_OPEN:
-                self.state = CircuitState.CLOSED
+        """Handle successful call (no locks needed in single-threaded Lambda)."""
+        self._successful_calls += 1
+        self.failures = 0
+        if self.state == CircuitState.HALF_OPEN:
+            self.state = CircuitState.CLOSED
     
     def _on_failure(self):
-        """Handle failed call."""
-        with self._lock:
-            self.failures += 1
-            self.last_failure_time = time.time()
-            if self.failures >= self.failure_threshold:
-                self.state = CircuitState.OPEN
+        """Handle failed call (no locks needed in single-threaded Lambda)."""
+        self._failed_calls += 1
+        self.failures += 1
+        self.last_failure_time = time.time()
+        if self.failures >= self.failure_threshold:
+            self.state = CircuitState.OPEN
     
     def reset(self):
-        """
-        Reset circuit breaker state.
-        
-        Uses gateway for metrics recording (SUGA-ISP compliant).
-        """
-        start_time = time.time()
-        
-        with self._lock:
-            self.state = CircuitState.CLOSED
-            self.failures = 0
-            self.last_failure_time = None
-        
-        duration_ms = (time.time() - start_time) * 1000
-        
-        # SUGA-ISP COMPLIANT: Use gateway for metrics
-        try:
-            from gateway import execute_operation, GatewayInterface
-            execute_operation(
-                GatewayInterface.METRICS,
-                'record_metric',
-                name='circuit_breaker_reset_duration',
-                value=duration_ms,
-                tags={'operation': 'reset', 'success': 'true'}
-            )
-        except Exception:
-            pass  # Metrics failure should not crash circuit breaker
+        """Reset circuit breaker state."""
+        self.state = CircuitState.CLOSED
+        self.failures = 0
+        self.last_failure_time = None
+        # Don't reset statistics - preserve for diagnostics
     
     def get_state(self) -> Dict[str, Any]:
         """Get current circuit breaker state."""
-        with self._lock:
-            return {
-                'name': self.name,
-                'state': self.state.value,
-                'failures': self.failures,
-                'threshold': self.failure_threshold,
-                'timeout': self.timeout,
-                'last_failure': self.last_failure_time
+        return {
+            'name': self.name,
+            'state': self.state.value,
+            'failures': self.failures,
+            'threshold': self.failure_threshold,
+            'timeout': self.timeout,
+            'last_failure': self.last_failure_time,
+            'statistics': {
+                'total_calls': self._total_calls,
+                'successful_calls': self._successful_calls,
+                'failed_calls': self._failed_calls,
+                'rejected_calls': self._rejected_calls
             }
+        }
 
 
 class CircuitBreakerCore:
     """
-    Manages circuit breakers with cross-interface utility integration.
+    Manages circuit breakers with SINGLETON pattern and rate limiting.
     
-    DESIGN DECISION: Uses threading.Lock()
-    Reason: Thread-safe dictionary operations for future-proofing
-    Lambda Context: Single-threaded per container, lock adds minimal overhead
-    NOT A BUG: Defensive programming for portability
+    COMPLIANCE:
+    - AP-08: No threading locks (Lambda single-threaded)
+    - DEC-04: Lambda single-threaded model
+    - LESS-18: SINGLETON pattern via get_circuit_breaker_manager()
+    - LESS-21: Rate limiting (1000 ops/sec)
     """
     
     def __init__(self):
         self._breakers: Dict[str, CircuitBreaker] = {}
-        self._lock = Lock()
+        
+        # Rate limiting (1000 ops/sec - higher for infrastructure)
+        # LESS-21: Rate limiting essential for DoS protection
+        self._rate_limiter = deque(maxlen=1000)  # 1000 ops/sec window
+        self._rate_limit_window_ms = 1000  # 1 second window
+        self._rate_limited_count = 0
+        
+        # Statistics
+        self._total_operations = 0
+    
+    def _check_rate_limit(self) -> bool:
+        """
+        Check if operation is within rate limit.
+        
+        LESS-21: Uses deque for efficient rate limiting.
+        No threading locks needed (AP-08, DEC-04).
+        
+        Returns:
+            bool: True if operation allowed, False if rate limited
+        """
+        now = time.time() * 1000  # milliseconds
+        
+        # Remove expired timestamps
+        while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
+            self._rate_limiter.popleft()
+        
+        # Check if over limit
+        if len(self._rate_limiter) >= 1000:  # 1000 ops/sec
+            self._rate_limited_count += 1
+            return False
+        
+        # Add current timestamp
+        self._rate_limiter.append(now)
+        return True
     
     def get(self, name: str, failure_threshold: int = 5, timeout: int = 60) -> CircuitBreaker:
-        """Get or create circuit breaker."""
+        """Get or create circuit breaker (no locks needed in single-threaded Lambda)."""
+        if not self._check_rate_limit():
+            raise Exception("Rate limit exceeded")
+        
+        self._total_operations += 1
+        
         if name not in self._breakers:
-            with self._lock:
-                if name not in self._breakers:
-                    self._breakers[name] = CircuitBreaker(name, failure_threshold, timeout)
+            self._breakers[name] = CircuitBreaker(name, failure_threshold, timeout)
         return self._breakers[name]
     
     def call(self, name: str, func: Callable, *args, **kwargs) -> Any:
         """Call function with circuit breaker protection."""
+        if not self._check_rate_limit():
+            raise Exception("Rate limit exceeded")
+        
+        self._total_operations += 1
         breaker = self.get(name)
-        return breaker.call(func, *args, **kwargs)
+        return breaker.call(func, self._check_rate_limit, *args, **kwargs)
     
     def get_all_states(self) -> Dict[str, Dict[str, Any]]:
         """Get states of all circuit breakers."""
-        with self._lock:
-            return {
-                name: breaker.get_state()
-                for name, breaker in self._breakers.items()
-            }
+        if not self._check_rate_limit():
+            raise Exception("Rate limit exceeded")
+        
+        self._total_operations += 1
+        return {
+            name: breaker.get_state()
+            for name, breaker in self._breakers.items()
+        }
     
     def reset_all(self):
         """Reset all circuit breakers."""
-        with self._lock:
-            for breaker in self._breakers.values():
-                breaker.reset()
+        if not self._check_rate_limit():
+            raise Exception("Rate limit exceeded")
+        
+        self._total_operations += 1
+        for breaker in self._breakers.values():
+            breaker.reset()
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get circuit breaker manager statistics."""
+        if not self._check_rate_limit():
+            from gateway import create_error_response
+            return create_error_response('Rate limit exceeded', 'RATE_LIMIT_EXCEEDED')
+        
+        from gateway import create_success_response
+        
+        return create_success_response("Circuit breaker statistics", {
+            'total_operations': self._total_operations,
+            'breakers_count': len(self._breakers),
+            'rate_limited_count': self._rate_limited_count,
+            'rate_limit_window_ms': self._rate_limit_window_ms,
+            'current_rate_limit_size': len(self._rate_limiter),
+            'max_rate_limit': self._rate_limiter.maxlen,
+            'breakers': {
+                name: breaker.get_state()
+                for name, breaker in self._breakers.items()
+            }
+        })
+    
+    def reset(self) -> bool:
+        """
+        Reset circuit breaker manager state.
+        
+        LESS-18: Provides lifecycle management capability.
+        Clears all breakers and statistics.
+        
+        Returns:
+            bool: True if reset successful, False if rate limited
+        """
+        if not self._check_rate_limit():
+            return False
+        
+        try:
+            # Reset all breakers
+            self._breakers.clear()
+            
+            # Reset statistics
+            self._total_operations = 0
+            
+            # Reset rate limiting
+            self._rate_limiter.clear()
+            self._rate_limited_count = 0
+            
+            return True
+        except Exception:
+            return False
 
 
-# ===== SINGLETON INSTANCE =====
+# SINGLETON pattern for lifecycle management (LESS-18)
+_circuit_breaker_core = None
 
-_CIRCUIT_BREAKER_MANAGER = CircuitBreakerCore()
+
+def get_circuit_breaker_manager() -> CircuitBreakerCore:
+    """
+    Get SINGLETON circuit breaker manager instance.
+    
+    LESS-18: SINGLETON pattern provides lifecycle management.
+    Uses gateway SINGLETON registry with fallback to module-level instance.
+    
+    Returns:
+        CircuitBreakerCore: The singleton manager instance
+        
+    REF-IDs:
+    - LESS-18: SINGLETON pattern for lifecycle management
+    - DEC-04: No threading locks needed (Lambda single-threaded)
+    """
+    global _circuit_breaker_core
+    
+    try:
+        # Try to use gateway SINGLETON registry
+        from gateway import singleton_get, singleton_register
+        
+        manager = singleton_get('circuit_breaker_manager')
+        if manager is None:
+            # Create new instance and register
+            if _circuit_breaker_core is None:
+                _circuit_breaker_core = CircuitBreakerCore()
+            singleton_register('circuit_breaker_manager', _circuit_breaker_core)
+            manager = _circuit_breaker_core
+        
+        return manager
+        
+    except (ImportError, Exception):
+        # Fallback to module-level singleton
+        if _circuit_breaker_core is None:
+            _circuit_breaker_core = CircuitBreakerCore()
+        return _circuit_breaker_core
 
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
-# Function names MUST match gateway.py _OPERATION_REGISTRY exactly
-#
-# DESIGN DECISION: These functions are called directly by gateway_core.py
-# Reason: Performance-critical hot path, bypasses interface router
-# SUGA-ISP Compliance: Documented exception for infrastructure components
-# NOT A BUG: See gateway_core.py documentation for rationale
+# Updated to use SINGLETON manager pattern
 
 def get_breaker_implementation(name: str, failure_threshold: int = 5, 
                                timeout: int = 60, **kwargs) -> Dict[str, Any]:
-    """Execute get circuit breaker operation.
-    
-    Returns circuit breaker state dict instead of CircuitBreaker object
-    to maintain gateway interface consistency.
-    """
-    breaker = _CIRCUIT_BREAKER_MANAGER.get(name, failure_threshold, timeout)
+    """Get circuit breaker state using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    breaker = manager.get(name, failure_threshold, timeout)
     return breaker.get_state()
 
 
 def execute_with_breaker_implementation(name: str, func: Callable, 
                                        args: tuple = (), **kwargs) -> Any:
-    """Execute call with circuit breaker protection."""
-    return _CIRCUIT_BREAKER_MANAGER.call(name, func, *args, **kwargs)
+    """Execute call with circuit breaker protection using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    return manager.call(name, func, *args, **kwargs)
 
 
 def get_all_states_implementation(**kwargs) -> Dict[str, Dict[str, Any]]:
-    """Execute get all circuit breaker states."""
-    return _CIRCUIT_BREAKER_MANAGER.get_all_states()
+    """Get all circuit breaker states using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    return manager.get_all_states()
 
 
 def reset_all_implementation(**kwargs):
-    """Execute reset all circuit breakers."""
-    _CIRCUIT_BREAKER_MANAGER.reset_all()
+    """Reset all circuit breakers using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    manager.reset_all()
+
+
+def get_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Get circuit breaker statistics using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    return manager.get_stats()
+
+
+def reset_implementation(**kwargs) -> Dict[str, Any]:
+    """Reset circuit breaker manager state using SINGLETON manager."""
+    manager = get_circuit_breaker_manager()
+    success = manager.reset()
+    
+    from gateway import create_success_response, create_error_response
+    
+    if success:
+        return create_success_response("Circuit breaker manager reset", {
+            'reset': True
+        })
+    else:
+        return create_error_response('Reset rate limited', 'RATE_LIMIT_EXCEEDED')
 
 
 # ===== EXPORTS =====
@@ -314,10 +466,13 @@ __all__ = [
     'CircuitState',
     'CircuitBreaker',
     'CircuitBreakerCore',
+    'get_circuit_breaker_manager',
     'get_breaker_implementation',
     'execute_with_breaker_implementation',
     'get_all_states_implementation',
     'reset_all_implementation',
+    'get_stats_implementation',
+    'reset_implementation',
 ]
 
 # EOF

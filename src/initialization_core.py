@@ -1,49 +1,32 @@
 """
 initialization_core.py
-Version: 2025.10.17.11
-Description: Lambda initialization with SUGA compliance and idempotency
+Version: 2025.10.22.01
+Description: Lambda initialization with SINGLETON pattern, rate limiting, NO threading locks
 
 CHANGELOG:
+- 2025.10.22.01: Phase 1 + 3 optimizations (Session 6)
+  - REMOVED threading locks (CRITICAL FIX - was violating AP-08, DEC-04)
+  - ADDED SINGLETON pattern with get_initialization_manager()
+  - ADDED rate limiting (1000 ops/sec)
+  - ENHANCED reset() operation for lifecycle management
+  - ADDED get_stats() operation
+  - REPLACED Lock with rate limiting (DoS protection)
+  - Compliance: AP-08, DEC-04, LESS-17, LESS-18, LESS-21
 - 2025.10.17.11: Added idempotency check (Issue #44 fix)
-  - initialize() now returns cached result if already initialized
-  - Prevents duplicate initialization on repeated calls
-  - Added uptime tracking to already_initialized response
-  - Improved thread safety around initialization check
 - 2025.10.16.01: Fixed thread safety, error handling, parameter validation
 
-CRITICAL FIXES (2025.10.16.01):
-- Added thread safety with Lock to protect shared state
-- Removed circular indirection (direct _INITIALIZATION calls)
-- Improved error handling (proper exceptions instead of silent defaults)
-- Fixed parameter validation for all operations
-- Added consistent flag name validation
-- Improved parameter extraction logic
-
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 import os
 import sys
 import time
 from typing import Dict, Any, Optional
-from threading import Lock
+from collections import deque
 from enum import Enum
 
-
 _USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
-
 
 # ===== INITIALIZATION OPERATION ENUM =====
 
@@ -54,18 +37,18 @@ class InitializationOperation(Enum):
     IS_INITIALIZED = "is_initialized"
     RESET = "reset"
     GET_STATUS = "get_status"
+    GET_STATS = "get_stats"
     SET_FLAG = "set_flag"
     GET_FLAG = "get_flag"
-
 
 # ===== INITIALIZATION CORE CLASS =====
 
 class InitializationCore:
     """
-    Handles Lambda environment initialization with thread safety and idempotency.
+    Handles Lambda environment initialization with idempotency.
     
-    Thread-safe singleton manager for initialization state, configuration,
-    and runtime flags. Ensures initialization happens exactly once per container.
+    CRITICAL: NO threading locks - Lambda is single-threaded (DEC-04, AP-08)
+    Uses rate limiting for DoS protection instead of locks (LESS-21)
     """
     
     def __init__(self):
@@ -74,11 +57,37 @@ class InitializationCore:
         self._flags: Dict[str, Any] = {}
         self._init_timestamp: Optional[float] = None
         self._init_duration_ms: Optional[float] = None
-        self._lock = Lock()
+        
+        # Rate limiting (1000 ops/sec for infrastructure - LESS-21)
+        self._rate_limiter = deque(maxlen=1000)
+        self._rate_limit_window_ms = 1000
+        self._rate_limited_count = 0
+    
+    def _check_rate_limit(self) -> bool:
+        """
+        Check rate limit (1000 ops/sec).
+        
+        Returns:
+            True if within rate limit, False if rate limited
+        """
+        now = time.time() * 1000
+        
+        # Remove timestamps outside window
+        while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
+            self._rate_limiter.popleft()
+        
+        # Check if at limit
+        if len(self._rate_limiter) >= 1000:
+            self._rate_limited_count += 1
+            return False
+        
+        # Add timestamp
+        self._rate_limiter.append(now)
+        return True
     
     def initialize(self, config: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
         """
-        Initialize Lambda environment with thread safety and idempotency (Issue #44).
+        Initialize Lambda environment with idempotency (Issue #44).
         
         Idempotency guarantee: Calling initialize() multiple times is safe.
         If already initialized, returns cached result immediately without
@@ -89,84 +98,68 @@ class InitializationCore:
             **kwargs: Additional configuration items (merged with config dict)
             
         Returns:
-            Dictionary with initialization status:
-            - First call: {'status': 'initialized', ...}
-            - Subsequent calls: {'status': 'already_initialized', ...}
-            
-        Thread Safety:
-            Double-checked locking ensures thread-safe initialization
-            even if called concurrently from multiple threads.
+            Dictionary with initialization status
         """
-        # Fast path: check without lock first (optimization)
-        if self._initialized:
-            with self._lock:
-                # Double-check with lock for thread safety
-                if self._initialized:
-                    return {
-                        'status': 'already_initialized',
-                        'cached': True,
-                        'timestamp': self._init_timestamp,
-                        'init_duration_ms': self._init_duration_ms,
-                        'uptime_seconds': time.time() - self._init_timestamp if self._init_timestamp else 0,
-                        'config_keys': list(self._config.keys())
-                    }
+        if not self._check_rate_limit():
+            return {'status': 'rate_limited', 'error': 'Rate limit exceeded (1000 ops/sec)'}
         
-        # Slow path: actually initialize
-        with self._lock:
-            # Triple-check inside lock (another thread might have initialized)
-            if self._initialized:
-                return {
-                    'status': 'already_initialized',
-                    'cached': True,
-                    'timestamp': self._init_timestamp,
-                    'init_duration_ms': self._init_duration_ms,
-                    'uptime_seconds': time.time() - self._init_timestamp if self._init_timestamp else 0,
-                    'config_keys': list(self._config.keys())
-                }
-            
-            start_time = time.time()
-            
-            # Merge config and kwargs
-            if config is None:
-                config = {}
-            self._config = {**config, **kwargs}
-            
-            # Mark as initialized (atomic with config update)
-            self._initialized = True
-            self._init_timestamp = start_time
-            self._init_duration_ms = (time.time() - start_time) * 1000
-            
+        # Check if already initialized (fast path)
+        if self._initialized:
             return {
-                'status': 'initialized',
-                'cached': False,
+                'status': 'already_initialized',
+                'cached': True,
                 'timestamp': self._init_timestamp,
-                'duration_ms': self._init_duration_ms,
+                'init_duration_ms': self._init_duration_ms,
+                'uptime_seconds': time.time() - self._init_timestamp if self._init_timestamp else 0,
                 'config_keys': list(self._config.keys())
             }
+        
+        # Initialize
+        start_time = time.time()
+        
+        # Merge config and kwargs
+        if config is None:
+            config = {}
+        self._config = {**config, **kwargs}
+        
+        # Mark as initialized
+        self._initialized = True
+        self._init_timestamp = start_time
+        self._init_duration_ms = (time.time() - start_time) * 1000
+        
+        return {
+            'status': 'initialized',
+            'cached': False,
+            'timestamp': self._init_timestamp,
+            'duration_ms': self._init_duration_ms,
+            'config_keys': list(self._config.keys())
+        }
     
     def get_config(self) -> Dict[str, Any]:
         """
         Get initialization configuration.
         
         Returns:
-            Copy of configuration dictionary (empty if not initialized)
+            Copy of configuration dictionary (empty if not initialized or rate limited)
         """
-        with self._lock:
-            return self._config.copy()
+        if not self._check_rate_limit():
+            return {}
+        return self._config.copy()
     
     def is_initialized(self) -> bool:
         """
         Check if Lambda environment is initialized.
         
         Returns:
-            True if initialized, False otherwise
+            True if initialized, False otherwise or rate limited
         """
-        with self._lock:
-            return self._initialized
+        if not self._check_rate_limit():
+            return False
+        return self._initialized
     
     def reset(self) -> Dict[str, Any]:
         """
-        Reset initialization state with thread safety.
+        Reset initialization state (lifecycle management).
         
         After reset(), initialize() can be called again to re-initialize
         with new configuration.
@@ -174,48 +167,58 @@ class InitializationCore:
         Returns:
             Dictionary with reset status
         """
-        with self._lock:
-            was_initialized = self._initialized
-            
-            self._initialized = False
-            self._config.clear()
-            self._flags.clear()
-            self._init_timestamp = None
-            self._init_duration_ms = None
-            
-            return {
-                'status': 'reset',
-                'was_initialized': was_initialized,
-                'timestamp': time.time()
-            }
+        if not self._check_rate_limit():
+            return {'status': 'rate_limited', 'error': 'Rate limit exceeded (1000 ops/sec)'}
+        
+        was_initialized = self._initialized
+        
+        self._initialized = False
+        self._config.clear()
+        self._flags.clear()
+        self._init_timestamp = None
+        self._init_duration_ms = None
+        
+        # Reset rate limiter
+        self._rate_limiter.clear()
+        self._rate_limited_count = 0
+        
+        return {
+            'status': 'reset',
+            'was_initialized': was_initialized,
+            'timestamp': time.time()
+        }
     
     def get_status(self) -> Dict[str, Any]:
         """
         Get comprehensive initialization status.
         
         Returns:
-            Dictionary containing complete initialization state including:
-            - initialized: Whether system is initialized
-            - config: Current configuration
-            - flags: Current flags
-            - init_timestamp: When initialized
-            - init_duration_ms: How long initialization took
-            - uptime_seconds: Time since initialization
-            - flag_count: Number of flags set
-            - config_keys: List of config keys
+            Dictionary containing complete initialization state
         """
-        with self._lock:
-            return {
-                'initialized': self._initialized,
-                'config': self._config.copy() if self._initialized else {},
-                'flags': self._flags.copy(),
-                'init_timestamp': self._init_timestamp,
-                'init_duration_ms': self._init_duration_ms,
-                'uptime_seconds': (time.time() - self._init_timestamp) if self._init_timestamp else None,
-                'flag_count': len(self._flags),
-                'config_keys': list(self._config.keys()) if self._initialized else [],
-                'use_generic_operations': _USE_GENERIC_OPERATIONS
-            }
+        if not self._check_rate_limit():
+            return {'error': 'Rate limit exceeded'}
+        
+        return {
+            'initialized': self._initialized,
+            'config': self._config.copy() if self._initialized else {},
+            'flags': self._flags.copy(),
+            'init_timestamp': self._init_timestamp,
+            'init_duration_ms': self._init_duration_ms,
+            'uptime_seconds': (time.time() - self._init_timestamp) if self._init_timestamp else None,
+            'flag_count': len(self._flags),
+            'config_keys': list(self._config.keys()) if self._initialized else [],
+            'rate_limited_count': self._rate_limited_count,
+            'use_generic_operations': _USE_GENERIC_OPERATIONS
+        }
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get initialization statistics (alias for get_status).
+        
+        Returns:
+            Dictionary containing initialization statistics
+        """
+        return self.get_status()
     
     def set_flag(self, flag_name: str, value: Any) -> Dict[str, Any]:
         """
@@ -226,13 +229,11 @@ class InitializationCore:
             value: Value to set (any type including None)
             
         Returns:
-            Dictionary with operation result:
-            - success: True if set, False if validation failed
-            - flag_name: Name of the flag
-            - value: New value
-            - old_value: Previous value (if any)
-            - was_new: True if this flag didn't exist before
+            Dictionary with operation result
         """
+        if not self._check_rate_limit():
+            return {'success': False, 'error': 'Rate limit exceeded (1000 ops/sec)'}
+        
         if not flag_name or not isinstance(flag_name, str):
             return {
                 'success': False,
@@ -240,18 +241,17 @@ class InitializationCore:
                 'flag_name': flag_name
             }
         
-        with self._lock:
-            old_value = self._flags.get(flag_name)
-            was_new = flag_name not in self._flags
-            self._flags[flag_name] = value
-            
-            return {
-                'success': True,
-                'flag_name': flag_name,
-                'value': value,
-                'old_value': old_value,
-                'was_new': was_new
-            }
+        old_value = self._flags.get(flag_name)
+        was_new = flag_name not in self._flags
+        self._flags[flag_name] = value
+        
+        return {
+            'success': True,
+            'flag_name': flag_name,
+            'value': value,
+            'old_value': old_value,
+            'was_new': was_new
+        }
     
     def get_flag(self, flag_name: str, default: Any = None) -> Any:
         """
@@ -264,28 +264,59 @@ class InitializationCore:
         Returns:
             Flag value or default
         """
+        if not self._check_rate_limit():
+            return default
+        
         if not flag_name or not isinstance(flag_name, str):
             return default
         
-        with self._lock:
-            return self._flags.get(flag_name, default)
+        return self._flags.get(flag_name, default)
 
 
-# ===== SINGLETON INSTANCE =====
+# Global initialization manager instance
+_manager_core = None
 
-_INITIALIZATION = InitializationCore()
+
+def get_initialization_manager() -> InitializationCore:
+    """
+    Get the initialization manager instance (SINGLETON pattern - LESS-18).
+    
+    Returns:
+        InitializationCore instance
+    """
+    global _manager_core
+    
+    try:
+        # Try to use gateway's SINGLETON system if available
+        from gateway import singleton_get, singleton_register
+        
+        manager = singleton_get('initialization_manager')
+        if manager is None:
+            # Create and register
+            if _manager_core is None:
+                _manager_core = InitializationCore()
+            singleton_register('initialization_manager', _manager_core)
+            manager = _manager_core
+        
+        return manager
+    except (ImportError, Exception):
+        # Fallback: use module-level singleton
+        if _manager_core is None:
+            _manager_core = InitializationCore()
+        return _manager_core
 
 
 # ===== OPERATION MAP =====
 
 _OPERATION_MAP = {
-    InitializationOperation.INITIALIZE: lambda **kwargs: _INITIALIZATION.initialize(**kwargs),
-    InitializationOperation.GET_CONFIG: lambda **kwargs: _INITIALIZATION.get_config(),
-    InitializationOperation.IS_INITIALIZED: lambda **kwargs: _INITIALIZATION.is_initialized(),
-    InitializationOperation.RESET: lambda **kwargs: _INITIALIZATION.reset(),
-    InitializationOperation.GET_STATUS: lambda **kwargs: _INITIALIZATION.get_status(),
-    InitializationOperation.SET_FLAG: lambda **kwargs: _INITIALIZATION.set_flag(**kwargs),
-    InitializationOperation.GET_FLAG: lambda **kwargs: _INITIALIZATION.get_flag(**kwargs),
+    InitializationOperation.INITIALIZE: lambda **kwargs: get_initialization_manager().initialize(**kwargs),
+    InitializationOperation.GET_CONFIG: lambda **kwargs: get_initialization_manager().get_config(),
+    InitializationOperation.IS_INITIALIZED: lambda **kwargs: get_initialization_manager().is_initialized(),
+    InitializationOperation.RESET: lambda **kwargs: get_initialization_manager().reset(),
+    InitializationOperation.GET_STATUS: lambda **kwargs: get_initialization_manager().get_status(),
+    InitializationOperation.GET_STATS: lambda **kwargs: get_initialization_manager().get_stats(),
+    InitializationOperation.SET_FLAG: lambda **kwargs: get_initialization_manager().set_flag(**kwargs),
+    InitializationOperation.GET_FLAG: lambda **kwargs: get_initialization_manager().get_flag(**kwargs),
 }
 
 
@@ -294,8 +325,6 @@ _OPERATION_MAP = {
 def execute_initialization_operation(operation: InitializationOperation, **kwargs):
     """
     Universal initialization operation executor with error handling.
-    
-    Single function that routes all initialization operations to the InitializationCore instance.
     
     Args:
         operation: InitializationOperation enum value
@@ -316,127 +345,80 @@ def execute_initialization_operation(operation: InitializationOperation, **kwarg
             return operation_func(**kwargs)
         else:
             # Legacy direct dispatch
+            manager = get_initialization_manager()
             if operation == InitializationOperation.INITIALIZE:
-                return _INITIALIZATION.initialize(**kwargs)
+                return manager.initialize(**kwargs)
             elif operation == InitializationOperation.GET_CONFIG:
-                return _INITIALIZATION.get_config()
+                return manager.get_config()
             elif operation == InitializationOperation.IS_INITIALIZED:
-                return _INITIALIZATION.is_initialized()
+                return manager.is_initialized()
             elif operation == InitializationOperation.RESET:
-                return _INITIALIZATION.reset()
+                return manager.reset()
             elif operation == InitializationOperation.GET_STATUS:
-                return _INITIALIZATION.get_status()
+                return manager.get_status()
+            elif operation == InitializationOperation.GET_STATS:
+                return manager.get_stats()
             elif operation == InitializationOperation.SET_FLAG:
-                return _INITIALIZATION.set_flag(**kwargs)
+                return manager.set_flag(**kwargs)
             elif operation == InitializationOperation.GET_FLAG:
-                return _INITIALIZATION.get_flag(**kwargs)
+                return manager.get_flag(**kwargs)
             else:
                 raise ValueError(f"Unknown initialization operation: {operation}")
     except Exception as e:
-        # Re-raise with context
         raise Exception(f"Initialization operation '{operation.value}' failed: {e}") from e
 
 
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
-# These functions are called by interface_initialization.py router
 
 def _execute_initialize_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute initialization operation.
-    
-    Args:
-        config: Optional configuration dictionary
-        **kwargs: Additional configuration items
-        
-    Returns:
-        Initialization result dictionary with idempotency guarantee
-    """
-    return _INITIALIZATION.initialize(**kwargs)
+    """Execute initialization operation."""
+    return get_initialization_manager().initialize(**kwargs)
 
 
 def _execute_get_config_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute get config operation.
-    
-    Returns:
-        Configuration dictionary
-    """
-    return _INITIALIZATION.get_config()
+    """Execute get config operation."""
+    return get_initialization_manager().get_config()
 
 
 def _execute_is_initialized_implementation(**kwargs) -> bool:
-    """
-    Execute is initialized check.
-    
-    Returns:
-        True if initialized, False otherwise
-    """
-    return _INITIALIZATION.is_initialized()
+    """Execute is initialized check."""
+    return get_initialization_manager().is_initialized()
 
 
 def _execute_reset_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute reset operation.
-    
-    Returns:
-        Reset result dictionary
-    """
-    return _INITIALIZATION.reset()
+    """Execute reset operation."""
+    return get_initialization_manager().reset()
 
 
 def _execute_get_status_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute get status operation.
-    
-    Returns:
-        Comprehensive status dictionary
-    """
-    return _INITIALIZATION.get_status()
+    """Execute get status operation."""
+    return get_initialization_manager().get_status()
+
+
+def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get stats operation."""
+    return get_initialization_manager().get_stats()
 
 
 def _execute_set_flag_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute set flag operation.
-    
-    Args:
-        flag_name: Name of the flag (required)
-        value: Value to set (required)
-        
-    Returns:
-        Operation result dictionary
-        
-    Raises:
-        ValueError: If required parameters missing
-    """
+    """Execute set flag operation."""
     if 'flag_name' not in kwargs:
         raise ValueError("Parameter 'flag_name' is required for set_flag operation")
     if 'value' not in kwargs:
         raise ValueError("Parameter 'value' is required for set_flag operation")
     
-    return _INITIALIZATION.set_flag(
+    return get_initialization_manager().set_flag(
         flag_name=kwargs['flag_name'],
         value=kwargs['value']
     )
 
 
 def _execute_get_flag_implementation(**kwargs) -> Any:
-    """
-    Execute get flag operation.
-    
-    Args:
-        flag_name: Name of the flag (required)
-        default: Default value if flag doesn't exist (optional)
-        
-    Returns:
-        Flag value or default
-        
-    Raises:
-        ValueError: If flag_name not provided
-    """
+    """Execute get flag operation."""
     if 'flag_name' not in kwargs:
         raise ValueError("Parameter 'flag_name' is required for get_flag operation")
     
-    return _INITIALIZATION.get_flag(
+    return get_initialization_manager().get_flag(
         flag_name=kwargs['flag_name'],
         default=kwargs.get('default', None)
     )
@@ -445,21 +427,16 @@ def _execute_get_flag_implementation(**kwargs) -> Any:
 # ===== EXPORTS =====
 
 __all__ = [
-    # Enums
     'InitializationOperation',
-    
-    # Core Class
     'InitializationCore',
-    
-    # Operation Executor
     'execute_initialization_operation',
-    
-    # Gateway Implementation Functions
+    'get_initialization_manager',
     '_execute_initialize_implementation',
     '_execute_get_config_implementation',
     '_execute_is_initialized_implementation',
     '_execute_reset_implementation',
     '_execute_get_status_implementation',
+    '_execute_get_stats_implementation',
     '_execute_set_flag_implementation',
     '_execute_get_flag_implementation',
 ]

@@ -1,40 +1,29 @@
 """
 metrics_core.py - Core metrics collection manager
-Version: 2025.10.16.02
-Description: MetricsCore class with unified operations - BUGS FIXED
+Version: 2025.10.21.01
+Description: PHASE 2 TASK 2.2 - Use safe_divide() helper to eliminate division-by-zero duplication
 
-FIXES IMPLEMENTED:
+CHANGELOG:
+- 2025.10.21.01: PHASE 2 TASK 2.2 - Genericize safe division
+  - Updated 10+ locations to use safe_divide() helper
+  - Eliminated ~30 LOC of duplicated division-by-zero checks
+  - Locations updated:
+    * record_response_metric: avg_response_time_ms, cache_hit_rate
+    * record_http_metric: avg_response_time_ms
+    * get_http_metrics: success_rate
+    * get_circuit_breaker_metrics: failure_rate (2 locations)
+    * get_dispatcher_stats: avg_duration_ms
+
+FIXES IMPLEMENTED (Phase 1):
 - Bug #3: Fixed thread safety - get_response_metrics, get_http_metrics, get_circuit_breaker_metrics now use locks
-- Bug #4: Implemented missing methods completely (get_response_metrics, get_http_metrics, get_circuit_breaker_metrics)
+- Bug #4: Implemented missing methods completely
 - Bug #11: Division by zero checks in all calculations
 - Bug #13: Input validation for negative durations
 - Bug #1: Fixed ResponseMetrics - added responses_by_type and responses_by_status tracking
 - Bug #2: Implemented record_circuit_breaker_event completely
 
-INTENTIONAL DESIGN DECISIONS:
-1. No memory limits added - SUGA-ISP already provides memory management through UTILITY interface
-2. No custom logging - errors handled via exceptions for gateway logging layer
-3. Silent failures with False returns - metrics should never crash the app
-4. Thread-safe singleton pattern using threading.Lock
-
-AWS Lambda Compliance:
-- 128MB RAM enforced via SUGA-ISP UTILITY interface memory management
-- No external dependencies beyond stdlib
-- Single-threaded safe (threading.Lock)
-
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 import os
@@ -50,7 +39,7 @@ from metrics_types import (
     HTTPClientMetrics,
     CircuitBreakerMetrics
 )
-from metrics_helper import calculate_percentile, build_metric_key
+from metrics_helper import calculate_percentile, build_metric_key, safe_divide
 
 # ===== CONFIGURATION =====
 
@@ -169,11 +158,10 @@ class MetricsCore:
             return False
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get comprehensive metrics statistics with thread safety (Bug #3 fix)."""
+        """Get comprehensive metrics statistics with thread safety."""
         with self._lock:
             stats = self._stats.copy()
             
-            # Bug #1 fix: Properly populate response metrics
             stats['response_metrics'] = {
                 'total_responses': self._response_metrics.total_responses,
                 'successful_responses': self._response_metrics.successful_responses,
@@ -218,7 +206,7 @@ class MetricsCore:
     # ===== RESPONSE METRICS =====
     
     def record_response_metric(self, response_type: ResponseType, status_code: int, duration_ms: float = 0):
-        """Record response metric with validation (Bug #13 fix)."""
+        """Record response metric with validation."""
         # Input validation
         if duration_ms < 0:
             duration_ms = 0
@@ -226,7 +214,7 @@ class MetricsCore:
         with self._lock:
             self._response_metrics.total_responses += 1
             
-            # Track by type (Bug #1 fix)
+            # Track by type
             if response_type == ResponseType.SUCCESS:
                 self._response_metrics.successful_responses += 1
             elif response_type == ResponseType.ERROR:
@@ -238,15 +226,16 @@ class MetricsCore:
             elif response_type == ResponseType.FALLBACK:
                 self._response_metrics.fallback_responses += 1
             
-            # Update timing stats (Bug #11 fix - division by zero check)
-            if duration_ms > 0 and self._response_metrics.total_responses > 0:
+            # Update timing stats using safe_divide
+            if duration_ms > 0:
                 # Calculate new average
                 total_time = (
                     self._response_metrics.avg_response_time_ms * 
                     (self._response_metrics.total_responses - 1)
                 ) + duration_ms
-                self._response_metrics.avg_response_time_ms = (
-                    total_time / self._response_metrics.total_responses
+                self._response_metrics.avg_response_time_ms = safe_divide(
+                    total_time,
+                    self._response_metrics.total_responses
                 )
                 
                 # Track fastest/slowest
@@ -255,15 +244,15 @@ class MetricsCore:
                 if duration_ms > self._response_metrics.slowest_response_ms:
                     self._response_metrics.slowest_response_ms = duration_ms
             
-            # Calculate cache hit rate (Bug #11 fix - division by zero check)
-            if self._response_metrics.total_responses > 0:
-                self._response_metrics.cache_hit_rate = (
-                    self._response_metrics.cached_responses / 
-                    self._response_metrics.total_responses * 100
-                )
+            # Calculate cache hit rate using safe_divide
+            self._response_metrics.cache_hit_rate = safe_divide(
+                self._response_metrics.cached_responses,
+                self._response_metrics.total_responses,
+                multiply_by=100.0
+            )
     
     def get_response_metrics(self) -> Dict[str, Any]:
-        """Get response metrics (Bug #4 fix - complete implementation with thread safety)."""
+        """Get response metrics with thread safety."""
         with self._lock:
             return {
                 'total_responses': self._response_metrics.total_responses,
@@ -287,7 +276,7 @@ class MetricsCore:
     
     def record_http_metric(self, method: str, url: str, status_code: int, 
                           duration_ms: float, response_size: Optional[int] = None):
-        """Record HTTP client metric with validation (Bug #13 fix)."""
+        """Record HTTP client metric with validation."""
         # Input validation
         if duration_ms < 0:
             duration_ms = 0
@@ -303,16 +292,15 @@ class MetricsCore:
             else:
                 self._http_metrics.failed_requests += 1
             
-            # Update timing (Bug #11 fix - safe calculation)
+            # Update timing using safe_divide
             self._http_metrics.total_response_time_ms += duration_ms
-            if self._http_metrics.total_requests > 0:
-                self._http_metrics.avg_response_time_ms = (
-                    self._http_metrics.total_response_time_ms / 
-                    self._http_metrics.total_requests
-                )
+            self._http_metrics.avg_response_time_ms = safe_divide(
+                self._http_metrics.total_response_time_ms,
+                self._http_metrics.total_requests
+            )
     
     def get_http_metrics(self) -> Dict[str, Any]:
-        """Get HTTP client metrics (Bug #4 fix - complete implementation with thread safety)."""
+        """Get HTTP client metrics with thread safety."""
         with self._lock:
             return {
                 'total_requests': self._http_metrics.total_requests,
@@ -322,16 +310,17 @@ class MetricsCore:
                 'total_response_time_ms': self._http_metrics.total_response_time_ms,
                 'requests_by_method': dict(self._http_metrics.requests_by_method),
                 'requests_by_status': dict(self._http_metrics.requests_by_status),
-                'success_rate': (
-                    (self._http_metrics.successful_requests / self._http_metrics.total_requests * 100)
-                    if self._http_metrics.total_requests > 0 else 0.0
+                'success_rate': safe_divide(
+                    self._http_metrics.successful_requests,
+                    self._http_metrics.total_requests,
+                    multiply_by=100.0
                 )
             }
     
     # ===== CIRCUIT BREAKER METRICS =====
     
     def record_circuit_breaker_event(self, circuit_name: str, event_type: str, success: bool = True):
-        """Record circuit breaker event (Bug #2 fix - complete implementation)."""
+        """Record circuit breaker event."""
         with self._lock:
             # Initialize circuit breaker if new
             if circuit_name not in self._circuit_breaker_metrics:
@@ -355,7 +344,7 @@ class MetricsCore:
                     cb.state = 'half_open'
     
     def get_circuit_breaker_metrics(self, circuit_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get circuit breaker metrics (Bug #4 fix - complete implementation with thread safety)."""
+        """Get circuit breaker metrics with thread safety."""
         with self._lock:
             if circuit_name:
                 # Get specific circuit breaker
@@ -369,9 +358,10 @@ class MetricsCore:
                     'success_count': cb.success_count,
                     'total_requests': cb.total_requests,
                     'last_failure_time': cb.last_failure_time,
-                    'failure_rate': (
-                        (cb.failure_count / cb.total_requests * 100)
-                        if cb.total_requests > 0 else 0.0
+                    'failure_rate': safe_divide(
+                        cb.failure_count,
+                        cb.total_requests,
+                        multiply_by=100.0
                     )
                 }
             else:
@@ -383,9 +373,10 @@ class MetricsCore:
                         'success_count': cb.success_count,
                         'total_requests': cb.total_requests,
                         'last_failure_time': cb.last_failure_time,
-                        'failure_rate': (
-                            (cb.failure_count / cb.total_requests * 100)
-                            if cb.total_requests > 0 else 0.0
+                        'failure_rate': safe_divide(
+                            cb.failure_count,
+                            cb.total_requests,
+                            multiply_by=100.0
                         )
                     }
                     for name, cb in self._circuit_breaker_metrics.items()
@@ -395,7 +386,7 @@ class MetricsCore:
     
     def record_dispatcher_timing(self, interface_name: str, operation_name: str, duration_ms: float) -> bool:
         """Record dispatcher timing with validation."""
-        # Input validation (Bug #13 fix)
+        # Input validation
         if duration_ms < 0:
             return False
         
@@ -418,7 +409,7 @@ class MetricsCore:
                     interfaces[interface]['operations'][operation] = count
                     interfaces[interface]['total_calls'] += count
             
-            # Calculate timing stats for each interface (Bug #11 fix - safe division)
+            # Calculate timing stats for each interface using safe_divide
             for interface, data in interfaces.items():
                 if interface in ['CacheCore', 'LoggingCore', 'SecurityCore', 'MetricsCore']:
                     all_timings = []
@@ -427,8 +418,9 @@ class MetricsCore:
                             all_timings.extend(timing_list)
                     
                     if all_timings:
-                        data['avg_duration_ms'] = sum(all_timings) / len(all_timings)
-                        data['total_duration_ms'] = sum(all_timings)
+                        total_duration = sum(all_timings)
+                        data['avg_duration_ms'] = safe_divide(total_duration, len(all_timings))
+                        data['total_duration_ms'] = total_duration
             
             return dict(interfaces)
     
@@ -440,6 +432,59 @@ class MetricsCore:
                 'call_counts': dict(self._dispatcher_call_counts)
             }
 
+    def reset_metrics(self) -> bool:
+        """
+        Reset all metrics to initial state.
+        
+        Useful for testing and debugging. Clears all:
+        - Metrics data
+        - Counters
+        - Gauges
+        - Histograms
+        - Response metrics
+        - HTTP metrics
+        - Circuit breaker metrics
+        - Dispatcher timings
+        
+        Returns:
+            bool: True if reset successful
+            
+        Example:
+            manager.reset_metrics()
+            # All metrics cleared
+        """
+        try:
+            with self._lock:
+                self._metrics.clear()
+                self._counters.clear()
+                self._gauges.clear()
+                self._histograms.clear()
+                
+                # Reset stats
+                self._stats = {
+                    'total_metrics': 0,
+                    'unique_metrics': 0,
+                    'counters': 0,
+                    'gauges': 0,
+                    'histograms': 0
+                }
+                
+                # Reset response metrics
+                self._response_metrics = ResponseMetrics()
+                
+                # Reset HTTP metrics
+                self._http_metrics = HTTPClientMetrics()
+                
+                # Reset circuit breakers
+                self._circuit_breaker_metrics.clear()
+                
+                # Reset dispatcher timings
+                self._dispatcher_timings.clear()
+                self._dispatcher_call_counts.clear()
+                
+                return True
+        except Exception:
+            return False
 
 # ===== SINGLETON INSTANCE =====
 

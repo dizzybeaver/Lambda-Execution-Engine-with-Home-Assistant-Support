@@ -1,185 +1,209 @@
+# Filename: interface_logging.py
 """
-interface_logging.py - Logging Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.20.02
-Description: Router for Logging interface with dispatch dictionary pattern
+interface_logging.py - Logging Router (SECURITY HARDENED)
+Version: 2025.10.22.01
+Description: Firewall router for LOGGING interface with security sanitization
+
+CHANGES (2025.10.22.01):
+- Added reset operation to dispatch table (Phase 1 compliance)
 
 CHANGELOG:
-- 2025.10.20.02: CRITICAL FIX - Renamed 'operation' to 'operation_name' in validation functions
-  - Fixed _validate_operation_start_params() to expect 'operation_name'
-  - Fixed _validate_operation_success_params() to expect 'operation_name'
-  - Fixed _validate_operation_failure_params() to expect 'operation_name'
-  - Resolves RuntimeError: "got multiple values for argument 'operation'"
-- 2025.10.17.17: MODERNIZED with dispatch dictionary pattern
-  - Converted from elif chain (7 operations) to dispatch dictionary
-  - O(1) operation lookup vs O(n) elif chain
-  - Reduced code from ~160 lines to ~145 lines
-  - Easier to maintain and extend (add operation = 1 line)
-  - Follows pattern from interface_utility.py v2025.10.17.16
-  - All validation logic preserved in helper functions
-- 2025.10.17.15: FIXED Issue #20 - Added import error protection
-- 2025.10.16.04: Bug fixes - Added error handling, parameter validation
-
-CRITICAL BUG FIX (2025.10.20.02):
-Problem: execute_operation(interface, operation, **kwargs) has 'operation' as positional parameter.
-         Validation functions checked for 'operation' in kwargs, creating conflict.
-Solution: Changed validation functions to check for 'operation_name' instead of 'operation'.
-Impact: Matches gateway_wrappers.py parameter rename (operation → operation_name).
+- 2025.10.21.03: Removed LogTemplate validation from _validate_message_param
+- 2025.10.18.02: Enhanced security with CVE mitigations
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
 
-from typing import Any, Callable, Dict
+import os
+from typing import Any, Dict, Callable, Union
 
-# ===== IMPORT PROTECTION =====
+from logging_core import (
+    _execute_log_info_implementation,
+    _execute_log_warning_implementation,
+    _execute_log_error_implementation,
+    _execute_log_debug_implementation,
+    _execute_log_operation_start_implementation,
+    _execute_log_operation_success_implementation,
+    _execute_log_operation_failure_implementation,
+    _execute_log_reset_implementation,
+)
+
+# ===== DEBUG_MODE SUPPORT =====
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled."""
+    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+def _print_debug(msg: str):
+    """Print debug message if DEBUG_MODE=true."""
+    if _is_debug_mode():
+        print(f"[INTERFACE_LOGGING_DEBUG] {msg}")
+
+_print_debug("Loading interface_logging.py module")
+
+# ===== AVAILABILITY CHECK =====
 
 try:
-    from logging_core import (
-        _execute_log_info_implementation,
-        _execute_log_error_implementation,
-        _execute_log_warning_implementation,
-        _execute_log_debug_implementation,
-        _execute_log_operation_start_implementation,
-        _execute_log_operation_success_implementation,
-        _execute_log_operation_failure_implementation
-    )
+    from logging_manager import get_logging_core
     _LOGGING_AVAILABLE = True
     _LOGGING_IMPORT_ERROR = None
+    _print_debug("Logging core available")
 except ImportError as e:
     _LOGGING_AVAILABLE = False
     _LOGGING_IMPORT_ERROR = str(e)
-    _execute_log_info_implementation = None
-    _execute_log_error_implementation = None
-    _execute_log_warning_implementation = None
-    _execute_log_debug_implementation = None
-    _execute_log_operation_start_implementation = None
-    _execute_log_operation_success_implementation = None
-    _execute_log_operation_failure_implementation = None
+    _print_debug(f"Logging core unavailable: {e}")
 
+# ===== SECURITY SANITIZATION =====
 
-# ===== VALIDATION HELPERS =====
+_SENSITIVE_KEYS = {'password', 'token', 'secret', 'api_key', 'auth', 'credential'}
+
+def _sanitize_log_data(message: str, extra: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+    """Sanitize log message and extra data (CVE-LOG-001, CVE-LOG-002, CVE-LOG-003)."""
+    safe_message = message.replace('\n', ' ').replace('\r', ' ')[:500]
+    
+    safe_extra = {}
+    for key, value in extra.items():
+        if any(sens in key.lower() for sens in _SENSITIVE_KEYS):
+            safe_extra[key] = '***REDACTED***'
+        else:
+            if isinstance(value, str):
+                safe_extra[key] = value[:200]
+            else:
+                safe_extra[key] = value
+    
+    return safe_message, safe_extra
+
+# ===== VALIDATION FUNCTIONS =====
 
 def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """Validate message parameter exists."""
+    """Validate message parameter (removed LogTemplate validation)."""
     if 'message' not in kwargs:
         raise ValueError(f"logging.{operation} requires 'message' parameter")
-
+    
+    message = str(kwargs['message'])
+    message = message.replace('\n', ' ').replace('\r', ' ')
+    kwargs['message'] = message[:500]
+    
+    extra = {k: v for k, v in kwargs.items() if k != 'message'}
+    if extra:
+        _, safe_extra = _sanitize_log_data("", extra)
+        kwargs.update(safe_extra)
 
 def _validate_operation_start_params(kwargs: Dict[str, Any]) -> None:
-    """
-    Validate log_operation_start parameters.
-    
-    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
-    to match gateway_wrappers.py parameter rename.
-    """
+    """Validate operation_start parameters."""
     if 'operation_name' not in kwargs:
         raise ValueError("logging.log_operation_start requires 'operation_name' parameter")
-
+    
+    operation_name = str(kwargs['operation_name'])
+    operation_name = operation_name.replace('\n', ' ').replace('\r', ' ')
+    kwargs['operation_name'] = operation_name[:200]
+    
+    extra = {k: v for k, v in kwargs.items() if k != 'operation_name'}
+    if extra:
+        _, safe_extra = _sanitize_log_data("", extra)
+        kwargs.update(safe_extra)
 
 def _validate_operation_success_params(kwargs: Dict[str, Any]) -> None:
-    """
-    Validate log_operation_success parameters.
-    
-    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
-    to match gateway_wrappers.py parameter rename.
-    """
+    """Validate operation_success parameters."""
     if 'operation_name' not in kwargs:
         raise ValueError("logging.log_operation_success requires 'operation_name' parameter")
     if 'duration_ms' not in kwargs:
         raise ValueError("logging.log_operation_success requires 'duration_ms' parameter")
-
+    
+    operation_name = str(kwargs['operation_name'])
+    operation_name = operation_name.replace('\n', ' ').replace('\r', ' ')
+    kwargs['operation_name'] = operation_name[:200]
+    
+    try:
+        kwargs['duration_ms'] = float(kwargs['duration_ms'])
+    except (ValueError, TypeError):
+        raise ValueError("duration_ms must be numeric")
+    
+    extra = {k: v for k, v in kwargs.items() 
+             if k not in ('operation_name', 'duration_ms')}
+    if extra:
+        _, safe_extra = _sanitize_log_data("", extra)
+        kwargs.update(safe_extra)
 
 def _validate_operation_failure_params(kwargs: Dict[str, Any]) -> None:
-    """
-    Validate log_operation_failure parameters.
-    
-    FIXED 2025.10.20.02: Changed to expect 'operation_name' instead of 'operation'
-    to match gateway_wrappers.py parameter rename.
-    """
+    """Validate operation_failure parameters."""
     if 'operation_name' not in kwargs:
         raise ValueError("logging.log_operation_failure requires 'operation_name' parameter")
     if 'error' not in kwargs:
         raise ValueError("logging.log_operation_failure requires 'error' parameter")
-
+    
+    operation_name = str(kwargs['operation_name'])
+    operation_name = operation_name.replace('\n', ' ').replace('\r', ' ')
+    kwargs['operation_name'] = operation_name[:200]
+    
+    if 'error' in kwargs and kwargs['error'] is not None:
+        kwargs['error'] = str(kwargs['error'])[:500]
+    
+    extra = {k: v for k, v in kwargs.items() 
+             if k not in ('operation_name', 'error')}
+    if extra:
+        _, safe_extra = _sanitize_log_data("", extra)
+        kwargs.update(safe_extra)
 
 # ===== OPERATION DISPATCH =====
 
-def _build_dispatch_dict() -> Dict[str, Callable]:
-    """Build dispatch dictionary for logging operations. Only called if logging available."""
-    return {
-        'log_info': lambda **kwargs: (
-            _validate_message_param(kwargs, 'log_info'),
-            _execute_log_info_implementation(**kwargs)
-        )[1],
-        
-        'log_error': lambda **kwargs: (
-            _validate_message_param(kwargs, 'log_error'),
-            _execute_log_error_implementation(**kwargs)
-        )[1],
-        
-        'log_warning': lambda **kwargs: (
-            _validate_message_param(kwargs, 'log_warning'),
-            _execute_log_warning_implementation(**kwargs)
-        )[1],
-        
-        'log_debug': lambda **kwargs: (
-            _validate_message_param(kwargs, 'log_debug'),
-            _execute_log_debug_implementation(**kwargs)
-        )[1],
-        
-        'log_operation_start': lambda **kwargs: (
-            _validate_operation_start_params(kwargs),
-            _execute_log_operation_start_implementation(**kwargs)
-        )[1],
-        
-        'log_operation_success': lambda **kwargs: (
-            _validate_operation_success_params(kwargs),
-            _execute_log_operation_success_implementation(**kwargs)
-        )[1],
-        
-        'log_operation_failure': lambda **kwargs: (
-            _validate_operation_failure_params(kwargs),
-            _execute_log_operation_failure_implementation(**kwargs)
-        )[1],
-    }
+_OPERATION_DISPATCH: Dict[str, Callable] = {
+    'log_info': _execute_log_info_implementation,
+    'log_error': _execute_log_error_implementation,
+    'log_warning': _execute_log_warning_implementation,
+    'log_debug': _execute_log_debug_implementation,
+    'log_operation_start': _execute_log_operation_start_implementation,
+    'log_operation_success': _execute_log_operation_success_implementation,
+    'log_operation_failure': _execute_log_operation_failure_implementation,
+    'reset': _execute_log_reset_implementation,
+    'reset_logging': _execute_log_reset_implementation,
+}
 
-_OPERATION_DISPATCH = _build_dispatch_dict() if _LOGGING_AVAILABLE else {}
-
-
-# ===== MAIN ROUTER FUNCTION =====
+# ===== PUBLIC INTERFACE =====
 
 def execute_logging_operation(operation: str, **kwargs) -> Any:
-    """
-    Route logging operation requests using dispatch dictionary pattern.
+    """Execute logging operation with security hardening."""
+    _print_debug(f"execute_logging_operation: operation={operation}")
     
-    Args:
-        operation: The logging operation to execute
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Operation result from internal implementation
-        
-    Raises:
-        RuntimeError: If Logging interface unavailable
-        ValueError: If operation is unknown or parameters invalid
-    """
-    # Check Logging availability
     if not _LOGGING_AVAILABLE:
         raise RuntimeError(
-            f"Logging interface unavailable: {_LOGGING_IMPORT_ERROR}. "
-            "This may indicate missing logging_core module or circular import."
+            f"Logging system not available: {_LOGGING_IMPORT_ERROR}"
         )
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
+        valid_ops = ', '.join(sorted(_OPERATION_DISPATCH.keys()))
         raise ValueError(
             f"Unknown logging operation: '{operation}'. "
-            f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
+            f"Valid operations: {valid_ops}"
         )
     
-    # Dispatch using dictionary lookup (O(1))
-    return _OPERATION_DISPATCH[operation](**kwargs)
+    try:
+        if operation in ('log_info', 'log_error', 'log_warning', 'log_debug'):
+            _validate_message_param(kwargs, operation)
+        elif operation == 'log_operation_start':
+            _validate_operation_start_params(kwargs)
+        elif operation == 'log_operation_success':
+            _validate_operation_success_params(kwargs)
+        elif operation == 'log_operation_failure':
+            _validate_operation_failure_params(kwargs)
+        # Reset operation needs no validation
+    except ValueError as e:
+        _print_debug(f"Validation failed: {e}")
+        raise
+    
+    try:
+        handler = _OPERATION_DISPATCH[operation]
+        result = handler(**kwargs)
+        _print_debug(f"Operation {operation} completed successfully")
+        return result
+        
+    except Exception as e:
+        _print_debug(f"Operation {operation} failed: {e}")
+        print(f"[INTERFACE_LOGGING_ERROR] {operation} failed: {e}")
+        raise
 
+# ===== EXPORTS =====
 
 __all__ = ['execute_logging_operation']
 

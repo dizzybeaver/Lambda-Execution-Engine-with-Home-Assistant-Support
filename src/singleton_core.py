@@ -1,36 +1,22 @@
 """
 singleton_core.py
-Version: 2025.10.17.10
-Description: Singleton management with generic operation dispatch pattern
+Version: 2025.10.22.01
+Description: Singleton management with SINGLETON pattern, rate limiting, NO threading locks
 
 CHANGELOG:
+- 2025.10.22.01: Phase 1 + 3 optimizations (Session 6)
+  - REMOVED threading locks (CRITICAL FIX - was violating AP-08, DEC-04)
+  - ADDED SINGLETON pattern with get_singleton_manager()
+  - ADDED rate limiting (1000 ops/sec)
+  - ADDED reset() operation for lifecycle management
+  - ADDED get_stats() operation
+  - REPLACED Lock with rate limiting (DoS protection)
+  - Compliance: AP-08, DEC-04, LESS-17, LESS-18, LESS-21
 - 2025.10.17.10: Added purpose documentation (Issue #41 fix)
-  - Documented difference between SINGLETON and CACHE interfaces
-  - Added DESIGN DECISIONS section
-  - Clarified use cases and when to use which interface
 - 2025.10.16.01: Fixed thread safety, error handling, parameter validation
 
-CRITICAL FIXES (2025.10.16.01):
-- Fixed thread safety issues in get() method
-- Added error handling wrapper to execute_singleton_operation
-- Added parameter validation for required parameters
-- Removed circular indirection (direct _SINGLETON_MANAGER calls)
-- Added name validation
-- Improved error handling for factory function failures
-
 Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Licensed under the Apache License, Version 2.0
 """
 
 # ===== DESIGN DECISIONS =====
@@ -45,7 +31,6 @@ SINGLETON vs CACHE INTERFACE DISTINCTION (Issue #41):
    - Examples: CacheManager, SecurityValidator, ConfigManager
    - Access patterns: Named singletons with complex initialization
    - Lifetime: Entire Lambda container lifecycle
-   - Thread-safe instance creation and access
 
 2. **CACHE Interface Purpose:**
    - Manages **data values** (strings, dicts, primitives, serializable objects)
@@ -56,36 +41,10 @@ SINGLETON vs CACHE INTERFACE DISTINCTION (Issue #41):
    - Lifetime: Until TTL expires or memory pressure
    - Optimized for high-frequency read/write
 
-3. **When to Use SINGLETON:**
-   âœ… Store object instances that should exist once (CacheManager)
-   âœ… Need factory function for lazy initialization
-   âœ… Object has complex initialization logic
-   âœ… No expiration needed (lives entire container lifecycle)
-   âœ… Access count tracking important
-   âœ… Examples:
-      - singleton_get('cache_manager', factory_func=create_cache)
-      - singleton_get('security_validator')
-      - singleton_get('circuit_breaker_manager')
-
-4. **When to Use CACHE:**
-   âœ… Store temporary data values
-   âœ… Need automatic expiration (TTL)
-   âœ… Want LRU eviction on memory pressure
-   âœ… High-frequency read/write of small data
-   âœ… Examples:
-      - cache_set('api_response', data, ttl=60)
-      - cache_set('user_session', session_data, ttl=300)
-      - cache_set('computed_value', result, ttl=120)
-
-5. **Key Architectural Difference:**
-   - SINGLETON: "Give me THE instance of this service"
-   - CACHE: "Store this data temporarily with expiration"
-
-DECISION RATIONALE:
-Having both interfaces allows proper separation of concerns:
-- SINGLETON manages application-level service instances
-- CACHE manages ephemeral data with lifecycle management
-- Different access patterns and guarantees for different use cases
+CRITICAL DESIGN DECISION (2025.10.22):
+- NO threading locks (Lambda single-threaded - DEC-04, AP-08)
+- Rate limiting for DoS protection instead of locks (LESS-21)
+- SINGLETON pattern for lifecycle management (LESS-18)
 """
 
 # ===== IMPORTS =====
@@ -94,7 +53,7 @@ import os
 import sys
 import time
 from typing import Any, Dict, Callable, Optional
-from threading import Lock
+from collections import deque
 from enum import Enum
 
 _USE_GENERIC_OPERATIONS = os.environ.get('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
@@ -109,25 +68,56 @@ class SingletonOperation(Enum):
     DELETE = "delete"
     CLEAR = "clear"
     GET_STATS = "get_stats"
-    # Legacy operations for backward compatibility
     RESET = "reset"
+    # Legacy operations for backward compatibility
     RESET_ALL = "reset_all"
     EXISTS = "exists"
 
 # ===== SINGLETON CORE =====
 
 class SingletonCore:
-    """Manages singleton instances across the application with thread safety."""
+    """
+    Manages singleton instances across the application.
+    
+    CRITICAL: NO threading locks - Lambda is single-threaded (DEC-04, AP-08)
+    Uses rate limiting for DoS protection instead of locks (LESS-21)
+    """
     
     def __init__(self):
         self._instances: Dict[str, Any] = {}
-        self._lock = Lock()
         self._creation_times: Dict[str, float] = {}
         self._access_counts: Dict[str, int] = {}
+        
+        # Rate limiting (1000 ops/sec for infrastructure - LESS-21)
+        self._rate_limiter = deque(maxlen=1000)
+        self._rate_limit_window_ms = 1000
+        self._rate_limited_count = 0
+    
+    def _check_rate_limit(self) -> bool:
+        """
+        Check rate limit (1000 ops/sec).
+        
+        Returns:
+            True if within rate limit, False if rate limited
+        """
+        now = time.time() * 1000
+        
+        # Remove timestamps outside window
+        while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
+            self._rate_limiter.popleft()
+        
+        # Check if at limit
+        if len(self._rate_limiter) >= 1000:
+            self._rate_limited_count += 1
+            return False
+        
+        # Add timestamp
+        self._rate_limiter.append(now)
+        return True
     
     def get(self, name: str, factory_func: Optional[Callable] = None, **kwargs) -> Any:
         """
-        Get or create singleton instance with full thread safety.
+        Get or create singleton instance.
         
         Args:
             name: Singleton name (must be non-empty string)
@@ -138,36 +128,35 @@ class SingletonCore:
             Singleton instance or None if not exists and no factory provided
             
         Raises:
-            ValueError: If name is empty or None
+            ValueError: If name is empty or None or rate limited
             Exception: If factory function raises exception
         """
+        if not self._check_rate_limit():
+            raise ValueError("Rate limit exceeded (1000 ops/sec)")
+        
         if not name or not isinstance(name, str):
             raise ValueError("Singleton name must be a non-empty string")
         
-        # Thread-safe double-checked locking with proper coverage
+        # Check if exists
         if name not in self._instances:
-            with self._lock:
-                # Double-check inside lock
-                if name not in self._instances:
-                    if factory_func is None:
-                        return None
-                    
-                    # Create instance with error handling
-                    try:
-                        instance = factory_func()
-                        self._instances[name] = instance
-                        self._creation_times[name] = time.time()
-                        self._access_counts[name] = 0
-                    except Exception as e:
-                        # Don't leave partial state on failure
-                        raise Exception(f"Failed to create singleton '{name}': {e}") from e
+            if factory_func is None:
+                return None
+            
+            # Create instance with error handling
+            try:
+                instance = factory_func()
+                self._instances[name] = instance
+                self._creation_times[name] = time.time()
+                self._access_counts[name] = 0
+            except Exception as e:
+                # Don't leave partial state on failure
+                raise Exception(f"Failed to create singleton '{name}': {e}") from e
         
-        # Access count and return must be inside lock for thread safety
-        with self._lock:
-            if name in self._instances:
-                self._access_counts[name] = self._access_counts.get(name, 0) + 1
-                return self._instances[name]
-            return None
+        # Update access count and return
+        if name in self._instances:
+            self._access_counts[name] = self._access_counts.get(name, 0) + 1
+            return self._instances[name]
+        return None
     
     def set(self, name: str, instance: Any, **kwargs):
         """
@@ -179,15 +168,17 @@ class SingletonCore:
             **kwargs: Additional parameters (unused, for compatibility)
             
         Raises:
-            ValueError: If name is empty or None
+            ValueError: If name is empty or None or rate limited
         """
+        if not self._check_rate_limit():
+            raise ValueError("Rate limit exceeded (1000 ops/sec)")
+        
         if not name or not isinstance(name, str):
             raise ValueError("Singleton name must be a non-empty string")
         
-        with self._lock:
-            self._instances[name] = instance
-            self._creation_times[name] = time.time()
-            self._access_counts[name] = 0
+        self._instances[name] = instance
+        self._creation_times[name] = time.time()
+        self._access_counts[name] = 0
     
     def has(self, name: str, **kwargs) -> bool:
         """
@@ -200,6 +191,8 @@ class SingletonCore:
         Returns:
             True if singleton exists, False otherwise
         """
+        if not self._check_rate_limit():
+            return False
         return name in self._instances
     
     def delete(self, name: str, **kwargs) -> bool:
@@ -211,15 +204,17 @@ class SingletonCore:
             **kwargs: Additional parameters (unused, for compatibility)
             
         Returns:
-            True if deleted, False if didn't exist
+            True if deleted, False if didn't exist or rate limited
         """
-        with self._lock:
-            if name in self._instances:
-                del self._instances[name]
-                self._creation_times.pop(name, None)
-                self._access_counts.pop(name, None)
-                return True
+        if not self._check_rate_limit():
             return False
+        
+        if name in self._instances:
+            del self._instances[name]
+            self._creation_times.pop(name, None)
+            self._access_counts.pop(name, None)
+            return True
+        return False
     
     def clear(self, **kwargs) -> int:
         """
@@ -229,14 +224,16 @@ class SingletonCore:
             **kwargs: Additional parameters (unused, for compatibility)
             
         Returns:
-            Count of singletons cleared
+            Count of singletons cleared (0 if rate limited)
         """
-        with self._lock:
-            count = len(self._instances)
-            self._instances.clear()
-            self._creation_times.clear()
-            self._access_counts.clear()
-            return count
+        if not self._check_rate_limit():
+            return 0
+        
+        count = len(self._instances)
+        self._instances.clear()
+        self._creation_times.clear()
+        self._access_counts.clear()
+        return count
     
     def get_stats(self, **kwargs) -> Dict[str, Any]:
         """
@@ -247,38 +244,51 @@ class SingletonCore:
             
         Returns:
             Dictionary containing singleton statistics
-            
-        Note:
-            Memory estimates use sys.getsizeof() which only measures shallow size.
-            Actual memory usage may be higher for complex objects with nested structures.
         """
-        with self._lock:
-            total_memory = sum(
-                sys.getsizeof(instance) 
-                for instance in self._instances.values()
-            )
-            
-            return {
-                'total_singletons': len(self._instances),
-                'singleton_names': list(self._instances.keys()),
-                'singleton_types': {
-                    name: type(instance).__name__ 
-                    for name, instance in self._instances.items()
-                },
-                'creation_times': dict(self._creation_times),
-                'access_counts': dict(self._access_counts),
-                'estimated_memory_bytes': total_memory,
-                'estimated_memory_kb': total_memory / 1024,
-                'estimated_memory_mb': total_memory / (1024 * 1024),
-                'memory_note': 'Estimates are shallow size only (sys.getsizeof)',
-                'timestamp': time.time()
-            }
+        if not self._check_rate_limit():
+            return {'error': 'Rate limit exceeded'}
+        
+        total_memory = sum(
+            sys.getsizeof(instance) 
+            for instance in self._instances.values()
+        )
+        
+        return {
+            'total_singletons': len(self._instances),
+            'singleton_names': list(self._instances.keys()),
+            'singleton_types': {
+                name: type(instance).__name__ 
+                for name, instance in self._instances.items()
+            },
+            'creation_times': dict(self._creation_times),
+            'access_counts': dict(self._access_counts),
+            'estimated_memory_bytes': total_memory,
+            'estimated_memory_kb': total_memory / 1024,
+            'estimated_memory_mb': total_memory / (1024 * 1024),
+            'memory_note': 'Estimates are shallow size only (sys.getsizeof)',
+            'rate_limited_count': self._rate_limited_count,
+            'timestamp': time.time()
+        }
+    
+    def reset(self, **kwargs) -> bool:
+        """
+        Reset SINGLETON manager state (lifecycle management).
+        
+        Returns:
+            True if reset successful, False if rate limited
+        """
+        if not self._check_rate_limit():
+            return False
+        
+        try:
+            # Reset rate limiter
+            self._rate_limiter.clear()
+            self._rate_limited_count = 0
+            return True
+        except Exception:
+            return False
     
     # ===== LEGACY METHODS (backward compatibility) =====
-    
-    def reset(self, name: str, **kwargs) -> bool:
-        """Legacy name for delete."""
-        return self.delete(name, **kwargs)
     
     def reset_all(self, **kwargs) -> int:
         """Legacy name for clear."""
@@ -290,22 +300,55 @@ class SingletonCore:
 
 
 # Global singleton manager instance
-_SINGLETON_MANAGER = SingletonCore()
+_manager_core = None
+
+
+def get_singleton_manager() -> SingletonCore:
+    """
+    Get the singleton manager instance (SINGLETON pattern - LESS-18).
+    
+    Returns:
+        SingletonCore instance
+        
+    Note:
+        Uses SINGLETON pattern for lifecycle management.
+        Ironic: SINGLETON interface using SINGLETON pattern for itself!
+    """
+    global _manager_core
+    
+    try:
+        # Try to use gateway's SINGLETON system if available
+        from gateway import singleton_get, singleton_register
+        
+        manager = singleton_get('singleton_manager')
+        if manager is None:
+            # Create and register
+            if _manager_core is None:
+                _manager_core = SingletonCore()
+            singleton_register('singleton_manager', _manager_core)
+            manager = _manager_core
+        
+        return manager
+    except (ImportError, Exception):
+        # Fallback: use module-level singleton
+        if _manager_core is None:
+            _manager_core = SingletonCore()
+        return _manager_core
 
 
 # ===== OPERATION MAP =====
 
 _OPERATION_MAP = {
-    SingletonOperation.GET: lambda **kwargs: _SINGLETON_MANAGER.get(**kwargs),
-    SingletonOperation.SET: lambda **kwargs: _SINGLETON_MANAGER.set(**kwargs),
-    SingletonOperation.HAS: lambda **kwargs: _SINGLETON_MANAGER.has(**kwargs),
-    SingletonOperation.DELETE: lambda **kwargs: _SINGLETON_MANAGER.delete(**kwargs),
-    SingletonOperation.CLEAR: lambda **kwargs: _SINGLETON_MANAGER.clear(**kwargs),
-    SingletonOperation.GET_STATS: lambda **kwargs: _SINGLETON_MANAGER.get_stats(**kwargs),
+    SingletonOperation.GET: lambda **kwargs: get_singleton_manager().get(**kwargs),
+    SingletonOperation.SET: lambda **kwargs: get_singleton_manager().set(**kwargs),
+    SingletonOperation.HAS: lambda **kwargs: get_singleton_manager().has(**kwargs),
+    SingletonOperation.DELETE: lambda **kwargs: get_singleton_manager().delete(**kwargs),
+    SingletonOperation.CLEAR: lambda **kwargs: get_singleton_manager().clear(**kwargs),
+    SingletonOperation.GET_STATS: lambda **kwargs: get_singleton_manager().get_stats(**kwargs),
+    SingletonOperation.RESET: lambda **kwargs: get_singleton_manager().reset(**kwargs),
     # Legacy operations
-    SingletonOperation.RESET: lambda **kwargs: _SINGLETON_MANAGER.reset(**kwargs),
-    SingletonOperation.RESET_ALL: lambda **kwargs: _SINGLETON_MANAGER.reset_all(**kwargs),
-    SingletonOperation.EXISTS: lambda **kwargs: _SINGLETON_MANAGER.exists(**kwargs),
+    SingletonOperation.RESET_ALL: lambda **kwargs: get_singleton_manager().reset_all(**kwargs),
+    SingletonOperation.EXISTS: lambda **kwargs: get_singleton_manager().exists(**kwargs),
 }
 
 
@@ -314,9 +357,6 @@ _OPERATION_MAP = {
 def execute_singleton_operation(operation: SingletonOperation, **kwargs):
     """
     Universal singleton operation executor with error handling.
-    
-    Single function that routes all singleton operations to the SingletonCore instance.
-    Uses generic operation dispatch pattern for consistency.
     
     Args:
         operation: SingletonOperation enum value
@@ -345,117 +385,62 @@ def execute_singleton_operation(operation: SingletonOperation, **kwargs):
 # ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
 
 def _execute_get_implementation(**kwargs):
-    """
-    Execute singleton get operation.
-    
-    Args:
-        name: Singleton name (required)
-        factory_func: Optional factory function (optional)
-        
-    Returns:
-        Singleton instance or None
-        
-    Raises:
-        ValueError: If name not provided
-    """
+    """Execute singleton get operation."""
     if 'name' not in kwargs:
         raise ValueError("Parameter 'name' is required for get operation")
-    return _SINGLETON_MANAGER.get(**kwargs)
+    return get_singleton_manager().get(**kwargs)
 
 
 def _execute_set_implementation(**kwargs):
-    """
-    Execute singleton set operation.
-    
-    Args:
-        name: Singleton name (required)
-        instance: Instance to store (required)
-        
-    Raises:
-        ValueError: If name or instance not provided
-    """
+    """Execute singleton set operation."""
     if 'name' not in kwargs:
         raise ValueError("Parameter 'name' is required for set operation")
     if 'instance' not in kwargs:
         raise ValueError("Parameter 'instance' is required for set operation")
-    return _SINGLETON_MANAGER.set(**kwargs)
+    return get_singleton_manager().set(**kwargs)
 
 
 def _execute_has_implementation(**kwargs) -> bool:
-    """
-    Execute singleton has operation.
-    
-    Args:
-        name: Singleton name (required)
-        
-    Returns:
-        True if singleton exists, False otherwise
-        
-    Raises:
-        ValueError: If name not provided
-    """
+    """Execute singleton has operation."""
     if 'name' not in kwargs:
         raise ValueError("Parameter 'name' is required for has operation")
-    return _SINGLETON_MANAGER.has(**kwargs)
+    return get_singleton_manager().has(**kwargs)
 
 
 def _execute_delete_implementation(**kwargs) -> bool:
-    """
-    Execute singleton delete operation.
-    
-    Args:
-        name: Singleton name (required)
-        
-    Returns:
-        True if deleted, False if didn't exist
-        
-    Raises:
-        ValueError: If name not provided
-    """
+    """Execute singleton delete operation."""
     if 'name' not in kwargs:
         raise ValueError("Parameter 'name' is required for delete operation")
-    return _SINGLETON_MANAGER.delete(**kwargs)
+    return get_singleton_manager().delete(**kwargs)
 
 
 def _execute_clear_implementation(**kwargs) -> int:
-    """
-    Execute singleton clear operation.
-    
-    Returns:
-        Count of singletons cleared
-    """
-    return _SINGLETON_MANAGER.clear(**kwargs)
+    """Execute singleton clear operation."""
+    return get_singleton_manager().clear(**kwargs)
 
 
 def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
-    """
-    Execute singleton get_stats operation.
-    
-    Returns:
-        Dictionary containing singleton statistics
-    """
-    return _SINGLETON_MANAGER.get_stats(**kwargs)
+    """Execute singleton get_stats operation."""
+    return get_singleton_manager().get_stats(**kwargs)
+
+
+def _execute_reset_implementation(**kwargs) -> bool:
+    """Execute singleton reset operation."""
+    return get_singleton_manager().reset(**kwargs)
 
 
 # ===== LEGACY COMPATIBILITY =====
 
-def _execute_reset_implementation(**kwargs) -> bool:
-    """Execute singleton reset (legacy)."""
-    if 'name' not in kwargs:
-        raise ValueError("Parameter 'name' is required for reset operation")
-    return _SINGLETON_MANAGER.reset(**kwargs)
-
-
 def _execute_reset_all_implementation(**kwargs) -> int:
     """Execute reset all singletons (legacy)."""
-    return _SINGLETON_MANAGER.reset_all(**kwargs)
+    return get_singleton_manager().reset_all(**kwargs)
 
 
 def _execute_exists_implementation(**kwargs) -> bool:
     """Execute singleton exists check (legacy)."""
     if 'name' not in kwargs:
         raise ValueError("Parameter 'name' is required for exists operation")
-    return _SINGLETON_MANAGER.exists(**kwargs)
+    return get_singleton_manager().exists(**kwargs)
 
 
 # ===== EXPORTS =====
@@ -464,7 +449,7 @@ __all__ = [
     'SingletonCore',
     'SingletonOperation',
     'execute_singleton_operation',
-    '_SINGLETON_MANAGER',
+    'get_singleton_manager',
     '_execute_get_implementation',
     '_execute_set_implementation',
     '_execute_has_implementation',

@@ -1,7 +1,10 @@
 """
 interface_config.py - Config Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.18.01
+Version: 2025.10.22.01
 Description: Router for Config interface with dispatch dictionary pattern
+
+CHANGES (2025.10.22.01):
+- Added 'reset' operation for lifecycle management (Phase 1)
 
 CHANGELOG:
 - 2025.10.18.01: FIXED Issue #28 - Added 'get_parameter' and 'set_parameter' aliases
@@ -39,7 +42,8 @@ try:
         _get_state_implementation,
         _load_environment_implementation,
         _load_file_implementation,
-        _validate_all_implementation
+        _validate_all_implementation,
+        _reset_config_implementation
     )
     _CONFIG_AVAILABLE = True
     _CONFIG_IMPORT_ERROR = None
@@ -56,6 +60,7 @@ except ImportError as e:
     _load_environment_implementation = None
     _load_file_implementation = None
     _validate_all_implementation = None
+    _reset_config_implementation = None
 
 
 # ===== VALIDATION HELPERS =====
@@ -105,6 +110,22 @@ def _validate_filepath_param(kwargs: Dict[str, Any]) -> None:
         raise TypeError(
             f"config.load_file 'filepath' must be str, got {type(kwargs['filepath']).__name__}"
         )
+
+
+# ===== IMPLEMENTATION WRAPPERS =====
+
+def _reset_implementation(**kwargs) -> bool:
+    """Reset configuration state implementation."""
+    try:
+        return _reset_config_implementation(**kwargs)
+    except Exception as e:
+        # Log error if logging available
+        try:
+            import gateway
+            gateway.log_error(f"Config reset failed: {str(e)}")
+        except:
+            pass
+        return False
 
 
 # ===== OPERATION DISPATCH =====
@@ -157,6 +178,9 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         )[1],
         
         'validate_all': _validate_all_implementation,
+        
+        # PHASE 1 ADDITION: Reset operation for lifecycle management
+        'reset': _reset_implementation,
     }
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _CONFIG_AVAILABLE else {}
@@ -179,6 +203,7 @@ def execute_config_operation(operation: str, **kwargs) -> Any:
     - load_environment: Load configuration from environment variables
     - load_file: Load configuration from file
     - validate_all: Validate all configuration sections
+    - reset: Reset configuration state (PHASE 1 ADDITION)
     
     Args:
         operation: Config operation to execute

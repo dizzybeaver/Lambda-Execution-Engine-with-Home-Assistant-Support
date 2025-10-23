@@ -75,7 +75,7 @@ def _analyze_naming_patterns(**kwargs) -> Dict[str, Any]:
 
 def _generate_verification_report(**kwargs) -> Dict[str, Any]:
     """Generate comprehensive verification report."""
-    from debug.debug_validation import _validate_system_architecture, _validate_gateway_routing
+    from debug_validation import _validate_system_architecture, _validate_gateway_routing
     
     return {
         'success': True,

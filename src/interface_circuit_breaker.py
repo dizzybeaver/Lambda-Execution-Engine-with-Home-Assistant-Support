@@ -1,9 +1,10 @@
 """
 interface_circuit_breaker.py - Circuit Breaker Interface Router
-Version: 2025.10.17.15
+Version: 2025.10.22.02
 Description: Router/Firewall for circuit breaker interface with import protection
 
 CHANGELOG:
+- 2025.10.22.02: Added get_stats and reset operations
 - 2025.10.17.15: FIXED Issue #20 - Added import error protection
   - Added try/except wrapper for circuit_breaker_core imports
   - Sets _CIRCUIT_BREAKER_AVAILABLE flag on success/failure
@@ -24,7 +25,9 @@ try:
         get_breaker_implementation,
         execute_with_breaker_implementation,
         get_all_states_implementation,
-        reset_all_implementation
+        reset_all_implementation,
+        get_stats_implementation,
+        reset_implementation
     )
     _CIRCUIT_BREAKER_AVAILABLE = True
     _CIRCUIT_BREAKER_IMPORT_ERROR = None
@@ -35,9 +38,11 @@ except ImportError as e:
     execute_with_breaker_implementation = None
     get_all_states_implementation = None
     reset_all_implementation = None
+    get_stats_implementation = None
+    reset_implementation = None
 
 
-_VALID_CIRCUIT_BREAKER_OPERATIONS = ['get', 'call', 'get_all_states', 'reset_all']
+_VALID_CIRCUIT_BREAKER_OPERATIONS = ['get', 'call', 'get_all_states', 'reset_all', 'get_stats', 'reset']
 
 
 def execute_circuit_breaker_operation(operation: str, **kwargs) -> Any:
@@ -91,6 +96,12 @@ def execute_circuit_breaker_operation(operation: str, **kwargs) -> Any:
     
     elif operation == 'reset_all':
         return reset_all_implementation(**kwargs)
+    
+    elif operation == 'get_stats':
+        return get_stats_implementation(**kwargs)
+    
+    elif operation == 'reset':
+        return reset_implementation(**kwargs)
     
     else:
         raise ValueError(f"Unhandled circuit breaker operation: '{operation}'")

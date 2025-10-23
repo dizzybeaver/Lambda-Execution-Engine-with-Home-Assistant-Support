@@ -1,12 +1,28 @@
 """
 metrics_operations.py - Gateway implementation functions for metrics
-Version: 2025.10.20.03
-Description: FIXED operation_name parameter mismatch in cache metric implementation
+Version: 2025.10.21.02
+Description: PHASE 2 TASK 2.3 - Use record_metric_with_duration() helper to eliminate duplication
 
 CHANGELOG:
+- 2025.10.21.02: PHASE 2 TASK 2.3 - Genericize metric recording pattern
+  - Updated 2 functions to use record_metric_with_duration() helper
+  - Eliminated ~20 LOC of duplicated recording logic
+  - Functions updated:
+    * _execute_record_operation_metric_implementation
+    * _execute_record_api_metric_implementation
+
+- 2025.10.21.01: PHASE 2 TASK 2.1 - Genericize dimension building
+  - Updated 6 functions to use build_dimensions() helper
+  - Eliminated ~40 LOC of duplicated dimension building logic
+  - Functions updated:
+    * _execute_record_operation_metric_implementation
+    * _execute_record_error_response_metric_implementation
+    * _execute_record_cache_metric_implementation
+    * _execute_record_api_metric_implementation
+    
 - 2025.10.20.03: BUG FIX - Parameter name mismatch
   - FIXED: _execute_record_cache_metric_implementation() signature
-  - Changed: operation: str â†' operation_name: str
+  - Changed: operation: str → operation_name: str
   - Reason: Gateway wrapper sends operation_name, not operation
   - This fixes CloudWatch error: "missing 1 required positional argument: 'operation'"
 
@@ -17,6 +33,7 @@ Licensed under the Apache License, Version 2.0
 from typing import Dict, Any, Optional
 
 from metrics_types import MetricOperation, ResponseType
+from metrics_helper import build_dimensions, record_metric_with_duration
 
 # CIRCULAR IMPORT FIX: Do NOT import _MANAGER at module level
 # Import it inside each function instead to avoid:
@@ -49,21 +66,31 @@ def _execute_record_operation_metric_implementation(operation_name: str, success
     
     FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
     to match gateway wrapper signature and avoid parameter conflicts.
+    
+    UPDATED 2025.10.21.01: Use build_dimensions() helper
+    UPDATED 2025.10.21.02: Use record_metric_with_duration() helper
     """
-    from metrics_core import _MANAGER
-    dimensions = {'operation': operation_name, 'success': str(success)}
-    if error_type:
-        dimensions['error_type'] = error_type
-    _MANAGER.record_metric(f'operation.{operation_name}.count', 1.0, dimensions)
-    if duration_ms > 0:
-        _MANAGER.record_metric(f'operation.{operation_name}.duration_ms', duration_ms, dimensions)
-    return True
+    dimensions = build_dimensions(
+        {'operation': operation_name, 'success': str(success)},
+        error_type=error_type
+    )
+    return record_metric_with_duration(
+        f'operation.{operation_name}.count',
+        dimensions,
+        duration_ms=duration_ms if duration_ms > 0 else None
+    )
 
 
 def _execute_record_error_response_metric_implementation(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict] = None, **kwargs) -> bool:
-    """Execute record error response metric."""
+    """
+    Execute record error response metric.
+    
+    UPDATED 2025.10.21.01: Use build_dimensions() helper
+    """
     from metrics_core import _MANAGER
-    dimensions = {'error_type': error_type, 'severity': severity, 'category': category}
+    dimensions = build_dimensions(
+        {'error_type': error_type, 'severity': severity, 'category': category}
+    )
     _MANAGER.record_metric('error.response.count', 1.0, dimensions)
     return True
 
@@ -74,6 +101,8 @@ def _execute_record_cache_metric_implementation(operation_name: str, hit: bool =
     
     FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
     to match gateway wrapper signature and avoid parameter conflicts.
+    
+    UPDATED 2025.10.21.01: Use build_dimensions() helper for conditional dimensions
     
     Args:
         operation_name: Name of cache operation (e.g., 'get', 'set')
@@ -87,28 +116,36 @@ def _execute_record_cache_metric_implementation(operation_name: str, hit: bool =
         True if metric recorded successfully
     """
     from metrics_core import _MANAGER
-    dimensions = {'operation': operation_name}
+    base_dimensions = {'operation': operation_name}
+    
     if hit:
-        dimensions['result'] = 'hit'
+        dimensions = build_dimensions(base_dimensions, result='hit')
         _MANAGER.record_metric('cache.hit', 1.0, dimensions)
     if miss:
-        dimensions['result'] = 'miss'
+        dimensions = build_dimensions(base_dimensions, result='miss')
         _MANAGER.record_metric('cache.miss', 1.0, dimensions)
     if eviction:
-        _MANAGER.record_metric('cache.eviction', 1.0, dimensions)
+        _MANAGER.record_metric('cache.eviction', 1.0, base_dimensions)
     if duration_ms > 0:
-        _MANAGER.record_metric('cache.duration_ms', duration_ms, dimensions)
+        _MANAGER.record_metric('cache.duration_ms', duration_ms, base_dimensions)
     return True
 
 
 def _execute_record_api_metric_implementation(api: str, method: str = 'GET', status_code: int = 200, duration_ms: float = 0, **kwargs) -> bool:
-    """Execute record API metric."""
-    from metrics_core import _MANAGER
-    dimensions = {'api': api, 'method': method, 'status': str(status_code)}
-    _MANAGER.record_metric('api.request', 1.0, dimensions)
-    if duration_ms > 0:
-        _MANAGER.record_metric('api.duration_ms', duration_ms, dimensions)
-    return True
+    """
+    Execute record API metric.
+    
+    UPDATED 2025.10.21.01: Use build_dimensions() helper
+    UPDATED 2025.10.21.02: Use record_metric_with_duration() helper
+    """
+    dimensions = build_dimensions(
+        {'api': api, 'method': method, 'status': str(status_code)}
+    )
+    return record_metric_with_duration(
+        'api.request',
+        dimensions,
+        duration_ms=duration_ms if duration_ms > 0 else None
+    )
 
 
 def _execute_record_response_metric_implementation(response_type: ResponseType, status_code: int, duration_ms: float = 0, **kwargs) -> bool:
@@ -167,6 +204,21 @@ def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
     from metrics_core import _MANAGER
     return _MANAGER.get_operation_metrics()
 
+def _execute_reset_metrics_implementation(**kwargs) -> bool:
+    """
+    Execute reset metrics operation.
+    
+    Resets all metrics to initial state. Useful for testing and debugging.
+    
+    Returns:
+        bool: True if reset successful
+        
+    Example:
+        result = _execute_reset_metrics_implementation()
+        # All metrics cleared
+    """
+    from metrics_core import _MANAGER
+    return _MANAGER.reset_metrics()
 
 # ===== HELPER FUNCTIONS =====
 
@@ -205,6 +257,7 @@ __all__ = [
     '_execute_record_dispatcher_timing_implementation',
     '_execute_get_dispatcher_stats_implementation',
     '_execute_get_operation_metrics_implementation',
+    '_execute_reset_metrics_implementation',
     'execute_metrics_operation',
     'get_metrics_summary',
 ]

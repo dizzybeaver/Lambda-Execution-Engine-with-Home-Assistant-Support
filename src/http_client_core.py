@@ -1,14 +1,16 @@
 """
-http_client_core.py - HTTP Client Core Implementation (JSON FIX)
-Version: 2025.10.19.JSON_FIX
-Description: CRITICAL FIX - Handle 'json' kwarg correctly (was ignoring it!)
+http_client_core.py - HTTP Client Core Implementation (SINGLETON + Rate Limiting)
+Version: 2025.10.22.SINGLETON_RATE_LIMIT
+Description: Phase 1 optimization - SINGLETON pattern, rate limiting, reset operation
 
-BUG FIX:
-- BEFORE: Only looked for 'body' kwarg, ignored 'json' kwarg
-- AFTER: Properly handles 'json' kwarg by encoding it to JSON bytes
-- IMPACT: Home Assistant API calls were sending NO BODY DATA!
+OPTIMIZATIONS (2025.10.22):
+- Added SINGLETON pattern with get_http_client_manager() (LESS-18)
+- Added rate limiting (500 ops/sec with deque) (LESS-21)
+- Added reset() operation for lifecycle management
+- Verified NO threading locks (AP-08, DEC-04 compliant)
+- Updated all implementation wrappers to use get_http_client_manager()
 
-CHANGELOG:
+PREVIOUS FIXES:
 - 2025.10.19.JSON_FIX: Fix json kwarg handling in _execute_request
 - 2025.10.19.SELECTIVE: Use preloaded urllib3 from lambda_preload
 - 2025.10.18.03: Encode JSON body to bytes (matches working Lambda)
@@ -22,6 +24,7 @@ import os
 import json
 import time
 from typing import Dict, Any, Optional
+from collections import deque
 
 # Import preloaded urllib3 classes (already initialized during Lambda INIT!)
 from lambda_preload import PoolManager, Timeout
@@ -30,7 +33,7 @@ from http_client_utilities import get_standard_headers
 
 
 class HTTPClientCore:
-    """Core HTTP client with retry and circuit breaker support."""
+    """Core HTTP client with retry, circuit breaker, rate limiting, and SINGLETON support."""
     
     def __init__(self):
         # Read SSL verification setting from environment
@@ -63,14 +66,111 @@ class HTTPClientCore:
             'retriable_status_codes': {408, 429, 500, 502, 503, 504}
         }
         
+        # Rate limiting (500 ops/sec - lower than CONFIG due to HTTP overhead)
+        # Uses deque for O(1) operations (LESS-21)
+        self._rate_limiter = deque(maxlen=500)  # 500 requests per second
+        self._rate_limit_window_ms = 1000  # 1 second window
+        self._rate_limited_count = 0
+        
         # Log SSL configuration (debug only)
         if os.getenv('DEBUG_MODE', 'false').lower() == 'true':
             from gateway import log_debug
             log_debug(f"HTTP client initialized: verify_ssl={verify_ssl}, cert_reqs={cert_reqs}")
     
+    def _check_rate_limit(self) -> bool:
+        """
+        Check if operation is within rate limits.
+        
+        Returns:
+            bool: True if operation allowed, False if rate limited
+            
+        Rate Limiting Strategy:
+        - 500 operations per second (lower than CONFIG due to HTTP overhead)
+        - Uses deque with maxlen for automatic eviction
+        - O(1) append and popleft operations
+        - Tracks violations for monitoring
+        
+        REF: LESS-21 (Rate limiting essential for DoS protection)
+        """
+        now = time.time() * 1000  # Current time in milliseconds
+        
+        # Remove timestamps outside the window (older than 1 second)
+        while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
+            self._rate_limiter.popleft()
+        
+        # Check if we're at the limit
+        if len(self._rate_limiter) >= 500:
+            self._rate_limited_count += 1
+            return False
+        
+        # Add current timestamp
+        self._rate_limiter.append(now)
+        return True
+    
     def get_stats(self) -> Dict[str, Any]:
-        """Get client statistics."""
-        return self._stats.copy()
+        """
+        Get client statistics including rate limiting.
+        
+        Returns:
+            Dict with stats: requests, successful, failed, retries, rate_limited
+        """
+        stats = self._stats.copy()
+        stats['rate_limited'] = self._rate_limited_count
+        stats['rate_limiter_size'] = len(self._rate_limiter)
+        return stats
+    
+    def reset(self) -> bool:
+        """
+        Reset HTTP client state.
+        
+        Returns:
+            bool: True if reset successful, False if rate limited
+            
+        Resets:
+        - HTTP connection pool (closes connections)
+        - Statistics counters
+        - Rate limiter state
+        
+        REF: LESS-18 (SINGLETON pattern requires reset for lifecycle management)
+        """
+        if not self._check_rate_limit():
+            return False
+        
+        try:
+            # Close existing connection pool
+            if hasattr(self, 'http') and self.http:
+                self.http.clear()
+            
+            # Reset statistics
+            self._stats = {
+                'requests': 0,
+                'successful': 0,
+                'failed': 0,
+                'retries': 0
+            }
+            
+            # Reset rate limiter
+            self._rate_limiter.clear()
+            self._rate_limited_count = 0
+            
+            # Recreate connection pool
+            verify_ssl_env = os.getenv('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
+            verify_ssl = verify_ssl_env != 'false'
+            cert_reqs = 'CERT_REQUIRED' if verify_ssl else 'CERT_NONE'
+            
+            self.http = PoolManager(
+                cert_reqs=cert_reqs,
+                timeout=Timeout(connect=10.0, read=30.0),
+                maxsize=10,
+                retries=False
+            )
+            
+            return True
+            
+        except Exception as e:
+            from gateway import log_error
+            log_error(f"HTTP client reset failed: {str(e)}", error=e)
+            return False
     
     def _is_retriable_error(self, status_code: int) -> bool:
         """Check if error is retriable."""
@@ -84,7 +184,22 @@ class HTTPClientCore:
         return delay_ms / 1000.0
     
     def _execute_request(self, method: str, url: str, **kwargs) -> Dict[str, Any]:
-        """Execute single HTTP request with error handling."""
+        """
+        Execute single HTTP request with error handling.
+        
+        Rate Limiting:
+        - Checks rate limit before executing request
+        - Returns rate limit error if exceeded
+        """
+        # Check rate limit BEFORE executing request
+        if not self._check_rate_limit():
+            return {
+                'success': False,
+                'error': 'Rate limit exceeded',
+                'error_type': 'RateLimitError',
+                'rate_limited': True
+            }
+        
         try:
             self._stats['requests'] += 1
             
@@ -160,6 +275,10 @@ class HTTPClientCore:
         for attempt in range(max_attempts):
             result = self._execute_request(method, url, **kwargs)
             
+            # Don't retry rate limit errors
+            if result.get('rate_limited'):
+                return result
+            
             if result.get('success'):
                 return result
             
@@ -179,24 +298,62 @@ class HTTPClientCore:
         }
 
 
+# SINGLETON Pattern Implementation (LESS-18)
+_http_client_core = None
+
+
+def get_http_client_manager() -> HTTPClientCore:
+    """
+    Get HTTP client manager SINGLETON instance.
+    
+    Returns:
+        HTTPClientCore: The singleton HTTP client manager
+        
+    SINGLETON Pattern:
+    - First tries gateway singleton registry (preferred)
+    - Falls back to module-level singleton if gateway unavailable
+    - Ensures single instance across all operations
+    - Provides lifecycle management via reset()
+    
+    REF: LESS-18 (SINGLETON pattern essential for lifecycle management)
+    REF: RULE-01 (Always use gateway for cross-interface operations)
+    """
+    global _http_client_core
+    
+    try:
+        # Try to use gateway singleton registry (preferred path)
+        from gateway import singleton_get, singleton_register
+        
+        manager = singleton_get('http_client_manager')
+        if manager is None:
+            # Create new instance and register it
+            if _http_client_core is None:
+                _http_client_core = HTTPClientCore()
+            singleton_register('http_client_manager', _http_client_core)
+            manager = _http_client_core
+        
+        return manager
+        
+    except (ImportError, Exception):
+        # Fallback: use module-level singleton if gateway unavailable
+        if _http_client_core is None:
+            _http_client_core = HTTPClientCore()
+        return _http_client_core
+
+
 def get_http_client() -> HTTPClientCore:
-    """Get singleton HTTP client instance."""
-    from gateway import execute_operation, GatewayInterface
+    """
+    Get singleton HTTP client instance (legacy compatibility).
     
-    def factory():
-        return HTTPClientCore()
-    
-    return execute_operation(
-        GatewayInterface.SINGLETON,
-        'get',
-        name='http_client_core',
-        factory_func=factory
-    )
+    Note: Use get_http_client_manager() for new code.
+    This function maintained for backward compatibility.
+    """
+    return get_http_client_manager()
 
 
 def _make_http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
     """Execute HTTP request via singleton."""
-    client = get_http_client()
+    client = get_http_client_manager()
     return client.make_request(method, url, **kwargs)
 
 
@@ -231,6 +388,23 @@ def http_delete_implementation(**kwargs) -> Dict[str, Any]:
     return _make_http_request('DELETE', url, **kwargs)
 
 
+def http_reset_implementation(**kwargs) -> Dict[str, Any]:
+    """
+    Gateway implementation for HTTP client reset.
+    
+    Returns:
+        Dict with success status and reset result
+        
+    REF: LESS-18 (Reset operation essential for lifecycle management)
+    """
+    client = get_http_client_manager()
+    success = client.reset()
+    return {
+        'success': success,
+        'message': 'HTTP client reset successful' if success else 'HTTP client reset failed or rate limited'
+    }
+
+
 def get_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for get state."""
     from http_client_state import get_client_state
@@ -245,12 +419,14 @@ def reset_state_implementation(**kwargs) -> Dict[str, Any]:
 
 __all__ = [
     'HTTPClientCore',
+    'get_http_client_manager',
     'get_http_client',
     'http_request_implementation',
     'http_get_implementation',
     'http_post_implementation',
     'http_put_implementation',
     'http_delete_implementation',
+    'http_reset_implementation',
     'get_state_implementation',
     'reset_state_implementation',
 ]
