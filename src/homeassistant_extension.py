@@ -1,9 +1,15 @@
 """
 homeassistant_extension.py - Home Assistant Extension SUGA Facade
-Version: 2025.10.19.TIMING
-Description: Pure facade with comprehensive DEBUG_MODE timing diagnostics
+Version: 2025.10.26.PHASE2
+Description: Pure facade with gateway metrics integration
 
 CHANGELOG:
+- 2025.10.26.PHASE2: Performance optimization - replaced custom timing with gateway metrics
+  * REMOVED: _is_debug_mode() and _print_timing() functions (7 lines)
+  * REMOVED: All manual timing code from Alexa handlers (39 lines)
+  * REMOVED: time module import (no longer needed)
+  * ADDED: Proper gateway metrics for operation tracking
+  * TOTAL REDUCTION: 46 lines of custom timing code removed
 - 2025.10.19.TIMING: Added comprehensive timing traces gated by DEBUG_MODE
 - 2025.10.19.03: Removed debug logging statements
 - 2025.10.19.02: Added extensive DEBUG logging
@@ -14,7 +20,6 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
-import time
 from typing import Dict, Any, Optional, List
 
 from gateway import (
@@ -24,17 +29,6 @@ from gateway import (
     create_success_response, create_error_response,
     generate_correlation_id, get_timestamp
 )
-
-
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled."""
-    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
-
-
-def _print_timing(msg: str):
-    """Print timing message only if DEBUG_MODE=true."""
-    if _is_debug_mode():
-        print(f"[HA_EXT_TIMING] {msg}")
 
 
 # ===== EXTENSION CONTROL =====
@@ -53,9 +47,15 @@ def initialize_ha_extension(config: Optional[Dict[str, Any]] = None) -> Dict[str
     try:
         from ha_core import initialize_ha_system
         log_info("Initializing Home Assistant extension")
-        return initialize_ha_system(config)
+        result = initialize_ha_system(config)
+        
+        # ADDED: Metric tracking for initialization
+        increment_counter('ha_extension_init')
+        return result
+        
     except Exception as e:
         log_error(f"Extension initialization failed: {str(e)}")
+        increment_counter('ha_extension_init_error')
         return create_error_response(str(e), 'INIT_FAILED')
 
 
@@ -68,9 +68,12 @@ def cleanup_ha_extension() -> Dict[str, Any]:
     try:
         from ha_core import cleanup_ha_system
         result = cleanup_ha_system()
+        increment_counter('ha_extension_cleanup')
         return result
+        
     except Exception as e:
         log_error(f"Extension cleanup failed: {str(e)}")
+        increment_counter('ha_extension_cleanup_error')
         return create_error_response(str(e), 'CLEANUP_FAILED')
 
 
@@ -83,6 +86,7 @@ def get_ha_status() -> Dict[str, Any]:
     try:
         from ha_core import get_ha_system_status
         return get_ha_system_status()
+        
     except Exception as e:
         log_error(f"Get status failed: {str(e)}")
         return create_error_response(str(e), 'STATUS_FAILED')
@@ -97,6 +101,7 @@ def get_ha_diagnostic_info() -> Dict[str, Any]:
     try:
         from ha_core import get_diagnostic_information
         return get_diagnostic_information()
+        
     except Exception as e:
         log_error(f"Diagnostic info failed: {str(e)}")
         return {}
@@ -108,6 +113,7 @@ def get_assistant_name_status() -> Dict[str, Any]:
     try:
         from ha_core import get_assistant_name_info
         return get_assistant_name_info()
+        
     except Exception as e:
         log_error(f"Assistant name check failed: {str(e)}")
         return create_error_response(str(e), 'ASSISTANT_NAME_CHECK_FAILED')
@@ -124,88 +130,67 @@ def process_alexa_ha_request(event: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         from ha_alexa import process_alexa_directive
-        return process_alexa_directive(event)
+        result = process_alexa_directive(event)
+        increment_counter('alexa_ha_request_success')
+        return result
+        
     except Exception as e:
         log_error(f"Alexa request processing failed: {str(e)}")
+        increment_counter('alexa_ha_request_error')
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def handle_alexa_discovery(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa discovery."""
-    start_time = time.time()
-    _print_timing("===== HANDLE_ALEXA_DISCOVERY START =====")
+    # MODIFIED: Removed all custom timing code, using gateway metrics
     
     correlation_id = generate_correlation_id()
     
     if not is_ha_extension_enabled():
-        _print_timing(f"Extension disabled, returning error (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
-        _print_timing(f"Importing ha_alexa module... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        import_start = time.time()
         from ha_alexa import handle_discovery
-        import_ms = (time.time() - import_start) * 1000
-        _print_timing(f"ha_alexa imported: {import_ms:.2f}ms")
-        
-        _print_timing(f"Calling handle_discovery()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        call_start = time.time()
         result = handle_discovery(event)
-        call_ms = (time.time() - call_start) * 1000
-        _print_timing(f"handle_discovery() completed: {call_ms:.2f}ms")
         
-        total_ms = (time.time() - start_time) * 1000
-        _print_timing(f"===== HANDLE_ALEXA_DISCOVERY COMPLETE: {total_ms:.2f}ms =====")
+        # ADDED: Gateway metric for discovery operations
+        increment_counter('alexa_discovery_success')
         return result
         
     except Exception as e:
-        error_ms = (time.time() - start_time) * 1000
-        _print_timing(f"!!! DISCOVERY ERROR after {error_ms:.2f}ms: {str(e)}")
         log_error(f"[{correlation_id}] Alexa discovery failed: {str(e)}")
+        increment_counter('alexa_discovery_error')
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def handle_alexa_authorization(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa authorization (AcceptGrant)."""
-    start_time = time.time()
-    _print_timing("===== HANDLE_ALEXA_AUTHORIZATION START =====")
+    # MODIFIED: Removed all custom timing code, using gateway metrics
     
     correlation_id = generate_correlation_id()
     
     if not is_ha_extension_enabled():
-        _print_timing(f"Extension disabled (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'BRIDGE_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
-        _print_timing(f"Importing ha_alexa... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        import_start = time.time()
         from ha_alexa import handle_accept_grant
-        import_ms = (time.time() - import_start) * 1000
-        _print_timing(f"ha_alexa imported: {import_ms:.2f}ms")
-        
-        _print_timing(f"Calling handle_accept_grant()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        call_start = time.time()
         result = handle_accept_grant(event)
-        call_ms = (time.time() - call_start) * 1000
-        _print_timing(f"handle_accept_grant() completed: {call_ms:.2f}ms")
         
-        total_ms = (time.time() - start_time) * 1000
-        _print_timing(f"===== HANDLE_ALEXA_AUTHORIZATION COMPLETE: {total_ms:.2f}ms =====")
+        # ADDED: Gateway metric for authorization operations
+        increment_counter('alexa_authorization_success')
         return result
         
     except Exception as e:
-        error_ms = (time.time() - start_time) * 1000
-        _print_timing(f"!!! AUTHORIZATION ERROR after {error_ms:.2f}ms: {str(e)}")
         log_error(f"[{correlation_id}] Alexa authorization failed: {str(e)}")
+        increment_counter('alexa_authorization_error')
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
 def handle_alexa_control(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle Alexa control directive."""
-    start_time = time.time()
-    _print_timing("===== HANDLE_ALEXA_CONTROL START =====")
+    # MODIFIED: Removed all custom timing code, using gateway metrics
     
     correlation_id = generate_correlation_id()
     
@@ -214,34 +199,24 @@ def handle_alexa_control(event: Dict[str, Any]) -> Dict[str, Any]:
     header = directive.get('header', {})
     namespace = header.get('namespace', 'Unknown')
     name = header.get('name', 'Unknown')
-    _print_timing(f"Processing: {namespace}.{name}")
     
     if not is_ha_extension_enabled():
-        _print_timing(f"Extension disabled (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
         return _create_alexa_error_response(event, 'ENDPOINT_UNREACHABLE',
                                            'Home Assistant extension disabled')
     
     try:
-        _print_timing(f"Importing ha_alexa module... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        import_start = time.time()
         from ha_alexa import handle_control
-        import_ms = (time.time() - import_start) * 1000
-        _print_timing(f"ha_alexa module imported: {import_ms:.2f}ms")
-        
-        _print_timing(f"Calling handle_control()... (elapsed: {(time.time() - start_time) * 1000:.2f}ms)")
-        call_start = time.time()
         result = handle_control(event)
-        call_ms = (time.time() - call_start) * 1000
-        _print_timing(f"*** handle_control() completed: {call_ms:.2f}ms ***")
         
-        total_ms = (time.time() - start_time) * 1000
-        _print_timing(f"===== HANDLE_ALEXA_CONTROL COMPLETE: {total_ms:.2f}ms =====")
+        # ADDED: Gateway metric for control operations
+        increment_counter('alexa_control_success')
+        increment_counter(f'alexa_control_{namespace}_{name}')
         return result
         
     except Exception as e:
-        error_ms = (time.time() - start_time) * 1000
-        _print_timing(f"!!! CONTROL ERROR after {error_ms:.2f}ms: {type(e).__name__}: {str(e)}")
-        log_error(f"[{correlation_id}] Alexa control failed: {str(e)}")
+        log_error(f"[{correlation_id}] Alexa control ({namespace}.{name}) failed: {str(e)}")
+        increment_counter('alexa_control_error')
+        increment_counter(f'alexa_control_{namespace}_{name}_error')
         return _create_alexa_error_response(event, 'INTERNAL_ERROR', str(e))
 
 
@@ -249,7 +224,13 @@ def handle_alexa_control(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _create_alexa_error_response(event: Dict[str, Any], error_type: str,
                                 error_message: str) -> Dict[str, Any]:
-    """Create Alexa-formatted error response."""
+    """
+    Create Alexa-formatted error response.
+    
+    Note: This maintains Alexa Smart Home API format requirements.
+    Not replaced with gateway create_error_response() as Alexa
+    requires specific response structure per Alexa Smart Home API.
+    """
     
     directive = event.get("directive", {})
     header = directive.get("header", {})
