@@ -1,11 +1,16 @@
 """
 ha_config.py - Home Assistant Configuration Management
-Version: 2025.10.20.TOKEN_ONLY_FIXED
-Description: SSM token-only, ALL original functions preserved
-
-CRITICAL FIX: Adapted original to use token-only SSM without removing any functions
+Version: 2025.10.26.PHASE2
+Description: SSM token-only, ALL original functions preserved + Performance optimization
 
 CHANGELOG:
+- 2025.10.26.PHASE2: Performance optimization - replaced custom timing with gateway metrics
+  * REMOVED: _is_debug_mode() and _print_timing() functions (7 lines)
+  * REMOVED: All manual timing code from all functions (48 lines)
+  * REMOVED: time module import (no longer needed)
+  * ADDED: Gateway metrics for config operations
+  * TOTAL REDUCTION: 55 lines of custom timing code removed
+  * KEPT: All sentinel validation functions (Phase 3 will address these)
 - 2025.10.20.TOKEN_ONLY_FIXED: Adapted for token-only SSM
   - Token from SSM via config_param_store.get_ha_token()
   - All other config from environment variables
@@ -17,7 +22,6 @@ Licensed under Apache 2.0 (see LICENSE).
 
 from typing import Dict, Any, Optional
 import os
-import time
 
 from gateway import (
     cache_get,
@@ -26,22 +30,12 @@ from gateway import (
     log_debug,
     log_info,
     log_warning,
-    log_error
+    log_error,
+    increment_counter
 )
 
 
-# ===== TIMING HELPERS =====
-
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled for timing output."""
-    return os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-
-
-def _print_timing(message: str):
-    """Print timing message only if DEBUG_MODE=true."""
-    if _is_debug_mode():
-        print(f"[HA_CONFIG_TIMING] {message}")
-
+# ===== VALUE SAFETY HELPERS =====
 
 def _safe_int(value: Any, default: int) -> int:
     """Safely convert any value to int with default fallback."""
@@ -228,25 +222,20 @@ def _load_token(use_parameter_store: bool) -> str:
     Returns:
         Token string (may be empty)
     """
-    _start = time.perf_counter()
-    _print_timing("_load_token START")
+    # MODIFIED: Removed all custom timing code
     
     token = ''
     
     # Try SSM first if enabled
     if use_parameter_store:
-        _print_timing("  USE_PARAMETER_STORE=true, attempting SSM")
         try:
             # NEW: Use simplified token-only SSM client
             from config_param_store import get_ha_token
             
-            _ssm_start = time.perf_counter()
             token = get_ha_token(use_cache=True)
-            _ssm_time = (time.perf_counter() - _ssm_start) * 1000
             
             # Check what type we got back
             token_type = type(token).__name__
-            _print_timing(f"  SSM returned type: {token_type}")
             
             # Handle sentinels
             if token_type == '_CacheMiss':
@@ -259,32 +248,28 @@ def _load_token(use_parameter_store: bool) -> str:
                 log_error(f"[TOKEN LOAD] SSM returned unexpected type: {token_type}")
                 token = None
             
-            _print_timing(f"  SSM token retrieval: {_ssm_time:.2f}ms, success={bool(token)}")
-            
             if token:
                 log_info(f"[TOKEN LOAD] Token loaded from SSM (length={len(token)})")
-                _print_timing(f"_load_token COMPLETE (SSM): {(time.perf_counter() - _start) * 1000:.2f}ms")
+                # ADDED: Metric for SSM token success
+                increment_counter('ha_config_token_ssm_success')
                 return token
             else:
                 log_warning("[TOKEN LOAD] SSM returned no token, falling back to environment")
-                _print_timing("  SSM returned no token, falling back to environment")
+                increment_counter('ha_config_token_ssm_fallback')
                 
         except Exception as e:
-            _print_timing(f"  SSM exception: {e}")
             log_error(f"[TOKEN LOAD] SSM error: {e}, falling back to environment")
-    else:
-        _print_timing("  USE_PARAMETER_STORE=false, skipping SSM")
+            increment_counter('ha_config_token_ssm_error')
     
     # Fallback to environment variables
-    _print_timing("  Loading token from environment")
     token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN') or ''
     
     if token:
         log_info(f"[TOKEN LOAD] Token loaded from environment (length={len(token)})")
+        increment_counter('ha_config_token_env_success')
     else:
         log_error("[TOKEN LOAD] No token found in environment variables")
-    
-    _print_timing(f"_load_token COMPLETE (ENV): {(time.perf_counter() - _start) * 1000:.2f}ms, found={bool(token)}")
+        increment_counter('ha_config_token_missing')
     
     return token
 
@@ -303,55 +288,39 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
     Returns:
         Configuration dictionary (ALWAYS dict, validated values)
     """
-    _start = time.perf_counter()
-    _print_timing("===== _build_config_from_sources START =====")
+    # MODIFIED: Removed all custom timing code
     
     # Check if HA is enabled
-    _print_timing("Getting enabled status...")
     enabled_str = os.environ.get('HOME_ASSISTANT_ENABLED', 'true').lower()
     enabled = enabled_str in ('true', '1', 'yes')
-    _print_timing(f"Enabled: {enabled}")
     
     if not enabled:
-        _print_timing(f"===== _build_config_from_sources COMPLETE (DISABLED): {(time.perf_counter() - _start) * 1000:.2f}ms =====")
         return {'enabled': False}
     
     # Get base URL from environment
-    _print_timing("Getting base_url from environment...")
     base_url = _sanitize_value(
         os.environ.get('HOME_ASSISTANT_URL'),
         'base_url',
         default=''
     )
-    _print_timing(f"  base_url: {bool(base_url)}")
     
     # Get access token (SSM or environment)
-    _print_timing("Getting access_token...")
-    _token_start = time.perf_counter()
     access_token = _load_token(use_parameter_store)
-    _token_time = (time.perf_counter() - _token_start) * 1000
-    _print_timing(f"  access_token: {_token_time:.2f}ms, found={bool(access_token)}")
     
     # Get timeout from environment
-    _print_timing("Getting timeout from environment...")
     timeout_str = os.environ.get('HOME_ASSISTANT_TIMEOUT', '30')
     timeout = _safe_int(timeout_str, 30)
-    _print_timing(f"  timeout: {timeout}")
     
     # Get verify_ssl from environment
-    _print_timing("Getting verify_ssl from environment...")
     verify_ssl_str = os.environ.get('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
     verify_ssl = verify_ssl_str in ('true', '1', 'yes')
-    _print_timing(f"  verify_ssl: {verify_ssl}")
     
     # Get assistant name from environment
-    _print_timing("Getting assistant_name from environment...")
     assistant_name = _sanitize_value(
         os.environ.get('HA_ASSISTANT_NAME'),
         'assistant_name',
         default='Alexa'
     )
-    _print_timing(f"  assistant_name: {assistant_name}")
     
     # Build config dict
     config = {
@@ -362,9 +331,6 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
         'verify_ssl': verify_ssl,
         'assistant_name': assistant_name
     }
-    
-    _total_time = (time.perf_counter() - _start) * 1000
-    _print_timing(f"===== _build_config_from_sources COMPLETE: {_total_time:.2f}ms =====")
     
     return config
 
@@ -385,65 +351,50 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
     Returns:
         Configuration dictionary (always dict, never None or object())
     """
-    _start = time.perf_counter()
-    _print_timing("===== LOAD_HA_CONFIG START =====")
+    # MODIFIED: Removed all custom timing code, added gateway metrics
     
     # Check cache first (with validation)
     if not force_refresh:
-        _cache_start = time.perf_counter()
-        _print_timing("Checking cache...")
-        
         cached = cache_get('ha_config')
-        
-        _cache_time = (time.perf_counter() - _cache_start) * 1000
-        _print_timing(f"Cache check: {_cache_time:.2f}ms, found={cached is not None}")
         
         if cached is not None:
             # CRITICAL: Validate cached value before returning
             validated = _validate_cached_config(cached)
             
             if validated is not None:
-                _total_time = (time.perf_counter() - _start) * 1000
-                _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (VALIDATED CACHE): {_total_time:.2f}ms =====")
+                # ADDED: Cache hit metric
+                increment_counter('ha_config_cache_hit')
                 return validated
             else:
-                _print_timing("Cache validation failed, invalidating and rebuilding...")
+                # ADDED: Cache invalidation metric
+                increment_counter('ha_config_cache_invalid')
                 cache_delete('ha_config')
+        else:
+            # ADDED: Cache miss metric
+            increment_counter('ha_config_cache_miss')
+    else:
+        # ADDED: Force refresh metric
+        increment_counter('ha_config_force_refresh')
     
     # Build fresh config
-    _print_timing("Building fresh config...")
-    _build_start = time.perf_counter()
-    
     use_parameter_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
     config = _build_config_from_sources(use_parameter_store=use_parameter_store)
     
-    _build_time = (time.perf_counter() - _build_start) * 1000
-    _print_timing(f"*** Config built: {_build_time:.2f}ms, type={type(config).__name__} ***")
-    
     # CRITICAL FIX: Sanitize config before caching (removes sentinels)
     # This prevents cache invalidation on every cold start (saves ~535ms)
-    _print_timing("Sanitizing config for cache...")
-    _sanitize_start = time.perf_counter()
     config = _sanitize_config_for_cache(config)
-    _sanitize_time = (time.perf_counter() - _sanitize_start) * 1000
-    _print_timing(f"Config sanitized: {_sanitize_time:.2f}ms")
     
     # Validate config before caching
     if not isinstance(config, dict):
         log_error(f"[CONFIG] _build_config_from_sources returned {type(config).__name__}, not dict!")
+        increment_counter('ha_config_build_error')
         return {'enabled': False}
     
     # Cache the sanitized config
-    _cache_set_start = time.perf_counter()
-    _print_timing("Caching config...")
-    
     cache_set('ha_config', config, ttl=300)
     
-    _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
-    _print_timing(f"Config cached: {_cache_set_time:.2f}ms")
-    
-    _total_time = (time.perf_counter() - _start) * 1000
-    _print_timing(f"===== LOAD_HA_CONFIG COMPLETE: {_total_time:.2f}ms =====")
+    # ADDED: Config build success metric
+    increment_counter('ha_config_build_success')
     
     return config
 
@@ -460,20 +411,26 @@ def validate_ha_config(config: Dict[str, Any]) -> bool:
     """
     if not isinstance(config, dict):
         log_error(f"[CONFIG VALIDATE] Config is {type(config).__name__}, not dict")
+        increment_counter('ha_config_validate_error')
         return False
     
     if not config.get('enabled', False):
         log_warning("[CONFIG VALIDATE] Home Assistant is disabled")
+        increment_counter('ha_config_disabled')
         return False
     
     if not config.get('base_url'):
         log_error("[CONFIG VALIDATE] Missing base_url")
+        increment_counter('ha_config_missing_url')
         return False
     
     if not config.get('access_token'):
         log_error("[CONFIG VALIDATE] Missing access_token")
+        increment_counter('ha_config_missing_token')
         return False
     
+    # ADDED: Validation success metric
+    increment_counter('ha_config_validate_success')
     return True
 
 
