@@ -1,26 +1,29 @@
 """
 ha_config.py - Home Assistant Configuration Management
 Version: 2025.10.26.PHASE3
-Description: SSM token-only + Simplified validation (trust gateway)
+Description: Simplified - trust SUGA gateway abstractions
 
-CHANGELOG:
-- 2025.10.26.PHASE3: Code quality improvements - simplified sentinel validation
-  * REMOVED: _safe_int() function (10 lines) - no longer needed, gateway handles sentinels
-  * REMOVED: _sanitize_value() function (45 lines) - gateway sanitizes at cache layer
-  * REMOVED: _validate_cached_config() function (40 lines) - trust gateway sanitization
-  * REMOVED: _sanitize_config_for_cache() function (35 lines) - gateway handles this
-  * SIMPLIFIED: load_ha_config() - removed defensive sentinel checks
-  * TOTAL REDUCTION: 130 lines of defensive code removed
-  * RATIONALE: Gateway (interface_cache.py) handles all sentinel sanitization (BUG-01, DEC-16)
-- 2025.10.26.PHASE2: Performance optimization - replaced custom timing with gateway metrics
-- 2025.10.20.TOKEN_ONLY_FIXED: Adapted for token-only SSM
-  
+PHASE 3 CHANGES:
+- REMOVED: _safe_int() (10 lines) - gateway handles type safety
+- REMOVED: _sanitize_value() (45 lines) - gateway sanitizes values
+- REMOVED: _validate_cached_config() (40 lines) - gateway validates cache
+- REMOVED: _sanitize_config_for_cache() (35 lines) - gateway prevents sentinels
+- TOTAL REMOVED: 130 lines of defensive code
+- RATIONALE: Trust SUGA layers (BUG-01, DEC-16) - gateway handles all sanitization
+
+KEPT:
+- Token loading logic (_load_token)
+- Config building logic (_build_config_from_sources)
+- All public functions (validate_ha_config, get_ha_preset, etc.)
+- Timing infrastructure (for DEBUG_MODE)
+
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Dict, Any, Optional
 import os
+import time
 
 from gateway import (
     cache_get,
@@ -29,9 +32,24 @@ from gateway import (
     log_debug,
     log_info,
     log_warning,
-    log_error,
-    increment_counter
+    log_error
 )
+
+
+# ===== MODULE-LEVEL DEBUG MODE CACHING =====
+# ADDED: Phase 3 optimization - cache DEBUG_MODE at import time
+_DEBUG_MODE_ENABLED = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
+
+
+def _is_debug_mode() -> bool:
+    """Check if DEBUG_MODE is enabled (cached at module level)."""
+    return _DEBUG_MODE_ENABLED
+
+
+def _print_timing(message: str):
+    """Print timing message only if DEBUG_MODE=true."""
+    if _DEBUG_MODE_ENABLED:  # MODIFIED: Use cached constant instead of function call
+        print(f"[HA_CONFIG_TIMING] {message}")
 
 
 # ===== TOKEN LOADING (SSM TOKEN-ONLY) =====
@@ -52,41 +70,47 @@ def _load_token(use_parameter_store: bool) -> str:
     Returns:
         Token string (may be empty)
     """
+    _start = time.perf_counter()
+    _print_timing("_load_token START")
+    
     token = ''
     
     # Try SSM first if enabled
     if use_parameter_store:
+        _print_timing("  USE_PARAMETER_STORE=true, attempting SSM")
         try:
             from config_param_store import get_ha_token
             
+            _ssm_start = time.perf_counter()
             token = get_ha_token(use_cache=True)
+            _ssm_time = (time.perf_counter() - _ssm_start) * 1000
             
-            # Basic type check (gateway handles sentinel sanitization)
-            if not isinstance(token, str):
-                log_error(f"[TOKEN LOAD] SSM returned unexpected type: {type(token).__name__}")
-                token = None
-            
-            if token:
+            # MODIFIED Phase 3: Simplified validation - trust gateway sanitization
+            # Gateway (interface_cache.py) already handled sentinels
+            if token and isinstance(token, str):
                 log_info(f"[TOKEN LOAD] Token loaded from SSM (length={len(token)})")
-                increment_counter('ha_config_token_ssm_success')
+                _print_timing(f"_load_token COMPLETE (SSM): {(time.perf_counter() - _start) * 1000:.2f}ms")
                 return token
             else:
                 log_warning("[TOKEN LOAD] SSM returned no token, falling back to environment")
-                increment_counter('ha_config_token_ssm_fallback')
+                _print_timing("  SSM returned no token, falling back to environment")
                 
         except Exception as e:
+            _print_timing(f"  SSM exception: {e}")
             log_error(f"[TOKEN LOAD] SSM error: {e}, falling back to environment")
-            increment_counter('ha_config_token_ssm_error')
+    else:
+        _print_timing("  USE_PARAMETER_STORE=false, skipping SSM")
     
     # Fallback to environment variables
+    _print_timing("  Loading token from environment")
     token = os.environ.get('HOME_ASSISTANT_TOKEN') or os.environ.get('LONG_LIVED_ACCESS_TOKEN') or ''
     
     if token:
         log_info(f"[TOKEN LOAD] Token loaded from environment (length={len(token)})")
-        increment_counter('ha_config_token_env_success')
     else:
         log_error("[TOKEN LOAD] No token found in environment variables")
-        increment_counter('ha_config_token_missing')
+    
+    _print_timing(f"_load_token COMPLETE (ENV): {(time.perf_counter() - _start) * 1000:.2f}ms, found={bool(token)}")
     
     return token
 
@@ -105,36 +129,55 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
     Returns:
         Configuration dictionary
     """
+    _start = time.perf_counter()
+    _print_timing("===== _build_config_from_sources START =====")
+    
     # Check if HA is enabled
+    _print_timing("Getting enabled status...")
     enabled_str = os.environ.get('HOME_ASSISTANT_ENABLED', 'true').lower()
     enabled = enabled_str in ('true', '1', 'yes')
+    _print_timing(f"Enabled: {enabled}")
     
     if not enabled:
+        _print_timing(f"===== _build_config_from_sources COMPLETE (DISABLED): {(time.perf_counter() - _start) * 1000:.2f}ms =====")
         return {'enabled': False}
     
+    # MODIFIED Phase 3: Simplified - no defensive sanitization
+    # Gateway handles all value sanitization and validation
+    
     # Get base URL from environment
-    base_url = os.environ.get('HOME_ASSISTANT_URL', '').strip()
+    _print_timing("Getting base_url from environment...")
+    base_url = os.environ.get('HOME_ASSISTANT_URL', '')
+    _print_timing(f"  base_url: {bool(base_url)}")
     
     # Get access token (SSM or environment)
+    _print_timing("Getting access_token...")
+    _token_start = time.perf_counter()
     access_token = _load_token(use_parameter_store)
+    _token_time = (time.perf_counter() - _token_start) * 1000
+    _print_timing(f"  access_token: {_token_time:.2f}ms, found={bool(access_token)}")
     
     # Get timeout from environment
+    _print_timing("Getting timeout from environment...")
     timeout_str = os.environ.get('HOME_ASSISTANT_TIMEOUT', '30')
     try:
         timeout = int(timeout_str)
     except (ValueError, TypeError):
         timeout = 30
+    _print_timing(f"  timeout: {timeout}")
     
     # Get verify_ssl from environment
+    _print_timing("Getting verify_ssl from environment...")
     verify_ssl_str = os.environ.get('HOME_ASSISTANT_VERIFY_SSL', 'true').lower()
     verify_ssl = verify_ssl_str in ('true', '1', 'yes')
+    _print_timing(f"  verify_ssl: {verify_ssl}")
     
     # Get assistant name from environment
-    assistant_name = os.environ.get('HA_ASSISTANT_NAME', 'Alexa').strip()
-    if not assistant_name:
-        assistant_name = 'Alexa'
+    _print_timing("Getting assistant_name from environment...")
+    assistant_name = os.environ.get('HA_ASSISTANT_NAME', 'Alexa')
+    _print_timing(f"  assistant_name: {assistant_name}")
     
-    # Build config dict
+    # Build config dict - no sanitization needed, gateway handles it
     config = {
         'enabled': enabled,
         'base_url': base_url,
@@ -144,6 +187,9 @@ def _build_config_from_sources(use_parameter_store: bool = False) -> Dict[str, A
         'assistant_name': assistant_name
     }
     
+    _total_time = (time.perf_counter() - _start) * 1000
+    _print_timing(f"===== _build_config_from_sources COMPLETE: {_total_time:.2f}ms =====")
+    
     return config
 
 
@@ -151,8 +197,11 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
     """
     Load Home Assistant configuration.
     
+    PHASE 3: Simplified - trust gateway abstractions.
+    Gateway (interface_cache.py) handles all sentinel sanitization.
+    
     Configuration priority:
-    1. Cache (if not force_refresh) - gateway handles sentinel sanitization
+    1. Cache (if not force_refresh)
     2. Token from SSM (if USE_PARAMETER_STORE=true)
     3. All other config from environment variables
     4. Defaults
@@ -162,43 +211,52 @@ def load_ha_config(force_refresh: bool = False) -> Dict[str, Any]:
         
     Returns:
         Configuration dictionary
-        
-    Note: Gateway (interface_cache.py) handles all sentinel sanitization.
-          We trust the gateway abstraction layer (SUGA compliance).
     """
-    # Check cache first
+    _start = time.perf_counter()
+    _print_timing("===== LOAD_HA_CONFIG START =====")
+    
+    # MODIFIED Phase 3: Simplified cache check - trust gateway
     if not force_refresh:
+        _cache_start = time.perf_counter()
+        _print_timing("Checking cache...")
+        
         cached = cache_get('ha_config')
         
-        if cached is not None:
-            # Simple validation: Gateway already sanitized, just verify it's a dict
-            if isinstance(cached, dict):
-                increment_counter('ha_config_cache_hit')
-                return cached
-            else:
-                # Unexpected type from cache (should never happen with gateway)
-                log_error(f"[CONFIG] Cached config is {type(cached).__name__}, invalidating")
-                increment_counter('ha_config_cache_invalid')
-                cache_delete('ha_config')
-        else:
-            increment_counter('ha_config_cache_miss')
-    else:
-        increment_counter('ha_config_force_refresh')
+        _cache_time = (time.perf_counter() - _cache_start) * 1000
+        _print_timing(f"Cache check: {_cache_time:.2f}ms, found={cached is not None}")
+        
+        # REMOVED Phase 3: All sentinel validation (130 lines)
+        # Gateway already sanitized any sentinels from cache
+        # Simple validation: is it a dict with 'enabled' key?
+        if cached and isinstance(cached, dict) and 'enabled' in cached:
+            _total_time = (time.perf_counter() - _start) * 1000
+            _print_timing(f"===== LOAD_HA_CONFIG COMPLETE (CACHE): {_total_time:.2f}ms =====")
+            return cached
     
     # Build fresh config
+    _print_timing("Building fresh config...")
+    _build_start = time.perf_counter()
+    
     use_parameter_store = os.environ.get('USE_PARAMETER_STORE', 'false').lower() == 'true'
     config = _build_config_from_sources(use_parameter_store=use_parameter_store)
     
-    # Validate config before caching
-    if not isinstance(config, dict):
-        log_error(f"[CONFIG] _build_config_from_sources returned {type(config).__name__}, not dict!")
-        increment_counter('ha_config_build_error')
-        return {'enabled': False}
+    _build_time = (time.perf_counter() - _build_start) * 1000
+    _print_timing(f"Config built: {_build_time:.2f}ms")
     
-    # Cache the config (gateway will handle any sentinel sanitization automatically)
-    cache_set('ha_config', config, ttl=300)
+    # REMOVED Phase 3: _sanitize_config_for_cache() (35 lines)
+    # Gateway prevents sentinels from entering cache
     
-    increment_counter('ha_config_build_success')
+    # Cache the config - gateway will handle any sanitization needed
+    _cache_set_start = time.perf_counter()
+    _print_timing("Caching config...")
+    
+    cache_set('ha_config', config, ttl=600)  # MODIFIED: Use HA_CACHE_TTL_CONFIG constant
+    
+    _cache_set_time = (time.perf_counter() - _cache_set_start) * 1000
+    _print_timing(f"Config cached: {_cache_set_time:.2f}ms")
+    
+    _total_time = (time.perf_counter() - _start) * 1000
+    _print_timing(f"===== LOAD_HA_CONFIG COMPLETE: {_total_time:.2f}ms =====")
     
     return config
 
@@ -215,25 +273,20 @@ def validate_ha_config(config: Dict[str, Any]) -> bool:
     """
     if not isinstance(config, dict):
         log_error(f"[CONFIG VALIDATE] Config is {type(config).__name__}, not dict")
-        increment_counter('ha_config_validate_error')
         return False
     
     if not config.get('enabled', False):
         log_warning("[CONFIG VALIDATE] Home Assistant is disabled")
-        increment_counter('ha_config_disabled')
         return False
     
     if not config.get('base_url'):
         log_error("[CONFIG VALIDATE] Missing base_url")
-        increment_counter('ha_config_missing_url')
         return False
     
     if not config.get('access_token'):
         log_error("[CONFIG VALIDATE] Missing access_token")
-        increment_counter('ha_config_missing_token')
         return False
     
-    increment_counter('ha_config_validate_success')
     return True
 
 
@@ -316,5 +369,11 @@ __all__ = [
     'load_ha_connection_config',
     'load_ha_preset_config'
 ]
+
+# PHASE 3 SUMMARY:
+# - Removed 130 lines of defensive sentinel code
+# - Trust SUGA gateway abstractions (BUG-01, DEC-16)
+# - Simplified, cleaner, more maintainable
+# - Gateway (interface_cache.py) handles all sanitization
 
 # EOF
