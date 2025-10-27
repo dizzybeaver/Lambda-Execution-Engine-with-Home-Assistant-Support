@@ -1,20 +1,28 @@
 """
 ha_core.py - Home Assistant Core Operations
-Version: 2025.10.26.PHASE5
-Description: Phase 5 - Advanced Caching + Performance Profiling
+Version: 2025.10.26.PURIFIED
+Description: PURIFIED - Generic performance functions moved to INT-04 (METRICS)
+
+PHASE 5 PURIFICATION:
+- REMOVED: get_performance_report() → Moved to INT-04 (METRICS) via gateway
+- REMOVED: _calculate_percentiles() → Moved to metrics_operations.py
+- REMOVED: _generate_performance_recommendations() → Moved to metrics_operations.py
+- KEPT: HA-specific cache functions (warm_ha_cache, invalidate_entity/domain_cache)
+- KEPT: HA-specific slow operation tracking
+- BENEFIT: Performance reporting now available system-wide, not locked in HA module
+- COMPLIANCE: No duplication with gateway interfaces
 
 PHASE 5 CHANGES (leveraging existing INT-01 and INT-04):
-- ADDED: warm_ha_cache() function for cold start optimization
-- ADDED: Predictive cache pre-loading for common operations
-- ADDED: Smart cache invalidation (event-based, partial updates)
-- ADDED: get_performance_report() using existing metrics system
-- ADDED: _calculate_percentiles() helper for metric analysis
+- RETAINED: warm_ha_cache() function for cold start optimization
+- RETAINED: Predictive cache pre-loading for common operations
+- RETAINED: Smart cache invalidation (event-based, partial updates)
+- UPDATED: Uses gateway.get_performance_report() instead of local implementation
 - BENEFIT: 5-10% additional performance, zero duplication of existing interfaces
 
 DESIGN: Uses existing interfaces instead of creating parallel systems
 - INT-01 (CACHE): Reuses cache_set(), cache_get(), cache_stats()
-- INT-04 (METRICS): Builds on record_metric(), get_metrics_stats()
-- NO new interfaces created (SUGA compliance)
+- INT-04 (METRICS): Uses get_performance_report() from gateway
+- NO local duplication of infrastructure logic (SUGA compliance)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -36,7 +44,8 @@ from gateway import (
     increment_counter, record_metric, get_metrics_stats,
     create_success_response, create_error_response,
     generate_correlation_id, get_timestamp,
-    parse_json
+    parse_json,
+    get_performance_report  # ADDED Phase 5: Use gateway wrapper for performance reporting
 )
 
 # Cache TTL Constants
@@ -53,7 +62,7 @@ HA_CACHE_WARMING_ENABLED = os.getenv('HA_CACHE_WARMING_ENABLED', 'false').lower(
 # Module-level constants (Phase 3)
 _DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 
-# ADDED Phase 5: Track slow operations in memory
+# ADDED Phase 5: Track slow operations in memory (HA-specific)
 _SLOW_OPERATIONS = defaultdict(int)  # operation_name: count
 
 
@@ -62,14 +71,14 @@ def _is_debug_mode() -> bool:
     return _DEBUG_MODE_ENABLED
 
 
-# ===== PHASE 5: CACHE WARMING =====
+# ===== PHASE 5: CACHE WARMING (HA-Specific) =====
 
 def warm_ha_cache() -> Dict[str, Any]:
     """
-    ADDED Phase 5: Pre-warm cache on cold start.
+    PHASE 5: Pre-warm cache on cold start with HA-specific data.
     
-    Loads frequently accessed data into cache during Lambda initialization
-    to eliminate first-request penalties.
+    Loads frequently accessed HOME ASSISTANT data into cache during Lambda 
+    initialization to eliminate first-request penalties.
     
     Uses existing INT-01 (CACHE) interface - no duplication.
     
@@ -132,17 +141,17 @@ def warm_ha_cache() -> Dict[str, Any]:
         return create_error_response(str(e), 'CACHE_WARMING_FAILED')
 
 
-# ===== PHASE 5: SMART CACHE INVALIDATION =====
+# ===== PHASE 5: SMART CACHE INVALIDATION (HA-Specific) =====
 
 def invalidate_entity_cache(entity_id: str) -> bool:
     """
-    ADDED Phase 5: Smart cache invalidation for specific entity.
+    PHASE 5: Smart cache invalidation for specific HA entity.
     
     Event-based invalidation: only clear affected entity, not entire cache.
     Uses existing cache_delete() from INT-01.
     
     Args:
-        entity_id: Entity ID to invalidate
+        entity_id: Home Assistant entity ID to invalidate (e.g., 'light.living_room')
         
     Returns:
         True if invalidated, False otherwise
@@ -166,13 +175,13 @@ def invalidate_entity_cache(entity_id: str) -> bool:
 
 def invalidate_domain_cache(domain: str) -> int:
     """
-    ADDED Phase 5: Invalidate cache for entire domain.
+    PHASE 5: Invalidate cache for entire HA domain.
     
     Example: Invalidate all 'light.*' entities after group operation.
     Uses existing cache_stats() and cache_delete() from INT-01.
     
     Args:
-        domain: Domain to invalidate (e.g., 'light', 'switch')
+        domain: Home Assistant domain to invalidate (e.g., 'light', 'switch')
         
     Returns:
         Number of cache entries invalidated
@@ -200,163 +209,14 @@ def invalidate_domain_cache(domain: str) -> int:
         return 0
 
 
-# ===== PHASE 5: PERFORMANCE REPORTING =====
+# ===== PHASE 5: PERFORMANCE REPORTING (Now uses gateway) =====
+# PURIFIED: Removed _calculate_percentiles() - moved to metrics_operations.py
+# PURIFIED: Removed _generate_performance_recommendations() - moved to metrics_operations.py
+# PURIFIED: Removed get_performance_report() - now uses gateway.get_performance_report()
 
-def _calculate_percentiles(values: List[float], percentiles: List[int]) -> Dict[str, float]:
-    """
-    ADDED Phase 5: Calculate percentiles from list of values.
-    
-    Args:
-        values: List of numeric values
-        percentiles: List of percentile values to calculate (e.g., [50, 95, 99])
-        
-    Returns:
-        Dict mapping percentile to value
-    """
-    if not values:
-        return {f'p{p}': 0.0 for p in percentiles}
-    
-    sorted_values = sorted(values)
-    result = {}
-    
-    for p in percentiles:
-        index = int(len(sorted_values) * (p / 100.0))
-        index = min(index, len(sorted_values) - 1)
-        result[f'p{p}'] = sorted_values[index]
-    
-    return result
-
-
-def get_performance_report() -> Dict[str, Any]:
-    """
-    ADDED Phase 5: Get comprehensive performance report.
-    
-    Builds on existing INT-04 (METRICS) interface - uses get_metrics_stats()
-    to analyze performance data and generate insights.
-    
-    Returns:
-        Performance report with timing analysis, cache efficiency, bottlenecks
-    """
-    try:
-        # Get raw metrics from existing INT-04 interface
-        raw_metrics = get_metrics_stats()
-        
-        # Get cache statistics from existing INT-01 interface
-        cache_info = cache_stats()
-        
-        # Analyze HA-specific operations
-        ha_operations = {}
-        slow_operations_list = []
-        
-        # Extract HA operation metrics (those starting with 'ha_')
-        for metric_name, values in raw_metrics.get('metrics', {}).items():
-            if metric_name.startswith('ha_') and '_duration_ms' in metric_name:
-                operation = metric_name.replace('_duration_ms', '')
-                
-                if values:
-                    avg_ms = sum(values) / len(values)
-                    percentiles = _calculate_percentiles(values, [50, 95, 99])
-                    
-                    ha_operations[operation] = {
-                        'avg_ms': avg_ms,
-                        'min_ms': min(values),
-                        'max_ms': max(values),
-                        'p50_ms': percentiles['p50'],
-                        'p95_ms': percentiles['p95'],
-                        'p99_ms': percentiles['p99'],
-                        'sample_count': len(values)
-                    }
-                    
-                    # Identify slow operations
-                    if percentiles['p95'] > HA_SLOW_OPERATION_THRESHOLD_MS:
-                        slow_operations_list.append({
-                            'operation': operation,
-                            'p95_ms': percentiles['p95'],
-                            'max_ms': max(values)
-                        })
-        
-        # Calculate cache efficiency
-        cache_efficiency = {}
-        if cache_info.get('hits', 0) + cache_info.get('misses', 0) > 0:
-            total_requests = cache_info['hits'] + cache_info['misses']
-            cache_efficiency = {
-                'hit_rate_percent': (cache_info['hits'] / total_requests) * 100,
-                'total_hits': cache_info['hits'],
-                'total_misses': cache_info['misses'],
-                'efficiency_score': 'excellent' if (cache_info['hits'] / total_requests) > 0.8 else
-                                  'good' if (cache_info['hits'] / total_requests) > 0.6 else
-                                  'needs_improvement'
-            }
-        
-        # Build comprehensive report
-        report = {
-            'timestamp': get_timestamp(),
-            'ha_core_version': '2025.10.26.PHASE5',
-            'operations': ha_operations,
-            'cache_efficiency': cache_efficiency,
-            'slow_operations': sorted(slow_operations_list, 
-                                     key=lambda x: x['p95_ms'], 
-                                     reverse=True)[:5],  # Top 5 slowest
-            'slow_operation_count': len(_SLOW_OPERATIONS),
-            'cache_stats': cache_info,
-            'recommendations': _generate_performance_recommendations(
-                ha_operations, 
-                cache_efficiency, 
-                slow_operations_list
-            )
-        }
-        
-        return create_success_response('Performance report generated', report)
-        
-    except Exception as e:
-        log_error(f"Performance report generation failed: {str(e)}")
-        return create_error_response(str(e), 'REPORT_GENERATION_FAILED')
-
-
-def _generate_performance_recommendations(
-    operations: Dict[str, Any],
-    cache_efficiency: Dict[str, Any],
-    slow_ops: List[Dict[str, Any]]
-) -> List[str]:
-    """
-    ADDED Phase 5: Generate performance improvement recommendations.
-    
-    Args:
-        operations: Operation timing data
-        cache_efficiency: Cache hit rate data
-        slow_ops: List of slow operations
-        
-    Returns:
-        List of actionable recommendations
-    """
-    recommendations = []
-    
-    # Cache efficiency recommendations
-    if cache_efficiency:
-        hit_rate = cache_efficiency.get('hit_rate_percent', 0)
-        if hit_rate < 60:
-            recommendations.append(
-                f"Low cache hit rate ({hit_rate:.1f}%). Consider increasing cache TTL or "
-                "enabling cache warming."
-            )
-        elif hit_rate > 90:
-            recommendations.append(
-                f"Excellent cache hit rate ({hit_rate:.1f}%). Current caching strategy is optimal."
-            )
-    
-    # Slow operation recommendations
-    if slow_ops:
-        for op in slow_ops[:3]:  # Top 3
-            recommendations.append(
-                f"Operation '{op['operation']}' is slow (p95: {op['p95_ms']:.0f}ms). "
-                f"Consider optimization or caching."
-            )
-    
-    # General recommendations
-    if not recommendations:
-        recommendations.append("Performance metrics look good. No immediate optimizations needed.")
-    
-    return recommendations
+# Note: To get performance report, use:
+#   from gateway import get_performance_report
+#   report = get_performance_report(slow_threshold_ms=HA_SLOW_OPERATION_THRESHOLD_MS)
 
 
 # ===== PHASE 4: ENHANCED DEBUG TRACING =====
@@ -528,7 +388,7 @@ def call_ha_api(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
             
             duration_ms = (time.perf_counter() - start_time) * 1000
             
-            # ADDED Phase 5: Track slow operations
+            # ADDED Phase 5: Track slow operations (HA-specific)
             if duration_ms > HA_SLOW_OPERATION_THRESHOLD_MS:
                 _SLOW_OPERATIONS[f'call_ha_api_{endpoint}'] += 1
                 log_warning(f"Slow API call detected: {endpoint} took {duration_ms:.2f}ms")
@@ -708,7 +568,7 @@ def get_diagnostic_info() -> Dict[str, Any]:
     MODIFIED Phase 5: Enhanced with profiling capabilities.
     """
     return {
-        'ha_core_version': '2025.10.26.PHASE5',
+        'ha_core_version': '2025.10.26.PURIFIED',
         'cache_ttl_entities': HA_CACHE_TTL_ENTITIES,
         'cache_ttl_state': HA_CACHE_TTL_STATE,
         'cache_ttl_config': HA_CACHE_TTL_CONFIG,
@@ -732,8 +592,14 @@ def get_diagnostic_info() -> Dict[str, Any]:
         'phase5_features': {
             'cache_warming': HA_CACHE_WARMING_ENABLED,
             'smart_invalidation': True,
-            'performance_profiling': True,
+            'performance_profiling': 'via gateway.get_performance_report()',
             'predictive_preloading': True
+        },
+        'purification_status': {
+            'generic_functions_moved_to_metrics': True,
+            'ha_specific_functions_retained': True,
+            'gateway_integration': 'complete',
+            'zero_duplication': True
         },
         'sentinel_sanitization': 'Handled by gateway (interface_cache.py)'
     }
@@ -844,17 +710,18 @@ __all__ = [
     'get_diagnostic_info',
     'ha_operation_wrapper',
     'fuzzy_match_name',
-    'warm_ha_cache',  # ADDED Phase 5
-    'get_performance_report',  # ADDED Phase 5
-    'invalidate_entity_cache',  # ADDED Phase 5
-    'invalidate_domain_cache',  # ADDED Phase 5
+    'warm_ha_cache',  # HA-specific cache warming
+    'invalidate_entity_cache',  # HA-specific smart invalidation
+    'invalidate_domain_cache',  # HA-specific domain invalidation
+    # REMOVED: get_performance_report - now use gateway.get_performance_report()
 ]
 
-# PHASE 5 SUMMARY:
-# - Cache warming using existing INT-01 (cache_set, cache_get)
-# - Performance profiling using existing INT-04 (get_metrics_stats)
-# - Smart invalidation using existing INT-01 (cache_delete)
+# PHASE 5 PURIFICATION SUMMARY:
+# - Cache warming using existing INT-01 (cache_set, cache_get) - RETAINED (HA-specific)
+# - Performance profiling using gateway.get_performance_report() - MOVED to INT-04
+# - Smart invalidation using existing INT-01 (cache_delete) - RETAINED (HA-specific)
+# - Generic functions moved to metrics interface - SYSTEM-WIDE availability
 # - Zero duplication of existing interfaces (SUGA compliance)
-# - All new functions leverage existing gateway infrastructure
+# - All HA-specific functions leverage existing gateway infrastructure
 
 # EOF
