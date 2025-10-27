@@ -1,7 +1,13 @@
 """
 gateway_wrappers_metrics.py - METRICS Interface Wrappers
-Version: 2025.10.22.02
+Version: 2025.10.26.01
 Description: Convenience wrappers for METRICS interface operations
+
+CHANGELOG:
+- 2025.10.26.01: PHASE 5 EXTRACTION - Added performance reporting wrapper
+  - ADDED: get_performance_report() - System-wide performance analysis
+  - Makes performance reporting available across entire Lambda via INT-04
+  - Extracted from ha_core.py to eliminate duplication
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -67,6 +73,46 @@ def record_api_metric(endpoint: str, method: str, status_code: int, duration_ms:
     execute_operation(GatewayInterface.METRICS, 'record_api', endpoint=endpoint, method=method, status_code=status_code, duration_ms=duration_ms, **kwargs)
 
 
+# ADDED Phase 5: Performance reporting wrapper
+def get_performance_report(slow_threshold_ms: float = 1000, **kwargs) -> Dict[str, Any]:
+    """
+    Get comprehensive performance report with analysis and recommendations.
+    
+    ADDED Phase 5: Extracted from ha_core.py - now available system-wide via INT-04 (METRICS).
+    
+    Analyzes metrics data to provide:
+    - Operation timing with percentiles (p50, p95, p99)
+    - Cache efficiency analysis
+    - Slow operation detection
+    - Intelligent performance recommendations
+    
+    Args:
+        slow_threshold_ms: Threshold for slow operation detection (default: 1000ms)
+        **kwargs: Additional parameters for future extensibility
+        
+    Returns:
+        Dict with comprehensive performance report:
+        {
+            'timestamp': float,
+            'metrics_version': str,
+            'slow_threshold_ms': float,
+            'operations': {op_name: {avg_ms, min_ms, max_ms, p50_ms, p95_ms, p99_ms}},
+            'cache_efficiency': {hit_rate_percent, efficiency_score, ...},
+            'slow_operations': [{operation, p95_ms, max_ms}, ...],
+            'recommendations': [str, ...]
+        }
+        
+    Example:
+        >>> report = get_performance_report()
+        >>> print(report['cache_efficiency']['hit_rate_percent'])
+        82.5
+        >>> for rec in report['recommendations']:
+        ...     print(f"âš¡ {rec}")
+    """
+    return execute_operation(GatewayInterface.METRICS, 'get_performance_report', 
+                           slow_threshold_ms=slow_threshold_ms, **kwargs)
+
+
 __all__ = [
     'record_metric',
     'increment_counter',
@@ -75,4 +121,5 @@ __all__ = [
     'record_error_metric',
     'record_cache_metric',
     'record_api_metric',
+    'get_performance_report',  # ADDED Phase 5
 ]
