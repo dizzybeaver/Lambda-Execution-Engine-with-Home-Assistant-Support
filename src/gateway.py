@@ -1,15 +1,13 @@
 """
 gateway.py - Universal Lambda Gateway (Consolidated Module)
-Version: 2025.10.22.04
+Version: 2025.10.26.01
 Description: Single entry point consolidating gateway_core and gateway_wrappers
 
 CHANGELOG:
-- 2025.10.22.04: CLEANUP - Removed legacy HTTP_CLIENT function names
-  - Removed: get_http_client_state (use http_get_state)
-  - Removed: reset_http_client_state (use http_reset_state)
-  - Standardized on new naming convention
-- 2025.10.22.03: CRITICAL FIX - Updated HTTP_CLIENT wrapper imports for refactoring
-- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports
+- 2025.10.26.01: PHASE 5 EXTRACTION - Added performance reporting export
+  - ADDED: get_performance_report to imports and exports
+  - Makes system-wide performance reporting available
+- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports (CVE-LOG-001 completion)
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -71,7 +69,7 @@ from gateway_wrappers import (
     hash_data,
     verify_hash,
     sanitize_input,
-    sanitize_for_log,
+    sanitize_for_log,  # NEW 2025.10.21.03 - CVE-LOG-001 fix completion
     validate_cache_key,
     validate_ttl,
     validate_module_name,
@@ -85,6 +83,7 @@ from gateway_wrappers import (
     record_error_metric,
     record_cache_metric,
     record_api_metric,
+    get_performance_report,  # NEW 2025.10.26.01 - Phase 5 extraction
     
     # CONFIG wrappers
     get_config,
@@ -117,15 +116,14 @@ from gateway_wrappers import (
     set_initialization_flag,
     get_initialization_flag,
     
-    # HTTP_CLIENT wrappers (CLEANED UP 2025.10.22.04)
+    # HTTP_CLIENT wrappers
     http_request,
     http_get,
     http_post,
     http_put,
     http_delete,
-    http_reset,
-    http_get_state,
-    http_reset_state,
+    get_http_client_state,
+    reset_http_client_state,
     
     # WEBSOCKET wrappers
     websocket_connect,
@@ -213,7 +211,7 @@ __all__ = [
     'hash_data',
     'verify_hash',
     'sanitize_input',
-    'sanitize_for_log',
+    'sanitize_for_log',  # NEW 2025.10.21.03 - CVE-LOG-001 fix completion
     'validate_cache_key',
     'validate_ttl',
     'validate_module_name',
@@ -227,6 +225,7 @@ __all__ = [
     'record_error_metric',
     'record_cache_metric',
     'record_api_metric',
+    'get_performance_report',  # NEW 2025.10.26.01 - Phase 5 extraction
     
     # Generated Wrappers - CONFIG (from gateway_wrappers)
     'get_config',
@@ -259,15 +258,14 @@ __all__ = [
     'set_initialization_flag',
     'get_initialization_flag',
     
-    # Generated Wrappers - HTTP_CLIENT (CLEANED UP 2025.10.22.04)
+    # Generated Wrappers - HTTP_CLIENT (from gateway_wrappers)
     'http_request',
     'http_get',
     'http_post',
     'http_put',
     'http_delete',
-    'http_reset',
-    'http_get_state',
-    'http_reset_state',
+    'get_http_client_state',
+    'reset_http_client_state',
     
     # Generated Wrappers - WEBSOCKET (from gateway_wrappers)
     'websocket_connect',
