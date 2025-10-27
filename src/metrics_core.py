@@ -1,501 +1,440 @@
 """
-metrics_core.py - Core metrics collection manager
-Version: 2025.10.21.01
-Description: PHASE 2 TASK 2.2 - Use safe_divide() helper to eliminate division-by-zero duplication
+metrics_operations.py - Gateway implementation functions for metrics
+Version: 2025.10.26.01
+Description: ADDED performance reporting and analysis functions (Phase 5 extraction from ha_core.py)
 
 CHANGELOG:
-- 2025.10.21.01: PHASE 2 TASK 2.2 - Genericize safe division
-  - Updated 10+ locations to use safe_divide() helper
-  - Eliminated ~30 LOC of duplicated division-by-zero checks
-  - Locations updated:
-    * record_response_metric: avg_response_time_ms, cache_hit_rate
-    * record_http_metric: avg_response_time_ms
-    * get_http_metrics: success_rate
-    * get_circuit_breaker_metrics: failure_rate (2 locations)
-    * get_dispatcher_stats: avg_duration_ms
-
-FIXES IMPLEMENTED (Phase 1):
-- Bug #3: Fixed thread safety - get_response_metrics, get_http_metrics, get_circuit_breaker_metrics now use locks
-- Bug #4: Implemented missing methods completely
-- Bug #11: Division by zero checks in all calculations
-- Bug #13: Input validation for negative durations
-- Bug #1: Fixed ResponseMetrics - added responses_by_type and responses_by_status tracking
-- Bug #2: Implemented record_circuit_breaker_event completely
+- 2025.10.26.01: PHASE 5 EXTRACTION - Performance reporting moved from ha_core.py
+  - ADDED: _execute_get_performance_report_implementation()
+  - ADDED: _calculate_percentiles() - Statistical helper for performance analysis
+  - ADDED: _generate_performance_recommendations() - Intelligent recommendation engine
+  - BENEFIT: Makes performance reporting available system-wide (not just HA)
+  - SUGA-COMPLIANT: Proper 3-layer pattern (gateway → interface → core)
+- 2025.10.20.03: BUG FIX - Parameter name mismatch
+  - FIXED: _execute_record_cache_metric_implementation() signature
+  - Changed: operation: str → operation_name: str
+  - Reason: Gateway wrapper sends operation_name, not operation
+  - This fixes CloudWatch error: "missing 1 required positional argument: 'operation'"
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
 
-import os
-import time
-import threading
 from typing import Dict, Any, Optional, List
-from collections import defaultdict
 
-from metrics_types import (
-    MetricOperation,
-    ResponseType,
-    ResponseMetrics,
-    HTTPClientMetrics,
-    CircuitBreakerMetrics
-)
-from metrics_helper import calculate_percentile, build_metric_key, safe_divide
+from metrics_types import MetricOperation, ResponseType
 
-# ===== CONFIGURATION =====
-
-_USE_GENERIC_OPERATIONS = os.getenv('USE_GENERIC_OPERATIONS', 'true').lower() == 'true'
+# CIRCULAR IMPORT FIX: Do NOT import _MANAGER at module level
+# Import it inside each function instead to avoid:
+# interface_metrics → metrics_operations → metrics_core → metrics_operations
 
 
-# ===== METRICS CORE IMPLEMENTATION =====
+# ===== GATEWAY IMPLEMENTATION FUNCTIONS =====
 
-class MetricsCore:
-    """Singleton metrics manager with unified operations."""
+def _execute_record_metric_implementation(name: str, value: float, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
+    """Execute record metric operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.execute_metric_operation(MetricOperation.RECORD, name, value, dimensions)
+
+
+def _execute_increment_counter_implementation(name: str, value: int = 1, **kwargs) -> int:
+    """Execute increment counter operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.execute_metric_operation(MetricOperation.INCREMENT, name, value)
+
+
+def _execute_get_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get stats operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.execute_metric_operation(MetricOperation.GET_STATS)
+
+
+def _execute_record_operation_metric_implementation(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
+    """
+    Execute record operation metric.
     
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._metrics: Dict[str, List[float]] = defaultdict(list)
-        self._counters: Dict[str, int] = defaultdict(int)
-        self._gauges: Dict[str, float] = {}
-        self._histograms: Dict[str, List[float]] = defaultdict(list)
-        self._stats = {
-            'total_metrics': 0,
-            'unique_metrics': 0,
-            'counters': 0,
-            'gauges': 0,
-            'histograms': 0
-        }
-        self._response_metrics = ResponseMetrics()
-        self._http_metrics = HTTPClientMetrics()
-        self._circuit_breaker_metrics: Dict[str, CircuitBreakerMetrics] = {}
-        self._dispatcher_timings: Dict[str, List[float]] = defaultdict(list)
-        self._dispatcher_call_counts: Dict[str, int] = defaultdict(int)
+    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
+    to match gateway wrapper signature and avoid parameter conflicts.
+    """
+    from metrics_core import _MANAGER
+    dimensions = {'operation': operation_name, 'success': str(success)}
+    if error_type:
+        dimensions['error_type'] = error_type
+    _MANAGER.record_metric(f'operation.{operation_name}.count', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric(f'operation.{operation_name}.duration_ms', duration_ms, dimensions)
+    return True
+
+
+def _execute_record_error_response_metric_implementation(error_type: str, severity: str = 'medium', category: str = 'internal', context: Optional[Dict] = None, **kwargs) -> bool:
+    """Execute record error response metric."""
+    from metrics_core import _MANAGER
+    dimensions = {'error_type': error_type, 'severity': severity, 'category': category}
+    _MANAGER.record_metric('error.response.count', 1.0, dimensions)
+    return True
+
+
+def _execute_record_cache_metric_implementation(operation_name: str, hit: bool = False, miss: bool = False, eviction: bool = False, duration_ms: float = 0, **kwargs) -> bool:
+    """
+    Execute record cache metric.
     
-    def execute_metric_operation(self, operation: MetricOperation, *args, **kwargs) -> Any:
-        """Universal metric operation executor."""
-        start_time = time.time()
+    FIXED 2025.10.20.03: Changed parameter from 'operation' to 'operation_name'
+    to match gateway wrapper signature and avoid parameter conflicts.
+    
+    Args:
+        operation_name: Name of cache operation (e.g., 'get', 'set')
+        hit: Whether operation resulted in cache hit
+        miss: Whether operation resulted in cache miss
+        eviction: Whether operation caused eviction
+        duration_ms: Operation duration in milliseconds
+        **kwargs: Additional parameters (ignored)
         
-        if _USE_GENERIC_OPERATIONS:
-            result = self._execute_generic_operation(operation, *args, **kwargs)
-        else:
-            result = self._execute_direct_operation(operation, *args, **kwargs)
+    Returns:
+        True if metric recorded successfully
+    """
+    from metrics_core import _MANAGER
+    dimensions = {'operation': operation_name}
+    if hit:
+        dimensions['result'] = 'hit'
+        _MANAGER.record_metric('cache.hit', 1.0, dimensions)
+    if miss:
+        dimensions['result'] = 'miss'
+        _MANAGER.record_metric('cache.miss', 1.0, dimensions)
+    if eviction:
+        _MANAGER.record_metric('cache.eviction', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric('cache.duration_ms', duration_ms, dimensions)
+    return True
+
+
+def _execute_record_api_metric_implementation(api: str, method: str = 'GET', status_code: int = 200, duration_ms: float = 0, **kwargs) -> bool:
+    """Execute record API metric."""
+    from metrics_core import _MANAGER
+    dimensions = {'api': api, 'method': method, 'status': str(status_code)}
+    _MANAGER.record_metric('api.request', 1.0, dimensions)
+    if duration_ms > 0:
+        _MANAGER.record_metric('api.duration_ms', duration_ms, dimensions)
+    return True
+
+
+def _execute_record_response_metric_implementation(response_type: ResponseType, status_code: int, duration_ms: float = 0, **kwargs) -> bool:
+    """Execute record response metric."""
+    from metrics_core import _MANAGER
+    _MANAGER.record_response_metric(response_type, status_code, duration_ms)
+    return True
+
+
+def _execute_record_http_metric_implementation(method: str, url: str, status_code: int, duration_ms: float, response_size: Optional[int] = None, **kwargs) -> bool:
+    """Execute record HTTP metric."""
+    from metrics_core import _MANAGER
+    _MANAGER.record_http_metric(method, url, status_code, duration_ms, response_size)
+    return True
+
+
+def _execute_record_circuit_breaker_metric_implementation(circuit_name: str, event_type: str, success: bool = True, **kwargs) -> bool:
+    """Execute record circuit breaker metric."""
+    from metrics_core import _MANAGER
+    _MANAGER.record_circuit_breaker_event(circuit_name, event_type, success)
+    return True
+
+
+def _execute_get_response_metrics_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get response metrics operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.get_response_metrics()
+
+
+def _execute_get_http_metrics_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get HTTP metrics operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.get_http_metrics()
+
+
+def _execute_get_circuit_breaker_metrics_implementation(circuit_name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    """Execute get circuit breaker metrics operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.get_circuit_breaker_metrics(circuit_name)
+
+
+def _execute_record_dispatcher_timing_implementation(interface_name: str, operation_name: str, duration_ms: float, **kwargs) -> bool:
+    """Execute record dispatcher timing operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.record_dispatcher_timing(interface_name, operation_name, duration_ms)
+
+
+def _execute_get_dispatcher_stats_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get dispatcher stats operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.get_dispatcher_stats()
+
+
+def _execute_get_operation_metrics_implementation(**kwargs) -> Dict[str, Any]:
+    """Execute get operation metrics operation."""
+    from metrics_core import _MANAGER
+    return _MANAGER.get_operation_metrics()
+
+
+# ===== PHASE 5: PERFORMANCE REPORTING (Extracted from ha_core.py) =====
+
+def _calculate_percentiles(values: List[float], percentiles: List[int]) -> Dict[str, float]:
+    """
+    ADDED Phase 5: Calculate percentiles from list of values.
+    
+    EXTRACTED FROM: ha_core.py - Made available system-wide
+    
+    Args:
+        values: List of numeric values
+        percentiles: List of percentile values to calculate (e.g., [50, 95, 99])
         
-        duration_ms = (time.time() - start_time) * 1000
-        self._record_dispatcher_metric(operation, duration_ms)
+    Returns:
+        Dict mapping percentile to value (e.g., {'p50': 123.4, 'p95': 456.7})
         
-        return result
+    Example:
+        >>> values = [10, 20, 30, 40, 50]
+        >>> _calculate_percentiles(values, [50, 95])
+        {'p50': 30, 'p95': 50}
+    """
+    if not values:
+        return {f'p{p}': 0.0 for p in percentiles}
     
-    def _execute_generic_operation(self, operation: MetricOperation, *args, **kwargs) -> Any:
-        """Execute operation using generic dispatcher."""
-        if operation == MetricOperation.RECORD:
-            return self.record_metric(*args, **kwargs)
-        elif operation == MetricOperation.INCREMENT:
-            return self.increment_counter(*args, **kwargs)
-        elif operation == MetricOperation.GET_STATS:
-            return self.get_stats()
-        else:
-            raise ValueError(f"Unknown metric operation: {operation}")
+    sorted_values = sorted(values)
+    result = {}
     
-    def _execute_direct_operation(self, operation: MetricOperation, *args, **kwargs) -> Any:
-        """Execute operation directly (legacy path)."""
-        operation_map = {
-            MetricOperation.RECORD: self.record_metric,
-            MetricOperation.INCREMENT: self.increment_counter,
-            MetricOperation.GET_STATS: self.get_stats
-        }
+    for p in percentiles:
+        index = int(len(sorted_values) * (p / 100.0))
+        index = min(index, len(sorted_values) - 1)
+        result[f'p{p}'] = sorted_values[index]
+    
+    return result
+
+
+def _generate_performance_recommendations(
+    operations: Dict[str, Any],
+    cache_efficiency: Dict[str, Any],
+    slow_ops: List[Dict[str, Any]],
+    slow_threshold_ms: float = 1000
+) -> List[str]:
+    """
+    ADDED Phase 5: Generate performance improvement recommendations.
+    
+    EXTRACTED FROM: ha_core.py - Made available system-wide
+    
+    Analyzes performance data and generates actionable recommendations
+    for optimization based on operation timing, cache efficiency, and
+    slow operation detection.
+    
+    Args:
+        operations: Operation timing data from metrics
+        cache_efficiency: Cache hit rate data
+        slow_ops: List of slow operations
+        slow_threshold_ms: Threshold for slow operation detection (default: 1000ms)
         
-        handler = operation_map.get(operation)
-        if not handler:
-            raise ValueError(f"Unknown metric operation: {operation}")
+    Returns:
+        List of actionable recommendations for performance improvement
         
-        return handler(*args, **kwargs)
+    Example:
+        >>> ops = {'api_call': {'avg_ms': 500, 'p95_ms': 800}}
+        >>> cache = {'hit_rate_percent': 45.2}
+        >>> slow = [{'operation': 'db_query', 'p95_ms': 1500}]
+        >>> _generate_performance_recommendations(ops, cache, slow)
+        ['Low cache hit rate (45.2%). Consider increasing cache TTL...',
+         'Operation db_query is slow (p95: 1500ms). Consider optimization...']
+    """
+    recommendations = []
     
-    def _record_dispatcher_metric(self, operation: MetricOperation, duration_ms: float):
-        """Record dispatcher timing metric with thread safety."""
-        with self._lock:
-            key = f"MetricsCore.{operation.value}"
-            self._dispatcher_timings[key].append(duration_ms)
-            self._dispatcher_call_counts[key] += 1
-    
-    # ===== CORE METRIC OPERATIONS =====
-    
-    def record_metric(self, name: str, value: float, dimensions: Optional[Dict[str, str]] = None) -> bool:
-        """Record a metric value."""
-        try:
-            with self._lock:
-                key = build_metric_key(name, dimensions)
-                self._metrics[key].append(value)
-                self._stats['total_metrics'] += 1
-                self._stats['unique_metrics'] = len(self._metrics)
-                return True
-        except Exception:
-            return False
-    
-    def increment_counter(self, name: str, value: int = 1) -> int:
-        """Increment a counter metric."""
-        with self._lock:
-            self._counters[name] += value
-            self._stats['counters'] = len(self._counters)
-            return self._counters[name]
-    
-    def set_gauge(self, name: str, value: float) -> bool:
-        """Set a gauge metric."""
-        try:
-            with self._lock:
-                self._gauges[name] = value
-                self._stats['gauges'] = len(self._gauges)
-                return True
-        except Exception:
-            return False
-    
-    def record_histogram(self, name: str, value: float) -> bool:
-        """Record a histogram value."""
-        try:
-            with self._lock:
-                self._histograms[name].append(value)
-                self._stats['histograms'] = len(self._histograms)
-                return True
-        except Exception:
-            return False
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get comprehensive metrics statistics with thread safety."""
-        with self._lock:
-            stats = self._stats.copy()
-            
-            stats['response_metrics'] = {
-                'total_responses': self._response_metrics.total_responses,
-                'successful_responses': self._response_metrics.successful_responses,
-                'error_responses': self._response_metrics.error_responses,
-                'timeout_responses': self._response_metrics.timeout_responses,
-                'cached_responses': self._response_metrics.cached_responses,
-                'fallback_responses': self._response_metrics.fallback_responses,
-                'avg_response_time_ms': self._response_metrics.avg_response_time_ms,
-                'fastest_response_ms': (
-                    self._response_metrics.fastest_response_ms 
-                    if self._response_metrics.fastest_response_ms != float('inf') 
-                    else 0.0
-                ),
-                'slowest_response_ms': self._response_metrics.slowest_response_ms,
-                'cache_hit_rate': self._response_metrics.cache_hit_rate,
-                'success_rate': self._response_metrics.success_rate()
-            }
-            
-            stats['http_metrics'] = {
-                'total_requests': self._http_metrics.total_requests,
-                'successful_requests': self._http_metrics.successful_requests,
-                'failed_requests': self._http_metrics.failed_requests,
-                'avg_response_time_ms': self._http_metrics.avg_response_time_ms,
-                'requests_by_method': dict(self._http_metrics.requests_by_method),
-                'requests_by_status': dict(self._http_metrics.requests_by_status)
-            }
-            
-            if self._circuit_breaker_metrics:
-                stats['circuit_breakers'] = {
-                    name: {
-                        'state': cb.state,
-                        'failure_count': cb.failure_count,
-                        'success_count': cb.success_count,
-                        'total_requests': cb.total_requests,
-                        'last_failure_time': cb.last_failure_time
-                    }
-                    for name, cb in self._circuit_breaker_metrics.items()
-                }
-            
-            return stats
-    
-    # ===== RESPONSE METRICS =====
-    
-    def record_response_metric(self, response_type: ResponseType, status_code: int, duration_ms: float = 0):
-        """Record response metric with validation."""
-        # Input validation
-        if duration_ms < 0:
-            duration_ms = 0
-        
-        with self._lock:
-            self._response_metrics.total_responses += 1
-            
-            # Track by type
-            if response_type == ResponseType.SUCCESS:
-                self._response_metrics.successful_responses += 1
-            elif response_type == ResponseType.ERROR:
-                self._response_metrics.error_responses += 1
-            elif response_type == ResponseType.TIMEOUT:
-                self._response_metrics.timeout_responses += 1
-            elif response_type == ResponseType.CACHED:
-                self._response_metrics.cached_responses += 1
-            elif response_type == ResponseType.FALLBACK:
-                self._response_metrics.fallback_responses += 1
-            
-            # Update timing stats using safe_divide
-            if duration_ms > 0:
-                # Calculate new average
-                total_time = (
-                    self._response_metrics.avg_response_time_ms * 
-                    (self._response_metrics.total_responses - 1)
-                ) + duration_ms
-                self._response_metrics.avg_response_time_ms = safe_divide(
-                    total_time,
-                    self._response_metrics.total_responses
-                )
-                
-                # Track fastest/slowest
-                if duration_ms < self._response_metrics.fastest_response_ms:
-                    self._response_metrics.fastest_response_ms = duration_ms
-                if duration_ms > self._response_metrics.slowest_response_ms:
-                    self._response_metrics.slowest_response_ms = duration_ms
-            
-            # Calculate cache hit rate using safe_divide
-            self._response_metrics.cache_hit_rate = safe_divide(
-                self._response_metrics.cached_responses,
-                self._response_metrics.total_responses,
-                multiply_by=100.0
+    # Cache efficiency recommendations
+    if cache_efficiency:
+        hit_rate = cache_efficiency.get('hit_rate_percent', 0)
+        if hit_rate < 60:
+            recommendations.append(
+                f"Low cache hit rate ({hit_rate:.1f}%). Consider increasing cache TTL or "
+                "enabling cache warming."
+            )
+        elif hit_rate > 90:
+            recommendations.append(
+                f"Excellent cache hit rate ({hit_rate:.1f}%). Current caching strategy is optimal."
             )
     
-    def get_response_metrics(self) -> Dict[str, Any]:
-        """Get response metrics with thread safety."""
-        with self._lock:
-            return {
-                'total_responses': self._response_metrics.total_responses,
-                'successful_responses': self._response_metrics.successful_responses,
-                'error_responses': self._response_metrics.error_responses,
-                'timeout_responses': self._response_metrics.timeout_responses,
-                'cached_responses': self._response_metrics.cached_responses,
-                'fallback_responses': self._response_metrics.fallback_responses,
-                'avg_response_time_ms': self._response_metrics.avg_response_time_ms,
-                'fastest_response_ms': (
-                    self._response_metrics.fastest_response_ms 
-                    if self._response_metrics.fastest_response_ms != float('inf') 
-                    else 0.0
-                ),
-                'slowest_response_ms': self._response_metrics.slowest_response_ms,
-                'cache_hit_rate': self._response_metrics.cache_hit_rate,
-                'success_rate': self._response_metrics.success_rate()
-            }
-    
-    # ===== HTTP CLIENT METRICS =====
-    
-    def record_http_metric(self, method: str, url: str, status_code: int, 
-                          duration_ms: float, response_size: Optional[int] = None):
-        """Record HTTP client metric with validation."""
-        # Input validation
-        if duration_ms < 0:
-            duration_ms = 0
-        
-        with self._lock:
-            self._http_metrics.total_requests += 1
-            self._http_metrics.requests_by_method[method] += 1
-            self._http_metrics.requests_by_status[status_code] += 1
-            
-            # Success/failure tracking
-            if 200 <= status_code < 400:
-                self._http_metrics.successful_requests += 1
-            else:
-                self._http_metrics.failed_requests += 1
-            
-            # Update timing using safe_divide
-            self._http_metrics.total_response_time_ms += duration_ms
-            self._http_metrics.avg_response_time_ms = safe_divide(
-                self._http_metrics.total_response_time_ms,
-                self._http_metrics.total_requests
+    # Slow operation recommendations
+    if slow_ops:
+        for op in slow_ops[:3]:  # Top 3 slowest
+            recommendations.append(
+                f"Operation '{op['operation']}' is slow (p95: {op['p95_ms']:.0f}ms). "
+                f"Consider optimization or caching."
             )
     
-    def get_http_metrics(self) -> Dict[str, Any]:
-        """Get HTTP client metrics with thread safety."""
-        with self._lock:
-            return {
-                'total_requests': self._http_metrics.total_requests,
-                'successful_requests': self._http_metrics.successful_requests,
-                'failed_requests': self._http_metrics.failed_requests,
-                'avg_response_time_ms': self._http_metrics.avg_response_time_ms,
-                'total_response_time_ms': self._http_metrics.total_response_time_ms,
-                'requests_by_method': dict(self._http_metrics.requests_by_method),
-                'requests_by_status': dict(self._http_metrics.requests_by_status),
-                'success_rate': safe_divide(
-                    self._http_metrics.successful_requests,
-                    self._http_metrics.total_requests,
-                    multiply_by=100.0
-                )
-            }
+    # General recommendations
+    if not recommendations:
+        recommendations.append("Performance metrics look good. No immediate optimizations needed.")
     
-    # ===== CIRCUIT BREAKER METRICS =====
+    return recommendations
+
+
+def _execute_get_performance_report_implementation(
+    slow_threshold_ms: float = 1000,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    ADDED Phase 5: Get comprehensive performance report.
     
-    def record_circuit_breaker_event(self, circuit_name: str, event_type: str, success: bool = True):
-        """Record circuit breaker event."""
-        with self._lock:
-            # Initialize circuit breaker if new
-            if circuit_name not in self._circuit_breaker_metrics:
-                self._circuit_breaker_metrics[circuit_name] = CircuitBreakerMetrics()
-            
-            cb = self._circuit_breaker_metrics[circuit_name]
-            cb.total_requests += 1
-            
-            if success:
-                cb.success_count += 1
-                # State transitions
-                if event_type == 'close':
-                    cb.state = 'closed'
-            else:
-                cb.failure_count += 1
-                cb.last_failure_time = time.time()
-                # State transitions
-                if event_type == 'open':
-                    cb.state = 'open'
-                elif event_type == 'half_open':
-                    cb.state = 'half_open'
+    EXTRACTED FROM: ha_core.py - Made available system-wide via INT-04 (METRICS)
     
-    def get_circuit_breaker_metrics(self, circuit_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get circuit breaker metrics with thread safety."""
-        with self._lock:
-            if circuit_name:
-                # Get specific circuit breaker
-                if circuit_name not in self._circuit_breaker_metrics:
-                    return {}
-                
-                cb = self._circuit_breaker_metrics[circuit_name]
-                return {
-                    'state': cb.state,
-                    'failure_count': cb.failure_count,
-                    'success_count': cb.success_count,
-                    'total_requests': cb.total_requests,
-                    'last_failure_time': cb.last_failure_time,
-                    'failure_rate': safe_divide(
-                        cb.failure_count,
-                        cb.total_requests,
-                        multiply_by=100.0
-                    )
-                }
-            else:
-                # Get all circuit breakers
-                return {
-                    name: {
-                        'state': cb.state,
-                        'failure_count': cb.failure_count,
-                        'success_count': cb.success_count,
-                        'total_requests': cb.total_requests,
-                        'last_failure_time': cb.last_failure_time,
-                        'failure_rate': safe_divide(
-                            cb.failure_count,
-                            cb.total_requests,
-                            multiply_by=100.0
-                        )
-                    }
-                    for name, cb in self._circuit_breaker_metrics.items()
-                }
+    Builds on existing get_metrics_stats() to provide performance analysis
+    including operation timing, cache efficiency, percentile calculation,
+    bottleneck identification, and intelligent recommendations.
     
-    # ===== DISPATCHER METRICS =====
+    This is the CRITICAL enhancement that makes performance reporting available
+    across the entire Lambda, not just Home Assistant operations.
     
-    def record_dispatcher_timing(self, interface_name: str, operation_name: str, duration_ms: float) -> bool:
-        """Record dispatcher timing with validation."""
-        # Input validation
-        if duration_ms < 0:
-            return False
+    Args:
+        slow_threshold_ms: Threshold for slow operation detection (default: 1000ms)
+        **kwargs: Additional parameters (unused, for interface compatibility)
         
-        try:
-            with self._lock:
-                key = f"{interface_name}.{operation_name}"
-                self._dispatcher_timings[key].append(duration_ms)
-                self._dispatcher_call_counts[key] += 1
-                return True
-        except Exception:
-            return False
-    
-    def get_dispatcher_stats(self) -> Dict[str, Any]:
-        """Get dispatcher statistics with thread safety."""
-        with self._lock:
-            interfaces = defaultdict(lambda: {'operations': {}, 'total_calls': 0})
-            for key, count in self._dispatcher_call_counts.items():
-                if '.' in key:
-                    interface, operation = key.split('.', 1)
-                    interfaces[interface]['operations'][operation] = count
-                    interfaces[interface]['total_calls'] += count
-            
-            # Calculate timing stats for each interface using safe_divide
-            for interface, data in interfaces.items():
-                if interface in ['CacheCore', 'LoggingCore', 'SecurityCore', 'MetricsCore']:
-                    all_timings = []
-                    for op_key, timing_list in self._dispatcher_timings.items():
-                        if op_key.startswith(interface):
-                            all_timings.extend(timing_list)
+    Returns:
+        Comprehensive performance report with:
+        - timestamp: Report generation time
+        - metrics_version: Metrics system version
+        - operations: Per-operation timing analysis with percentiles
+        - cache_efficiency: Cache hit rates and efficiency scoring
+        - slow_operations: Top 5 slowest operations by p95
+        - recommendations: Actionable performance improvement suggestions
+        
+    Example:
+        >>> report = _execute_get_performance_report_implementation()
+        >>> print(report['cache_efficiency']['hit_rate_percent'])
+        82.5
+        >>> print(report['recommendations'][0])
+        'Excellent cache hit rate (82.5%). Current caching strategy is optimal.'
+    """
+    try:
+        from metrics_core import _MANAGER
+        from gateway import cache_stats, get_timestamp, create_success_response, create_error_response, log_error
+        
+        # Get raw metrics from existing INT-04 interface
+        raw_metrics = _MANAGER.get_stats()
+        
+        # Get cache statistics from existing INT-01 interface
+        cache_info = cache_stats()
+        
+        # Analyze operation metrics (those with '_duration_ms' suffix)
+        operations = {}
+        slow_operations_list = []
+        
+        for metric_name, values in raw_metrics.get('metrics', {}).items():
+            if '_duration_ms' in metric_name:
+                operation = metric_name.replace('_duration_ms', '')
+                
+                if values:
+                    avg_ms = sum(values) / len(values)
+                    percentiles = _calculate_percentiles(values, [50, 95, 99])
                     
-                    if all_timings:
-                        total_duration = sum(all_timings)
-                        data['avg_duration_ms'] = safe_divide(total_duration, len(all_timings))
-                        data['total_duration_ms'] = total_duration
-            
-            return dict(interfaces)
-    
-    def get_operation_metrics(self) -> Dict[str, Any]:
-        """Get operation-level metrics with thread safety."""
-        with self._lock:
-            return {
-                'timings': {k: v for k, v in self._dispatcher_timings.items()},
-                'call_counts': dict(self._dispatcher_call_counts)
+                    operations[operation] = {
+                        'avg_ms': avg_ms,
+                        'min_ms': min(values),
+                        'max_ms': max(values),
+                        'p50_ms': percentiles['p50'],
+                        'p95_ms': percentiles['p95'],
+                        'p99_ms': percentiles['p99'],
+                        'sample_count': len(values)
+                    }
+                    
+                    # Identify slow operations
+                    if percentiles['p95'] > slow_threshold_ms:
+                        slow_operations_list.append({
+                            'operation': operation,
+                            'p95_ms': percentiles['p95'],
+                            'max_ms': max(values)
+                        })
+        
+        # Calculate cache efficiency
+        cache_efficiency = {}
+        if cache_info.get('hits', 0) + cache_info.get('misses', 0) > 0:
+            total_requests = cache_info['hits'] + cache_info['misses']
+            hit_rate = (cache_info['hits'] / total_requests) * 100
+            cache_efficiency = {
+                'hit_rate_percent': hit_rate,
+                'total_hits': cache_info['hits'],
+                'total_misses': cache_info['misses'],
+                'efficiency_score': 'excellent' if hit_rate > 80 else
+                                  'good' if hit_rate > 60 else
+                                  'needs_improvement'
             }
-
-    def reset_metrics(self) -> bool:
-        """
-        Reset all metrics to initial state.
         
-        Useful for testing and debugging. Clears all:
-        - Metrics data
-        - Counters
-        - Gauges
-        - Histograms
-        - Response metrics
-        - HTTP metrics
-        - Circuit breaker metrics
-        - Dispatcher timings
+        # Sort slow operations by p95 (descending) and take top 5
+        slow_operations_sorted = sorted(
+            slow_operations_list, 
+            key=lambda x: x['p95_ms'], 
+            reverse=True
+        )[:5]
         
-        Returns:
-            bool: True if reset successful
-            
-        Example:
-            manager.reset_metrics()
-            # All metrics cleared
-        """
-        try:
-            with self._lock:
-                self._metrics.clear()
-                self._counters.clear()
-                self._gauges.clear()
-                self._histograms.clear()
-                
-                # Reset stats
-                self._stats = {
-                    'total_metrics': 0,
-                    'unique_metrics': 0,
-                    'counters': 0,
-                    'gauges': 0,
-                    'histograms': 0
-                }
-                
-                # Reset response metrics
-                self._response_metrics = ResponseMetrics()
-                
-                # Reset HTTP metrics
-                self._http_metrics = HTTPClientMetrics()
-                
-                # Reset circuit breakers
-                self._circuit_breaker_metrics.clear()
-                
-                # Reset dispatcher timings
-                self._dispatcher_timings.clear()
-                self._dispatcher_call_counts.clear()
-                
-                return True
-        except Exception:
-            return False
-
-# ===== SINGLETON INSTANCE =====
-
-_MANAGER = MetricsCore()
+        # Generate intelligent recommendations
+        recommendations = _generate_performance_recommendations(
+            operations, 
+            cache_efficiency, 
+            slow_operations_sorted,
+            slow_threshold_ms
+        )
+        
+        # Build comprehensive report
+        report = {
+            'timestamp': get_timestamp(),
+            'metrics_version': '2025.10.26.PHASE5',
+            'slow_threshold_ms': slow_threshold_ms,
+            'operations': operations,
+            'cache_efficiency': cache_efficiency,
+            'slow_operations': slow_operations_sorted,
+            'slow_operation_count': len(slow_operations_list),
+            'cache_stats': cache_info,
+            'recommendations': recommendations
+        }
+        
+        return create_success_response('Performance report generated', report)
+        
+    except Exception as e:
+        log_error(f"Performance report generation failed: {str(e)}")
+        return create_error_response(str(e), 'REPORT_GENERATION_FAILED')
 
 
-# ===== EXPORTS =====
+# ===== HELPER FUNCTIONS =====
+
+def execute_metrics_operation(operation: MetricOperation, **kwargs) -> Any:
+    """Execute metrics operation via MetricsCore."""
+    from metrics_core import _MANAGER
+    return _MANAGER.execute_metric_operation(operation, **kwargs)
+
+
+def get_metrics_summary() -> Dict[str, Any]:
+    """Get comprehensive metrics summary."""
+    from metrics_core import _MANAGER
+    return {
+        'stats': _MANAGER.get_stats(),
+        'response_metrics': _MANAGER.get_response_metrics(),
+        'http_metrics': _MANAGER.get_http_metrics(),
+        'circuit_breaker_metrics': _MANAGER.get_circuit_breaker_metrics(),
+        'dispatcher_stats': _MANAGER.get_dispatcher_stats()
+    }
+
 
 __all__ = [
-    'MetricsCore',
-    '_MANAGER',
+    '_execute_record_metric_implementation',
+    '_execute_increment_counter_implementation',
+    '_execute_get_stats_implementation',
+    '_execute_record_operation_metric_implementation',
+    '_execute_record_error_response_metric_implementation',
+    '_execute_record_cache_metric_implementation',
+    '_execute_record_api_metric_implementation',
+    '_execute_record_response_metric_implementation',
+    '_execute_record_http_metric_implementation',
+    '_execute_record_circuit_breaker_metric_implementation',
+    '_execute_get_response_metrics_implementation',
+    '_execute_get_http_metrics_implementation',
+    '_execute_get_circuit_breaker_metrics_implementation',
+    '_execute_record_dispatcher_timing_implementation',
+    '_execute_get_dispatcher_stats_implementation',
+    '_execute_get_operation_metrics_implementation',
+    '_execute_get_performance_report_implementation',  # ADDED Phase 5
+    'execute_metrics_operation',
+    'get_metrics_summary',
 ]
 
 # EOF
