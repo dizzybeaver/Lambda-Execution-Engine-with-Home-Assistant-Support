@@ -1,7 +1,7 @@
 # lambda_function.py
 """
 lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
-Version: 2025.1104.1
+Version: 2025.11.04.1
 Description: Production code with lambda_preload + HA-SUGA subdirectory
 
 CHANGELOG:
