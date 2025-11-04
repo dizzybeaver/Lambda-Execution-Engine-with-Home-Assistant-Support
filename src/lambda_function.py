@@ -1,22 +1,26 @@
+# lambda_function.py
 """
 lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
-Version: 2025.11.03.HA_SUGA
-Description: Production code with lambda_preload + HA-SUGA subdirectory support
+Version: 2025.1104.1
+Description: Production code with lambda_preload + HA-SUGA subdirectory
 
 CHANGELOG:
+- 2025.1104.1: PHASE 6 - Complete HA-SUGA Migration
+  * REMOVED: Fallback to old homeassistant_extension
+  * MODIFIED: Alexa routing - HA-SUGA only (no fallback)
+  * ADDED: Proper error handling when HA disabled
+  * PHASE 6 CLEANUP: All old HA code paths removed
 - 2025.11.03.HA_SUGA: PHASE 2 - HA-SUGA Integration
   * ADDED: sys.path fix for subdirectory imports
   * ADDED: HOME_ASSISTANT_ENABLE environment variable check
   * ADDED: Conditional import of home_assistant.ha_interconnect
-  * MODIFIED: Alexa routing to use ha_interconnect when HA enabled
-  * MODIFIED: Fallback to old homeassistant_extension if HA disabled
 - 2025.10.19.TIMING_FIX: Added DEBUG_MODE check for all timing logs
 - 2025.10.19.SELECTIVE: Import lambda_preload FIRST for LUGS preloading
 
-CRITICAL CHANGES:
-1. sys.path fix: Ensures /src/ directory is in Python path for subdirectory imports
-2. HA-SUGA: Home Assistant now loads from home_assistant/ subdirectory
-3. Conditional: HA only loads when HOME_ASSISTANT_ENABLE=true
+CRITICAL CHANGES (Phase 6):
+1. HA-SUGA ONLY: No fallback to old homeassistant_extension
+2. Clean separation: LEE works without HA when disabled
+3. Proper error responses when HA needed but not enabled
 
 Performance Impact:
 - BEFORE: 239ms INIT + 10,615ms first request = 10,854ms total
@@ -75,16 +79,18 @@ from gateway import (
 _gateway_time = (time.perf_counter() - _timing_start) * 1000
 _print_timing(f"Gateway imports complete: {_gateway_time:.2f}ms")
 
-# ===== PHASE 2: HA-SUGA INTEGRATION =====
+# ===== PHASE 2/6: HA-SUGA INTEGRATION =====
 # Check if Home Assistant extension is enabled
 HA_ENABLED = os.getenv('HOME_ASSISTANT_ENABLE', 'false').lower() == 'true'
+HA_AVAILABLE = False
 
-# PHASE 2: Conditionally import HA-SUGA interconnect
+# PHASE 6: Conditionally import HA-SUGA interconnect (NO FALLBACK)
 if HA_ENABLED:
     _ha_start = time.perf_counter()
     _print_timing("HOME_ASSISTANT_ENABLE=true, loading HA-SUGA...")
     try:
         from home_assistant import ha_interconnect
+        HA_AVAILABLE = True
         _ha_time = (time.perf_counter() - _ha_start) * 1000
         _print_timing(f"HA-SUGA loaded: {_ha_time:.2f}ms")
         log_info("HA-SUGA extension loaded successfully")
@@ -92,7 +98,7 @@ if HA_ENABLED:
         _ha_time = (time.perf_counter() - _ha_start) * 1000
         _print_timing(f"HA-SUGA import failed after {_ha_time:.2f}ms: {e}")
         log_error(f"Failed to import HA-SUGA: {e}")
-        HA_ENABLED = False  # Disable if import fails
+        HA_AVAILABLE = False
 else:
     _print_timing("HOME_ASSISTANT_ENABLE=false, HA-SUGA not loaded")
 
@@ -218,13 +224,35 @@ def determine_request_type(event: Dict[str, Any]) -> str:
         return 'unknown'
 
 
+def _is_ha_event(event: Dict[str, Any]) -> bool:
+    """
+    Determine if event is HA-related.
+    
+    PHASE 6: Helper function for HA event detection.
+    """
+    # Check for Alexa Smart Home directive
+    if 'directive' in event:
+        directive = event.get('directive', {})
+        header = directive.get('header', {})
+        namespace = header.get('namespace', '')
+        if namespace.startswith('Alexa'):
+            return True
+    
+    # Check for HA-specific event types
+    event_type = event.get('type', '')
+    if event_type in ['ha_devices', 'ha_assist', 'ha_alexa']:
+        return True
+    
+    return False
+
+
 def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Handle Alexa Smart Home requests.
     
-    PHASE 2: MODIFIED for HA-SUGA
-    - Routes to ha_interconnect when HA_ENABLED=true
-    - Falls back to homeassistant_extension if HA disabled
+    PHASE 6: MODIFIED - HA-SUGA only, no fallback
+    - Routes to ha_interconnect when HA_AVAILABLE=true
+    - Returns error response if HA needed but not enabled
     """
     
     alexa_start = time.perf_counter()
@@ -239,51 +267,36 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         _print_timing(f"Processing: {namespace}.{name}")
         
-        # PHASE 2: Route to HA-SUGA if enabled
-        if HA_ENABLED:
-            _print_timing("Routing to HA-SUGA (ha_interconnect)...")
-            route_start = time.perf_counter()
+        # PHASE 6: Check if HA is available
+        if not HA_AVAILABLE:
+            _print_timing("ERROR: Alexa request but HA not available")
+            log_error("Alexa request received but HOME_ASSISTANT_ENABLE=false or HA import failed")
+            increment_counter('alexa_ha_not_available')
             
-            # Use ha_interconnect for all Alexa directives
-            result = ha_interconnect.alexa_process_directive(event)
-            
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"HA-SUGA handler: {route_ms:.2f}ms")
-            
-        else:
-            # FALLBACK: Use old homeassistant_extension if HA disabled
-            _print_timing("HA disabled, using legacy homeassistant_extension...")
-            import_start = time.perf_counter()
-            from homeassistant_extension import (
-                handle_alexa_discovery,
-                handle_alexa_authorization,
-                handle_alexa_control
-            )
-            import_ms = (time.perf_counter() - import_start) * 1000
-            _print_timing(f"homeassistant_extension imported: {import_ms:.2f}ms")
-            
-            # Route based on namespace (old method)
-            if namespace == 'Alexa.Discovery':
-                _print_timing("Routing to Discovery handler...")
-                route_start = time.perf_counter()
-                result = handle_alexa_discovery(event)
-                route_ms = (time.perf_counter() - route_start) * 1000
-                _print_timing(f"Discovery handler: {route_ms:.2f}ms")
-                
-            elif namespace == 'Alexa.Authorization':
-                _print_timing("Routing to Authorization handler...")
-                route_start = time.perf_counter()
-                result = handle_alexa_authorization(event)
-                route_ms = (time.perf_counter() - route_start) * 1000
-                _print_timing(f"Authorization handler: {route_ms:.2f}ms")
-                
-            else:
-                # All other controllers (Power, Brightness, Color, etc.)
-                _print_timing(f"Routing to Control handler for {namespace}...")
-                route_start = time.perf_counter()
-                result = handle_alexa_control(event)
-                route_ms = (time.perf_counter() - route_start) * 1000
-                _print_timing(f"Control handler: {route_ms:.2f}ms")
+            return {
+                'event': {
+                    'header': {
+                        'namespace': 'Alexa',
+                        'name': 'ErrorResponse',
+                        'messageId': 'error',
+                        'correlationToken': header.get('correlationToken'),
+                        'payloadVersion': '3'
+                    },
+                    'payload': {
+                        'type': 'BRIDGE_UNREACHABLE',
+                        'message': 'Home Assistant extension not enabled. Set HOME_ASSISTANT_ENABLE=true'
+                    }
+                }
+            }
+        
+        # PHASE 6: Route to HA-SUGA (only path)
+        _print_timing("Routing to HA-SUGA (ha_interconnect)...")
+        route_start = time.perf_counter()
+        
+        result = ha_interconnect.alexa_process_directive(event)
+        
+        route_ms = (time.perf_counter() - route_start) * 1000
+        _print_timing(f"HA-SUGA handler: {route_ms:.2f}ms")
         
         total_ms = (time.perf_counter() - alexa_start) * 1000
         _print_timing(f"*** TOTAL ALEXA REQUEST: {total_ms:.2f}ms ***")
@@ -294,6 +307,7 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         error_time = (time.perf_counter() - alexa_start) * 1000
         _print_timing(f"!!! ALEXA ERROR after {error_time:.2f}ms: {str(e)}")
         log_error(f"Alexa request error: {str(e)}")
+        increment_counter('alexa_request_error')
         return {
             'event': {
                 'header': {
@@ -318,7 +332,8 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         "request_id": context.aws_request_id,
         "memory_limit_mb": context.memory_limit_in_mb,
         "remaining_time_ms": context.get_remaining_time_in_millis(),
-        "ha_suga_enabled": HA_ENABLED  # PHASE 2: Include HA status
+        "ha_suga_enabled": HA_ENABLED,
+        "ha_suga_available": HA_AVAILABLE
     })
 
 
