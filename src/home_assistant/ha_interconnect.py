@@ -1,14 +1,15 @@
 """
 ha_interconnect.py - Home Assistant Gateway (HA-SUGA)
-Version: 1.0.0 - PHASE 1
-Date: 2025-11-03
+Version: 2.0.0 - PHASE 3
+Date: 2025-11-04
 Description: Gateway layer for Home Assistant extension (equivalent to LEE's gateway.py)
 
-PHASE 1: Setup & Structure
-- Created HA gateway with lazy imports
-- 18 gateway wrapper functions
-- Routes to 3 HA interfaces (Alexa, Devices, Assist)
-- ISP compliant (no direct core imports)
+PHASE 3: Added Device Helper Functions
+- Added devices_call_ha_api() for Alexa
+- Added devices_get_ha_config() for internal use
+- Added devices_warm_cache(), devices_get_performance_report()
+- Added cache management functions
+- 24 total gateway wrapper functions
 
 Architecture:
 This is the ONLY entry point for Home Assistant operations.
@@ -320,11 +321,154 @@ def devices_check_status(**kwargs) -> Dict[str, Any]:
     return ha_interface_devices.check_status(**kwargs)
 
 
+# ADDED Phase 3: Device Helper Functions
+
+def devices_call_ha_api(endpoint: str, method: str = 'GET', 
+                       data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+    """
+    Call Home Assistant API directly.
+    
+    ADDED Phase 3: Gateway function for direct HA API calls.
+    Used by Alexa for forwarding to HA's Alexa endpoint.
+    Routes to: ha_interface_devices.call_ha_api
+    
+    Args:
+        endpoint: API endpoint (e.g., '/api/states')
+        method: HTTP method (default: 'GET')
+        data: Optional request data
+        **kwargs: Additional options
+        
+    Returns:
+        API response dictionary
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.call_ha_api(endpoint, method, data, **kwargs)
+
+
+def devices_get_ha_config(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
+    """
+    Get Home Assistant configuration.
+    
+    ADDED Phase 3: Gateway function for HA configuration.
+    Routes to: ha_interface_devices.get_ha_config
+    
+    Args:
+        force_reload: Force reload from sources
+        **kwargs: Additional options
+        
+    Returns:
+        Configuration dictionary
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.get_ha_config(force_reload, **kwargs)
+
+
+def devices_warm_cache(**kwargs) -> Dict[str, Any]:
+    """
+    Pre-warm cache on cold start.
+    
+    ADDED Phase 3: Gateway function for cache warming.
+    Routes to: ha_interface_devices.warm_cache
+    
+    Args:
+        **kwargs: Additional options
+        
+    Returns:
+        Warming status and statistics
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.warm_cache(**kwargs)
+
+
+def devices_invalidate_entity_cache(entity_id: str, **kwargs) -> bool:
+    """
+    Invalidate cache for specific entity.
+    
+    ADDED Phase 3: Gateway function for smart cache invalidation.
+    Routes to: ha_interface_devices.invalidate_entity_cache
+    
+    Args:
+        entity_id: Entity ID to invalidate
+        **kwargs: Additional options
+        
+    Returns:
+        True if invalidated, False otherwise
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.invalidate_entity_cache(entity_id, **kwargs)
+
+
+def devices_invalidate_domain_cache(domain: str, **kwargs) -> int:
+    """
+    Invalidate cache for entire domain.
+    
+    ADDED Phase 3: Gateway function for domain cache invalidation.
+    Routes to: ha_interface_devices.invalidate_domain_cache
+    
+    Args:
+        domain: Domain to invalidate (e.g., 'light', 'switch')
+        **kwargs: Additional options
+        
+    Returns:
+        Number of cache entries invalidated
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.invalidate_domain_cache(domain, **kwargs)
+
+
+def devices_get_performance_report(**kwargs) -> Dict[str, Any]:
+    """
+    Get comprehensive performance report.
+    
+    ADDED Phase 3: Gateway function for performance profiling.
+    Routes to: ha_interface_devices.get_performance_report
+    
+    Args:
+        **kwargs: Additional options
+        
+    Returns:
+        Performance report with metrics analysis
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.get_performance_report(**kwargs)
+
+
+def devices_get_diagnostic_info(**kwargs) -> Dict[str, Any]:
+    """
+    Get HA diagnostic information.
+    
+    ADDED Phase 3: Gateway function for diagnostics.
+    Routes to: ha_interface_devices.get_diagnostic_info
+    
+    Args:
+        **kwargs: Additional options
+        
+    Returns:
+        Diagnostic information dictionary
+        
+    REF: INT-HA-02
+    """
+    import ha_interface_devices
+    return ha_interface_devices.get_diagnostic_info(**kwargs)
+
+
 # ====================
 # ASSIST INTERFACE
 # ====================
 
-def assist_send_message(message: str, conversation_id: Optional[str] = None, 
+def assist_send_message(message: str, context: Optional[Dict] = None, 
                        **kwargs) -> Dict[str, Any]:
     """
     Send message to Talk to Assist.
@@ -334,7 +478,7 @@ def assist_send_message(message: str, conversation_id: Optional[str] = None,
     
     Args:
         message: Message text to send
-        conversation_id: Optional conversation ID
+        context: Optional conversation context
         **kwargs: Additional options
         
     Returns:
@@ -343,10 +487,10 @@ def assist_send_message(message: str, conversation_id: Optional[str] = None,
     REF: INT-HA-03
     """
     import ha_interface_assist
-    return ha_interface_assist.send_message(message, conversation_id, **kwargs)
+    return ha_interface_assist.send_message(message, context, **kwargs)
 
 
-def assist_get_response(message_id: str, **kwargs) -> Dict[str, Any]:
+def assist_get_response(conversation_id: str, **kwargs) -> Dict[str, Any]:
     """
     Get response from Assist.
     
@@ -354,7 +498,7 @@ def assist_get_response(message_id: str, **kwargs) -> Dict[str, Any]:
     Routes to: ha_interface_assist.get_response
     
     Args:
-        message_id: Message ID to get response for
+        conversation_id: Conversation ID to get response for
         **kwargs: Additional options
         
     Returns:
@@ -363,7 +507,7 @@ def assist_get_response(message_id: str, **kwargs) -> Dict[str, Any]:
     REF: INT-HA-03
     """
     import ha_interface_assist
-    return ha_interface_assist.get_response(message_id, **kwargs)
+    return ha_interface_assist.get_response(conversation_id, **kwargs)
 
 
 def assist_process_conversation(messages: List[Dict[str, Any]], **kwargs) -> Dict[str, Any]:
@@ -420,7 +564,7 @@ __all__ = [
     'alexa_handle_thermostat_control',
     'alexa_handle_accept_grant',
     
-    # Devices interface (7 functions)
+    # Devices interface (14 functions - EXPANDED Phase 3)
     'devices_get_states',
     'devices_get_by_id',
     'devices_find_fuzzy',
@@ -428,6 +572,13 @@ __all__ = [
     'devices_call_service',
     'devices_list_by_domain',
     'devices_check_status',
+    'devices_call_ha_api',  # ADDED Phase 3
+    'devices_get_ha_config',  # ADDED Phase 3
+    'devices_warm_cache',  # ADDED Phase 3
+    'devices_invalidate_entity_cache',  # ADDED Phase 3
+    'devices_invalidate_domain_cache',  # ADDED Phase 3
+    'devices_get_performance_report',  # ADDED Phase 3
+    'devices_get_diagnostic_info',  # ADDED Phase 3
     
     # Assist interface (4 functions)
     'assist_send_message',
@@ -435,5 +586,12 @@ __all__ = [
     'assist_process_conversation',
     'assist_handle_pipeline',
 ]
+
+# PHASE 3 SUMMARY:
+# - Added 7 device helper functions
+# - Total: 25 gateway wrapper functions
+# - Alexa now uses devices_call_ha_api() for HA API access
+# - All device operations accessible via ha_interconnect
+# - Complete HA-SUGA isolation achieved
 
 # EOF
