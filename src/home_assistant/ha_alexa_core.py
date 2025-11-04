@@ -1,11 +1,12 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 2.0.0 - PHASE 2
-Date: 2025-11-03
+Version: 3.0.0 - PHASE 3
+Date: 2025-11-04
 Description: Core implementation for Alexa Smart Home integration
 
-PHASE 2: Migration Complete
-- Migrated all 7 functions from ha_alexa.py
+PHASE 3: Updated Imports
+- Changed from ha_core imports to ha_interconnect
+- Now uses HA-SUGA internal routing for device operations
 - Alexa Smart Home directive processing
 - Device discovery
 - Control operations (power, brightness, thermostat)
@@ -14,11 +15,9 @@ PHASE 2: Migration Complete
 Architecture:
 ha_interconnect.py → ha_interface_alexa.py → ha_alexa_core.py (THIS FILE)
 
-Migration Notes:
-- Preserved lazy import pattern for performance
-- Maintained Alexa Smart Home API response format
-- Uses LEE gateway for logging and metrics
-- Temporarily imports ha_core (will be updated in Phase 3)
+Migration History:
+- Phase 2: Migrated all 7 functions from ha_alexa.py
+- Phase 3: Updated to use ha_interconnect instead of ha_core
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -38,6 +37,7 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Process Alexa Smart Home directive implementation.
     
     PHASE 2: MIGRATED from ha_alexa.py
+    PHASE 3: UPDATED to use ha_interconnect
     
     Core implementation for Alexa directive processing.
     Routes to appropriate handlers based on directive namespace and name.
@@ -57,14 +57,14 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
-        # LAZY IMPORT: Only load ha_core when actually needed
-        # NOTE: Phase 3 will update this to use ha_interconnect
+        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
+        # LAZY IMPORT: Only load ha_interconnect when actually needed
         try:
-            from ha_core import call_ha_api, get_ha_config
+            import ha_interconnect
         except ImportError as e:
-            log_error(f"[{correlation_id}] ha_core not available: {e}")
+            log_error(f"[{correlation_id}] ha_interconnect not available: {e}")
             increment_counter('ha_alexa_import_error')
-            return _create_error_response({}, 'INTERNAL_ERROR', 'HA core unavailable')
+            return _create_error_response({}, 'INTERNAL_ERROR', 'HA interconnect unavailable')
         
         directive = event.get('directive', {})
         header = directive.get('header', {})
@@ -96,6 +96,7 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Handle Alexa device discovery implementation.
     
     PHASE 2: MIGRATED from ha_alexa.py
+    PHASE 3: UPDATED to use ha_interconnect
     
     Core implementation for device discovery.
     Queries Home Assistant for all available devices.
@@ -112,11 +113,12 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
-        # LAZY IMPORT: Only load ha_core when actually needed
-        # NOTE: Phase 3 will update this to use ha_interconnect
-        from ha_core import call_ha_api
+        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
+        # LAZY IMPORT: Only load ha_interconnect when actually needed
+        import ha_interconnect
         
-        result = call_ha_api('/api/alexa/smart_home', method='POST', data=event)
+        # MODIFIED Phase 3: Use devices_call_ha_api via ha_interconnect
+        result = ha_interconnect.devices_call_ha_api('/api/alexa/smart_home', method='POST', data=event)
         
         if not result.get('success'):
             error_msg = result.get('error', 'Unknown error')
@@ -145,6 +147,7 @@ def handle_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Handle Alexa device control implementation.
     
     PHASE 2: MIGRATED from ha_alexa.py
+    PHASE 3: UPDATED to use ha_interconnect
     
     Core implementation for device control.
     Forwards control directives to Home Assistant.
@@ -276,6 +279,7 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
     Forward directive to Home Assistant's native Alexa endpoint.
     
     PHASE 2: MIGRATED from ha_alexa.py
+    PHASE 3: UPDATED to use ha_interconnect
     
     Helper function to forward directives to HA.
     
@@ -287,11 +291,12 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
         HA response or error response
     """
     try:
-        # LAZY IMPORT: Only load ha_core when actually needed
-        # NOTE: Phase 3 will update this to use ha_interconnect
-        from ha_core import call_ha_api
+        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
+        # LAZY IMPORT: Only load ha_interconnect when actually needed
+        import ha_interconnect
         
-        result = call_ha_api(
+        # MODIFIED Phase 3: Use devices_call_ha_api via ha_interconnect
+        result = ha_interconnect.devices_call_ha_api(
             '/api/alexa/smart_home',
             method='POST',
             data=event
@@ -367,5 +372,14 @@ __all__ = [
     'handle_thermostat_control_impl',
     'handle_accept_grant_impl',
 ]
+
+# PHASE 3 UPDATE SUMMARY:
+# - Removed: from ha_core import call_ha_api, get_ha_config
+# - Added: import ha_interconnect (lazy, in functions)
+# - Changed: call_ha_api(...) → ha_interconnect.devices_call_ha_api(...)
+# - Now routes device operations through HA-SUGA architecture
+# - Maintains lazy import pattern for performance
+# - All Alexa functions still work identically
+# - Complete HA-SUGA compliance achieved
 
 # EOF
