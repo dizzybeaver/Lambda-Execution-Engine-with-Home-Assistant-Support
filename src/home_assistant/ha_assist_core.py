@@ -1,361 +1,429 @@
 """
-ha_assist_core.py - Assist Core Implementation (INT-HA-03)
-Version: 2.0.0 - PHASE 4
+ha_assist_core.py - Assist/Conversation Core Implementation (INT-HA-03)
+Version: 1.0.0 - PHASE 4
 Date: 2025-11-04
-Description: Core implementation for Home Assistant Talk to Assist / Conversation
+Description: Core implementation for Home Assistant Assist/Conversation feature
 
-PHASE 4: Migration Complete
-- Migrated conversation/assist functionality
-- Based on process_conversation() from ha_features.py
-- 4 core assist operations
+PHASE 4: Assist Migration Complete
+- Conversation processing via HA Conversation API
+- Pipeline-based conversation flow
+- Integrated debug tracing and timing
 - LEE access via gateway.py only
 
 Architecture:
 ha_interconnect.py → ha_interface_assist.py → ha_assist_core.py (THIS FILE)
 
-Migration Notes:
-- Conversation API is synchronous (no separate get_response needed)
-- Uses ha_interconnect.devices_call_service() for conversation processing
-- Maintains compatibility with HA conversation agent
+Functions:
+- send_assist_message_impl: Send message to Assist
+- get_assist_response_impl: Get response from Assist
+- process_assist_conversation_impl: Process full conversation
+- handle_assist_pipeline_impl: Handle pipeline-specific operations
+
+Based on process_conversation() from ha_features.py
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-from typing import Dict, Any, Optional, List
+import time
+from typing import Dict, Any, Optional
 
 # Import LEE services via gateway (ONLY way to access LEE)
 from gateway import (
     log_info, log_error, log_debug, log_warning,
-    increment_counter, generate_correlation_id,
-    create_success_response, create_error_response
+    execute_operation, GatewayInterface,
+    cache_get, cache_set,
+    increment_counter, record_metric,
+    create_success_response, create_error_response,
+    generate_correlation_id, get_timestamp
 )
 
+# ADDED Phase 4: Import HA device functions via ha_interconnect
+import ha_interconnect
 
-def send_assist_message_impl(message: str, context: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+# ADDED Phase 4: Debug tracing
+import os
+_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+# ADDED Phase 4: Cache TTL for conversation results
+HA_CONVERSATION_CACHE_TTL = 60  # Cache conversation responses for 1 minute
+
+# ADDED Phase 4: Slow operation threshold
+HA_SLOW_CONVERSATION_THRESHOLD_MS = 2000  # Alert if conversation > 2s
+
+
+def _debug_trace(correlation_id: str, step: str, **details):
     """
-    Send message to Home Assistant Assist (conversation agent).
+    ADDED Phase 4: Debug trace helper for assist operations.
     
-    MIGRATED Phase 4 from ha_features.py process_conversation()
+    Args:
+        correlation_id: Correlation ID for request tracing
+        step: Step description
+        **details: Additional details to log
+    """
+    if _DEBUG_MODE_ENABLED:
+        detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
+        log_info(f"[{correlation_id}] [ASSIST-TRACE] {step}" + (f" ({detail_str})" if detail_str else ""))
+
+
+def send_assist_message_impl(message: str, conversation_id: Optional[str] = None, 
+                             language: str = 'en', **kwargs) -> Dict[str, Any]:
+    """
+    Send message to Home Assistant Assist.
     
-    Core implementation for sending text to HA conversation agent.
+    PHASE 4: Based on process_conversation() from ha_features.py
+    
+    Core implementation for sending messages to HA Conversation API.
     
     Args:
         message: User message text
-        context: Optional conversation context (language, conversation_id)
+        conversation_id: Optional conversation ID for context
+        language: Language code (default: 'en')
         **kwargs: Additional options
         
     Returns:
-        Assist response dictionary with text reply
+        Assist response dictionary
         
     Example:
-        result = send_assist_message_impl("turn on living room light")
+        result = send_assist_message_impl("Turn on the living room lights")
         
     REF: INT-HA-03
     """
     correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
     
     try:
-        if not message or not message.strip():
-            log_error(f"[{correlation_id}] Empty message provided")
-            increment_counter('ha_assist_message_empty')
-            return create_error_response('Message cannot be empty', 'EMPTY_MESSAGE')
+        _debug_trace(correlation_id, "send_assist_message START", 
+                    message_length=len(message), 
+                    has_conversation_id=conversation_id is not None,
+                    language=language)
         
-        log_info(f"[{correlation_id}] Sending message to Assist: {message[:50]}...")
+        # Validation
+        if not isinstance(message, str) or not message.strip():
+            increment_counter('ha_assist_invalid_message')
+            return create_error_response('Message cannot be empty', 'INVALID_MESSAGE')
         
-        # Use ha_interconnect to call conversation service
-        # LAZY IMPORT: Only load when needed
-        import ha_interconnect
+        # Build request data
+        request_data = {
+            'text': message.strip(),
+            'language': language or 'en'
+        }
         
-        # Build service data
-        service_data = {'text': message}
+        if conversation_id:
+            request_data['conversation_id'] = conversation_id
         
-        # Add context if provided
-        if context:
-            if 'language' in context:
-                service_data['language'] = context['language']
-            if 'conversation_id' in context:
-                service_data['conversation_id'] = context['conversation_id']
+        _debug_trace(correlation_id, "Calling HA conversation API")
         
-        # Call conversation.process service via devices
-        result = ha_interconnect.devices_call_service(
-            'conversation',
-            'process',
-            entity_id=None,
-            service_data=service_data
+        # Call HA Conversation API via devices helper
+        # Use ha_interconnect to access call_ha_api_impl from devices core
+        api_result = ha_interconnect.devices_call_ha_api(
+            '/api/conversation/process',
+            method='POST',
+            data=request_data
         )
         
-        if result.get('success'):
-            increment_counter('ha_assist_message_success')
-            
-            # Extract response text from result
-            response_data = result.get('data', {})
-            
-            # HA conversation returns response in various formats
-            response_text = 'Done'  # Default
-            
-            if isinstance(response_data, dict):
-                # Format 1: Direct response object
-                if 'response' in response_data:
-                    resp = response_data['response']
-                    if isinstance(resp, dict):
-                        speech = resp.get('speech', {})
-                        if isinstance(speech, dict):
-                            plain = speech.get('plain', {})
-                            if isinstance(plain, dict):
-                                response_text = plain.get('speech', 'Done')
-            elif isinstance(response_data, list) and len(response_data) > 0:
-                # Format 2: List of responses
-                first_response = response_data[0]
-                if isinstance(first_response, dict):
-                    resp = first_response.get('response', {})
-                    if isinstance(resp, dict):
-                        speech = resp.get('speech', {})
-                        if isinstance(speech, dict):
-                            plain = speech.get('plain', {})
-                            if isinstance(plain, dict):
-                                response_text = plain.get('speech', 'Done')
-            
-            log_info(f"[{correlation_id}] Assist response: {response_text[:50]}...")
-            
-            return create_success_response('Message processed by Assist', {
-                'query': message,
-                'response': response_text,
-                'conversation_id': context.get('conversation_id') if context else None
-            })
+        duration_ms = (time.perf_counter() - start_time) * 1000
         
-        increment_counter('ha_assist_message_error')
-        return result
+        # ADDED Phase 4: Track slow conversations
+        if duration_ms > HA_SLOW_CONVERSATION_THRESHOLD_MS:
+            log_warning(f"[{correlation_id}] Slow conversation detected: {duration_ms:.2f}ms")
+            increment_counter('ha_assist_slow_conversation')
+        
+        # ADDED Phase 4: Record timing metrics
+        record_metric('ha_assist_duration_ms', duration_ms)
+        
+        if api_result.get('success'):
+            response_data = api_result.get('data', {})
+            
+            # Extract conversation response
+            conversation_response = response_data.get('response', {})
+            speech = conversation_response.get('speech', {})
+            plain_text = speech.get('plain', {}).get('speech', '')
+            
+            result = {
+                'text': plain_text,
+                'conversation_id': response_data.get('conversation_id'),
+                'language': response_data.get('language', language),
+                'response_type': conversation_response.get('response_type', 'unknown'),
+                'card': conversation_response.get('card'),
+                'data': conversation_response.get('data'),
+                'duration_ms': duration_ms
+            }
+            
+            _debug_trace(correlation_id, "send_assist_message SUCCESS", 
+                        response_length=len(plain_text),
+                        response_type=result['response_type'])
+            
+            increment_counter('ha_assist_message_success')
+            record_metric('ha_assist_response_length', float(len(plain_text)))
+            
+            return create_success_response('Message processed', result)
+        
+        _debug_trace(correlation_id, "send_assist_message FAILED", 
+                    error=api_result.get('error', 'Unknown'))
+        increment_counter('ha_assist_message_failure')
+        return api_result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] Send assist message failed: {str(e)}")
-        increment_counter('ha_assist_message_error')
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_error(f"[{correlation_id}] Send assist message failed: {type(e).__name__}: {str(e)}")
+        
+        if _DEBUG_MODE_ENABLED:
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
+        increment_counter('ha_assist_error')
+        record_metric('ha_assist_error_duration_ms', duration_ms)
         return create_error_response(str(e), 'ASSIST_MESSAGE_FAILED')
 
 
 def get_assist_response_impl(conversation_id: str, **kwargs) -> Dict[str, Any]:
     """
-    Get assist response for conversation.
+    Get response from a conversation.
     
-    PHASE 4: New implementation
+    PHASE 4: Simple wrapper for retrieving cached conversation results
     
-    Note: HA conversation is synchronous, so this function
-    returns cached response or indicates completion.
+    Note: HA Conversation API is synchronous, so this is mainly for
+    retrieving cached results or polling for async operations.
     
     Args:
         conversation_id: Conversation ID to retrieve
         **kwargs: Additional options
         
     Returns:
-        Conversation status/response
+        Conversation response or error
         
     REF: INT-HA-03
     """
     correlation_id = generate_correlation_id()
-    log_info(f"[{correlation_id}] Getting assist response for: {conversation_id}")
     
     try:
-        # HA conversation is synchronous - response returned immediately in send_message
-        # This function can check cache or return status
+        _debug_trace(correlation_id, "get_assist_response", 
+                    conversation_id=conversation_id)
         
-        increment_counter('ha_assist_get_response')
+        # Check cache for conversation result
+        cache_key = f"ha_conversation_{conversation_id}"
+        cached_result = cache_get(cache_key)
         
-        return create_success_response('Conversation response', {
-            'conversation_id': conversation_id,
-            'status': 'complete',
-            'note': 'HA conversation is synchronous - response returned in send_message'
-        })
+        if cached_result:
+            _debug_trace(correlation_id, "get_assist_response CACHE HIT")
+            increment_counter('ha_assist_response_cache_hit')
+            return create_success_response('Conversation retrieved from cache', cached_result)
+        
+        _debug_trace(correlation_id, "get_assist_response CACHE MISS")
+        increment_counter('ha_assist_response_cache_miss')
+        return create_error_response('Conversation not found', 'CONVERSATION_NOT_FOUND')
         
     except Exception as e:
         log_error(f"[{correlation_id}] Get assist response failed: {str(e)}")
-        increment_counter('ha_assist_get_response_error')
+        increment_counter('ha_assist_error')
         return create_error_response(str(e), 'GET_RESPONSE_FAILED')
 
 
-def process_assist_conversation_impl(messages: List[Dict], **kwargs) -> Dict[str, Any]:
+def process_assist_conversation_impl(message: str, context: Optional[Dict] = None, 
+                                     **kwargs) -> Dict[str, Any]:
     """
-    Process multi-turn conversation with Assist.
+    Process full conversation with Assist.
     
-    PHASE 4: New implementation
+    PHASE 4: Main conversation processing function
     
-    Core implementation for processing conversation history.
-    Sends messages sequentially and builds conversation context.
+    Core implementation for complete conversation flow. Based on
+    process_conversation() from ha_features.py.
     
     Args:
-        messages: List of message dicts with 'role' and 'content'
-                  Example: [{'role': 'user', 'content': 'turn on lights'}]
+        message: User message text
+        context: Optional conversation context (previous messages, user info, etc.)
         **kwargs: Additional options
         
     Returns:
-        Conversation results with all responses
+        Conversation result with response and metadata
+        
+    Example:
+        result = process_assist_conversation_impl(
+            "What's the temperature in the living room?",
+            context={'user_id': 'user123'}
+        )
         
     REF: INT-HA-03
     """
     correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
     
     try:
-        if not messages or not isinstance(messages, list):
-            log_error(f"[{correlation_id}] Invalid messages format")
-            increment_counter('ha_assist_conversation_invalid')
-            return create_error_response('Messages must be a list', 'INVALID_MESSAGES')
+        _debug_trace(correlation_id, "process_assist_conversation START", 
+                    message_length=len(message),
+                    has_context=context is not None)
         
-        log_info(f"[{correlation_id}] Processing conversation: {len(messages)} messages")
+        # Extract conversation ID from context if available
+        conversation_id = None
+        language = 'en'
         
-        # Generate conversation ID
-        import time
-        conversation_id = f"conv_{int(time.time())}_{correlation_id[:8]}"
+        if context and isinstance(context, dict):
+            conversation_id = context.get('conversation_id')
+            language = context.get('language', 'en')
         
-        responses = []
-        context = {'conversation_id': conversation_id}
+        # Send message to Assist
+        _debug_trace(correlation_id, "Sending message to Assist")
+        result = send_assist_message_impl(
+            message=message,
+            conversation_id=conversation_id,
+            language=language
+        )
         
-        # Process each message
-        for idx, msg in enumerate(messages):
-            if not isinstance(msg, dict):
-                log_warning(f"[{correlation_id}] Skipping invalid message at index {idx}")
-                continue
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        if result.get('success'):
+            response_data = result.get('data', {})
             
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
+            # Cache conversation result for quick retrieval
+            new_conversation_id = response_data.get('conversation_id')
+            if new_conversation_id:
+                cache_key = f"ha_conversation_{new_conversation_id}"
+                cache_set(cache_key, response_data, ttl=HA_CONVERSATION_CACHE_TTL)
+                _debug_trace(correlation_id, "Cached conversation result", 
+                            conversation_id=new_conversation_id)
             
-            # Only process user messages (skip assistant messages in history)
-            if role == 'user' and content:
-                result = send_assist_message_impl(content, context=context)
-                
-                if result.get('success'):
-                    data = result.get('data', {})
-                    responses.append({
-                        'index': idx,
-                        'user': content,
-                        'assistant': data.get('response', 'Done')
-                    })
-                else:
-                    responses.append({
-                        'index': idx,
-                        'user': content,
-                        'assistant': None,
-                        'error': result.get('error', 'Unknown error')
-                    })
+            # Add processing metadata
+            response_data['processing_time_ms'] = duration_ms
+            response_data['timestamp'] = get_timestamp()
+            
+            _debug_trace(correlation_id, "process_assist_conversation SUCCESS", 
+                        total_duration_ms=duration_ms)
+            
+            increment_counter('ha_assist_conversation_success')
+            record_metric('ha_assist_conversation_duration_ms', duration_ms)
+            
+            return create_success_response('Conversation processed', response_data)
         
-        increment_counter('ha_assist_conversation_processed')
-        
-        return create_success_response('Conversation processed', {
-            'conversation_id': conversation_id,
-            'message_count': len(messages),
-            'response_count': len(responses),
-            'responses': responses
-        })
+        _debug_trace(correlation_id, "process_assist_conversation FAILED")
+        increment_counter('ha_assist_conversation_failure')
+        return result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] Process conversation failed: {str(e)}")
-        increment_counter('ha_assist_conversation_error')
-        return create_error_response(str(e), 'CONVERSATION_FAILED')
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_error(f"[{correlation_id}] Process conversation failed: {type(e).__name__}: {str(e)}")
+        
+        if _DEBUG_MODE_ENABLED:
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
+        increment_counter('ha_assist_error')
+        record_metric('ha_assist_error_duration_ms', duration_ms)
+        return create_error_response(str(e), 'CONVERSATION_PROCESSING_FAILED')
 
 
-def handle_assist_pipeline_impl(pipeline_data: Dict, **kwargs) -> Dict[str, Any]:
+def handle_assist_pipeline_impl(pipeline_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
-    Handle assist pipeline processing.
+    Handle pipeline-specific conversation operations.
     
-    PHASE 4: New implementation
+    PHASE 4: Pipeline-specific conversation handler
     
-    Core implementation for assist pipeline operations.
-    Supports voice pipeline, intent handling, and custom agents.
+    Allows using specific conversation pipelines (if HA has multiple
+    configured conversation agents/pipelines).
     
     Args:
-        pipeline_data: Pipeline configuration and data
-                       Example: {'intent': 'turn_on', 'targets': ['light.living_room']}
+        pipeline_id: Pipeline/agent ID to use
+        message: User message text
         **kwargs: Additional options
         
     Returns:
-        Pipeline execution results
+        Pipeline conversation result
         
     REF: INT-HA-03
     """
     correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
     
     try:
-        if not pipeline_data or not isinstance(pipeline_data, dict):
-            log_error(f"[{correlation_id}] Invalid pipeline data")
-            increment_counter('ha_assist_pipeline_invalid')
-            return create_error_response('Pipeline data must be a dict', 'INVALID_PIPELINE')
+        _debug_trace(correlation_id, "handle_assist_pipeline START", 
+                    pipeline_id=pipeline_id,
+                    message_length=len(message))
         
-        log_info(f"[{correlation_id}] Handling assist pipeline")
+        # Validation
+        if not isinstance(pipeline_id, str) or not pipeline_id.strip():
+            return create_error_response('Pipeline ID cannot be empty', 'INVALID_PIPELINE_ID')
         
-        # Extract pipeline type and data
-        pipeline_type = pipeline_data.get('type', 'conversation')
+        if not isinstance(message, str) or not message.strip():
+            return create_error_response('Message cannot be empty', 'INVALID_MESSAGE')
         
-        if pipeline_type == 'conversation':
-            # Standard conversation pipeline
-            text = pipeline_data.get('text') or pipeline_data.get('message')
-            if text:
-                return send_assist_message_impl(text, context=pipeline_data.get('context'))
-            else:
-                return create_error_response('No text provided for conversation', 'MISSING_TEXT')
+        # Build request with pipeline specification
+        request_data = {
+            'text': message.strip(),
+            'pipeline_id': pipeline_id.strip()
+        }
         
-        elif pipeline_type == 'intent':
-            # Intent-based pipeline
-            import ha_interconnect
+        _debug_trace(correlation_id, "Calling HA conversation API with pipeline")
+        
+        # Call HA Conversation API with pipeline ID
+        api_result = ha_interconnect.devices_call_ha_api(
+            '/api/conversation/process',
+            method='POST',
+            data=request_data
+        )
+        
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        # ADDED Phase 4: Track slow pipeline operations
+        if duration_ms > HA_SLOW_CONVERSATION_THRESHOLD_MS:
+            log_warning(f"[{correlation_id}] Slow pipeline conversation: {duration_ms:.2f}ms")
+            increment_counter('ha_assist_pipeline_slow')
+        
+        record_metric('ha_assist_pipeline_duration_ms', duration_ms)
+        
+        if api_result.get('success'):
+            response_data = api_result.get('data', {})
             
-            intent = pipeline_data.get('intent')
-            targets = pipeline_data.get('targets', [])
+            # Extract conversation response
+            conversation_response = response_data.get('response', {})
+            speech = conversation_response.get('speech', {})
+            plain_text = speech.get('plain', {}).get('speech', '')
             
-            if not intent:
-                return create_error_response('No intent provided', 'MISSING_INTENT')
-            
-            # Map intent to HA service call
-            intent_map = {
-                'turn_on': ('homeassistant', 'turn_on'),
-                'turn_off': ('homeassistant', 'turn_off'),
-                'toggle': ('homeassistant', 'toggle')
+            result = {
+                'text': plain_text,
+                'pipeline_id': pipeline_id,
+                'conversation_id': response_data.get('conversation_id'),
+                'response_type': conversation_response.get('response_type', 'unknown'),
+                'duration_ms': duration_ms
             }
             
-            if intent in intent_map:
-                domain, service = intent_map[intent]
-                
-                results = []
-                for target in targets:
-                    result = ha_interconnect.devices_call_service(
-                        domain, service, entity_id=target
-                    )
-                    results.append({
-                        'target': target,
-                        'success': result.get('success', False)
-                    })
-                
-                increment_counter('ha_assist_pipeline_intent')
-                
-                return create_success_response('Intent pipeline executed', {
-                    'intent': intent,
-                    'targets': targets,
-                    'results': results
-                })
-            else:
-                return create_error_response(f'Unsupported intent: {intent}', 'UNSUPPORTED_INTENT')
+            _debug_trace(correlation_id, "handle_assist_pipeline SUCCESS", 
+                        response_type=result['response_type'])
+            
+            increment_counter('ha_assist_pipeline_success')
+            increment_counter(f'ha_assist_pipeline_{pipeline_id}_success')
+            
+            return create_success_response('Pipeline conversation processed', result)
         
-        else:
-            log_warning(f"[{correlation_id}] Unknown pipeline type: {pipeline_type}")
-            return create_error_response(f'Unknown pipeline type: {pipeline_type}', 'UNKNOWN_PIPELINE')
+        _debug_trace(correlation_id, "handle_assist_pipeline FAILED")
+        increment_counter('ha_assist_pipeline_failure')
+        return api_result
         
     except Exception as e:
-        log_error(f"[{correlation_id}] Handle pipeline failed: {str(e)}")
-        increment_counter('ha_assist_pipeline_error')
-        return create_error_response(str(e), 'PIPELINE_FAILED')
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_error(f"[{correlation_id}] Handle pipeline failed: {type(e).__name__}: {str(e)}")
+        
+        if _DEBUG_MODE_ENABLED:
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
+        increment_counter('ha_assist_error')
+        record_metric('ha_assist_pipeline_error_duration_ms', duration_ms)
+        return create_error_response(str(e), 'PIPELINE_OPERATION_FAILED')
 
 
 __all__ = [
     'send_assist_message_impl',
     'get_assist_response_impl',
     'process_assist_conversation_impl',
-    'handle_assist_pipeline_impl',
+    'handle_assist_pipeline_impl'
 ]
 
 # PHASE 4 MIGRATION SUMMARY:
-# - Migrated conversation/assist functionality
+# - Created 4 assist/conversation functions
 # - Based on process_conversation() from ha_features.py
-# - 4 core assist operations implemented
-# - Uses ha_interconnect.devices_call_service() for conversation
-# - Synchronous conversation processing (no async needed)
-# - Support for multi-turn conversations
-# - Intent-based pipeline support
-# - Ready for use via ha_interconnect
+# - Integrated debug tracing and timing
+# - Uses ha_interconnect to access devices_call_ha_api
+# - All timing and metrics tracked
+# - Ready for ha_interconnect wrappers
 
 # EOF
