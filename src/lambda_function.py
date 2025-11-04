@@ -1,31 +1,45 @@
 """
-lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS)
-Version: 2025.10.19.TIMING_FIX
-Description: Production code with lambda_preload for optimal cold start performance
+lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
+Version: 2025.11.03.HA_SUGA
+Description: Production code with lambda_preload + HA-SUGA subdirectory support
 
 CHANGELOG:
-- 2025.10.19.TIMING_FIX: CRITICAL FIX - Added DEBUG_MODE check for all timing logs
-  - Added _is_debug_mode() and _print_timing() helper functions
-  - Wrapped all print([TIMING]) statements in DEBUG_MODE checks
-  - Timing logs now only appear when DEBUG_MODE=true
+- 2025.11.03.HA_SUGA: PHASE 2 - HA-SUGA Integration
+  * ADDED: sys.path fix for subdirectory imports
+  * ADDED: HOME_ASSISTANT_ENABLE environment variable check
+  * ADDED: Conditional import of home_assistant.ha_interconnect
+  * MODIFIED: Alexa routing to use ha_interconnect when HA enabled
+  * MODIFIED: Fallback to old homeassistant_extension if HA disabled
+- 2025.10.19.TIMING_FIX: Added DEBUG_MODE check for all timing logs
 - 2025.10.19.SELECTIVE: Import lambda_preload FIRST for LUGS preloading
 
-CRITICAL CHANGE: Import lambda_preload FIRST!
-This triggers LUGS-protected preloading during Lambda INIT phase:
-- typing, enum, urllib3 (selective), boto3 SSM (selective) all load in ~400ms
-- First request only handles business logic (~150ms)
-- Total cold start: ~550ms (vs 10,854ms before!)
+CRITICAL CHANGES:
+1. sys.path fix: Ensures /src/ directory is in Python path for subdirectory imports
+2. HA-SUGA: Home Assistant now loads from home_assistant/ subdirectory
+3. Conditional: HA only loads when HOME_ASSISTANT_ENABLE=true
 
 Performance Impact:
 - BEFORE: 239ms INIT + 10,615ms first request = 10,854ms total
-- AFTER: 400ms INIT + 150ms first request = 550ms total (95% improvement!)
+- AFTER (LUGS): 400ms INIT + 150ms first request = 550ms total
+- HA-SUGA: No impact when disabled, minimal when enabled (lazy imports)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-import json
+# ===== CRITICAL: sys.path fix for subdirectory imports =====
+# This MUST be first, before any imports
+import sys
 import os
+
+# Ensure lambda_function.py's directory is in sys.path
+# This allows subdirectory imports like: from home_assistant import ha_interconnect
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# ===== STANDARD IMPORTS =====
+import json
 import time
 from typing import Dict, Any
 
@@ -60,6 +74,27 @@ from gateway import (
 
 _gateway_time = (time.perf_counter() - _timing_start) * 1000
 _print_timing(f"Gateway imports complete: {_gateway_time:.2f}ms")
+
+# ===== PHASE 2: HA-SUGA INTEGRATION =====
+# Check if Home Assistant extension is enabled
+HA_ENABLED = os.getenv('HOME_ASSISTANT_ENABLE', 'false').lower() == 'true'
+
+# PHASE 2: Conditionally import HA-SUGA interconnect
+if HA_ENABLED:
+    _ha_start = time.perf_counter()
+    _print_timing("HOME_ASSISTANT_ENABLE=true, loading HA-SUGA...")
+    try:
+        from home_assistant import ha_interconnect
+        _ha_time = (time.perf_counter() - _ha_start) * 1000
+        _print_timing(f"HA-SUGA loaded: {_ha_time:.2f}ms")
+        log_info("HA-SUGA extension loaded successfully")
+    except ImportError as e:
+        _ha_time = (time.perf_counter() - _ha_start) * 1000
+        _print_timing(f"HA-SUGA import failed after {_ha_time:.2f}ms: {e}")
+        log_error(f"Failed to import HA-SUGA: {e}")
+        HA_ENABLED = False  # Disable if import fails
+else:
+    _print_timing("HOME_ASSISTANT_ENABLE=false, HA-SUGA not loaded")
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -184,7 +219,13 @@ def determine_request_type(event: Dict[str, Any]) -> str:
 
 
 def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle Alexa Smart Home requests with full namespace routing."""
+    """
+    Handle Alexa Smart Home requests.
+    
+    PHASE 2: MODIFIED for HA-SUGA
+    - Routes to ha_interconnect when HA_ENABLED=true
+    - Falls back to homeassistant_extension if HA disabled
+    """
     
     alexa_start = time.perf_counter()
     _print_timing("===== ALEXA REQUEST HANDLER =====")
@@ -198,39 +239,51 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         _print_timing(f"Processing: {namespace}.{name}")
         
-        # Import homeassistant_extension (already optimized with preloaded modules!)
-        _print_timing("Importing homeassistant_extension module...")
-        import_start = time.perf_counter()
-        from homeassistant_extension import (
-            handle_alexa_discovery,
-            handle_alexa_authorization,
-            handle_alexa_control
-        )
-        import_ms = (time.perf_counter() - import_start) * 1000
-        _print_timing(f"homeassistant_extension imported: {import_ms:.2f}ms")
-        
-        # Route based on namespace
-        if namespace == 'Alexa.Discovery':
-            _print_timing("Routing to Discovery handler...")
+        # PHASE 2: Route to HA-SUGA if enabled
+        if HA_ENABLED:
+            _print_timing("Routing to HA-SUGA (ha_interconnect)...")
             route_start = time.perf_counter()
-            result = handle_alexa_discovery(event)
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Discovery handler: {route_ms:.2f}ms")
             
-        elif namespace == 'Alexa.Authorization':
-            _print_timing("Routing to Authorization handler...")
-            route_start = time.perf_counter()
-            result = handle_alexa_authorization(event)
+            # Use ha_interconnect for all Alexa directives
+            result = ha_interconnect.alexa_process_directive(event)
+            
             route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Authorization handler: {route_ms:.2f}ms")
+            _print_timing(f"HA-SUGA handler: {route_ms:.2f}ms")
             
         else:
-            # All other controllers (Power, Brightness, Color, etc.)
-            _print_timing(f"Routing to Control handler for {namespace}...")
-            route_start = time.perf_counter()
-            result = handle_alexa_control(event)
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Control handler: {route_ms:.2f}ms")
+            # FALLBACK: Use old homeassistant_extension if HA disabled
+            _print_timing("HA disabled, using legacy homeassistant_extension...")
+            import_start = time.perf_counter()
+            from homeassistant_extension import (
+                handle_alexa_discovery,
+                handle_alexa_authorization,
+                handle_alexa_control
+            )
+            import_ms = (time.perf_counter() - import_start) * 1000
+            _print_timing(f"homeassistant_extension imported: {import_ms:.2f}ms")
+            
+            # Route based on namespace (old method)
+            if namespace == 'Alexa.Discovery':
+                _print_timing("Routing to Discovery handler...")
+                route_start = time.perf_counter()
+                result = handle_alexa_discovery(event)
+                route_ms = (time.perf_counter() - route_start) * 1000
+                _print_timing(f"Discovery handler: {route_ms:.2f}ms")
+                
+            elif namespace == 'Alexa.Authorization':
+                _print_timing("Routing to Authorization handler...")
+                route_start = time.perf_counter()
+                result = handle_alexa_authorization(event)
+                route_ms = (time.perf_counter() - route_start) * 1000
+                _print_timing(f"Authorization handler: {route_ms:.2f}ms")
+                
+            else:
+                # All other controllers (Power, Brightness, Color, etc.)
+                _print_timing(f"Routing to Control handler for {namespace}...")
+                route_start = time.perf_counter()
+                result = handle_alexa_control(event)
+                route_ms = (time.perf_counter() - route_start) * 1000
+                _print_timing(f"Control handler: {route_ms:.2f}ms")
         
         total_ms = (time.perf_counter() - alexa_start) * 1000
         _print_timing(f"*** TOTAL ALEXA REQUEST: {total_ms:.2f}ms ***")
@@ -264,7 +317,8 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         "status": "ok",
         "request_id": context.aws_request_id,
         "memory_limit_mb": context.memory_limit_in_mb,
-        "remaining_time_ms": context.get_remaining_time_in_millis()
+        "remaining_time_ms": context.get_remaining_time_in_millis(),
+        "ha_suga_enabled": HA_ENABLED  # PHASE 2: Include HA status
     })
 
 
