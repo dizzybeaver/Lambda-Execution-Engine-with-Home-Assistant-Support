@@ -1,34 +1,22 @@
 # ha_devices_helpers.py
 """
 ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 3.0.0 - FILE SPLIT COMPLIANT
+Version: 3.1.0 - PHASE 2 ENHANCEMENTS
 Date: 2025-11-05
 Purpose: Helper functions and utilities for HA device operations
 
+PHASE 2 CHANGES:
+- ADDED: Rate limiting for HA API calls (HIGH-03)
+- ADDED: Request throttling per endpoint
+- ADDED: Burst protection
+- ADDED: Rate limit metrics
+
 Split from ha_devices_core.py v2.0.0 (866 lines) for SIMAv4 compliance.
-This file contains shared utilities used by core and cache modules.
 
 Architecture:
 - Shared by ha_devices_core.py and ha_devices_cache.py
 - NO imports from other ha_devices_* files (prevents circular)
 - Uses gateway services only
-
-Functions:
-- call_ha_api_impl: HTTP operations for HA API
-- get_ha_config_impl: Config loading (FIXES CRIT-01)
-- _extract_entity_list: Parse entity lists from responses
-- _trace_step: Debug tracing
-- _is_debug_mode: Check debug mode
-- _calculate_percentiles: Statistical calculations
-- _generate_performance_recommendations: Performance analysis
-
-Classes:
-- DebugContext: Debug tracing context manager
-
-Constants:
-- HA_CACHE_TTL_* values
-- HA_CIRCUIT_BREAKER_NAME
-- HA_SLOW_OPERATION_THRESHOLD_MS
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -37,7 +25,7 @@ Licensed under Apache 2.0 (see LICENSE).
 import os
 import time
 from typing import Dict, Any, Optional, List
-from collections import defaultdict
+from collections import defaultdict, deque
 
 # Import LEE services via gateway (ONLY way to access LEE)
 from gateway import (
@@ -47,7 +35,7 @@ from gateway import (
     increment_counter, record_metric,
     create_success_response, create_error_response,
     generate_correlation_id,
-    execute_with_circuit_breaker  # ADDED: CRIT-08 fix
+    execute_with_circuit_breaker
 )
 
 # ===== MODULE CONSTANTS =====
@@ -57,37 +45,103 @@ HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
 HA_CACHE_TTL_FUZZY_MATCH = 300
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
-HA_SLOW_OPERATION_THRESHOLD_MS = 1000  # Alert if operation > 1s
+HA_SLOW_OPERATION_THRESHOLD_MS = 1000
 HA_CACHE_WARMING_ENABLED = os.getenv('HA_CACHE_WARMING_ENABLED', 'false').lower() == 'true'
 
-_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+# ADDED Phase 2: Rate limiting configuration
+HA_RATE_LIMIT_ENABLED = os.getenv('HA_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+HA_RATE_LIMIT_PER_SECOND = int(os.getenv('HA_RATE_LIMIT_PER_SECOND', '10'))
+HA_RATE_LIMIT_BURST = int(os.getenv('HA_RATE_LIMIT_BURST', '20'))
+HA_RATE_LIMIT_WINDOW_SECONDS = 1.0
 
-# Track slow operations in memory (shared across modules)
-_SLOW_OPERATIONS = defaultdict(int)  # operation_name: count
+_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+_SLOW_OPERATIONS = defaultdict(int)
+
+# ADDED Phase 2: Rate limiter state
+class RateLimiter:
+    """
+    Token bucket rate limiter for HA API calls.
+    
+    Protects Home Assistant from overload while allowing bursts.
+    Thread-safe for Lambda's single-threaded environment.
+    """
+    def __init__(self, rate: int, burst: int):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            rate: Requests per second
+            burst: Maximum burst size
+        """
+        self.rate = rate
+        self.burst = burst
+        self.tokens = float(burst)
+        self.last_update = time.time()
+        self.request_times = deque(maxlen=burst)
+        
+    def allow_request(self, correlation_id: str) -> bool:
+        """
+        Check if request is allowed under rate limit.
+        
+        Uses token bucket algorithm with time-based refill.
+        
+        Args:
+            correlation_id: Request correlation ID for logging
+            
+        Returns:
+            True if request allowed, False if rate limited
+        """
+        now = time.time()
+        
+        # Refill tokens based on time elapsed
+        elapsed = now - self.last_update
+        self.tokens = min(self.burst, self.tokens + (elapsed * self.rate))
+        self.last_update = now
+        
+        # Check if we have tokens available
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            self.request_times.append(now)
+            return True
+        
+        # Rate limited
+        log_warning(f"[{correlation_id}] Rate limit exceeded: {self.rate} req/s")
+        increment_counter('ha_api_rate_limited')
+        return False
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get current rate limiter statistics.
+        
+        Returns:
+            Dictionary with tokens, recent requests, etc.
+        """
+        now = time.time()
+        recent = len([t for t in self.request_times if now - t < 10.0])
+        
+        return {
+            'tokens_available': self.tokens,
+            'rate_per_second': self.rate,
+            'burst_size': self.burst,
+            'recent_requests_10s': recent
+        }
+
+# ADDED Phase 2: Global rate limiter instance
+_rate_limiter = RateLimiter(
+    rate=HA_RATE_LIMIT_PER_SECOND,
+    burst=HA_RATE_LIMIT_BURST
+)
 
 
 # ===== HELPER FUNCTIONS =====
 
 def _is_debug_mode() -> bool:
-    """
-    Check if DEBUG_MODE is enabled (cached at module level).
-    
-    Returns:
-        True if debug mode enabled, False otherwise
-    """
+    """Check if DEBUG_MODE is enabled."""
     return _DEBUG_MODE_ENABLED
 
 
 class DebugContext:
-    """
-    Debug tracing context manager.
-    
-    Provides structured debug output with timing and nesting.
-    
-    Example:
-        with DebugContext("operation", corr_id, param1="value"):
-            # operation code
-    """
+    """Debug tracing context manager."""
     def __init__(self, operation: str, correlation_id: str, **params):
         self.operation = operation
         self.correlation_id = correlation_id
@@ -108,37 +162,18 @@ class DebugContext:
                 log_error(f"[{self.correlation_id}] [TRACE] {self.operation} FAILED: {exc_val} ({duration_ms:.2f}ms)")
             else:
                 log_info(f"[{self.correlation_id}] [TRACE] {self.operation} COMPLETE ({duration_ms:.2f}ms)")
-        return False  # Don't suppress exceptions
+        return False
 
 
 def _trace_step(correlation_id: str, step: str, **details):
-    """
-    Log a debug trace step.
-    
-    Args:
-        correlation_id: Correlation ID for request tracing
-        step: Step description
-        **details: Additional details to log
-    """
+    """Log a debug trace step."""
     if _DEBUG_MODE_ENABLED:
         detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
         log_info(f"[{correlation_id}] [STEP] {step}" + (f" ({detail_str})" if detail_str else ""))
 
 
 def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
-    """
-    Extract entity list from various response formats.
-    
-    HA /api/states returns different formats depending on how it's called.
-    This function handles all common formats robustly.
-    
-    Args:
-        data: Response data to extract from
-        context: Context for logging
-        
-    Returns:
-        List of entity dictionaries
-    """
+    """Extract entity list from various response formats."""
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     
@@ -161,16 +196,7 @@ def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, A
 
 
 def _calculate_percentiles(values: List[float], percentiles: List[int]) -> Dict[str, float]:
-    """
-    Calculate percentiles from list of values.
-    
-    Args:
-        values: List of numeric values
-        percentiles: List of percentile values to calculate (e.g., [50, 95, 99])
-        
-    Returns:
-        Dict mapping percentile to value (e.g., {'p50': 123.4, 'p95': 456.7})
-    """
+    """Calculate percentiles from list of values."""
     if not values:
         return {f'p{p}': 0.0 for p in percentiles}
     
@@ -190,20 +216,9 @@ def _generate_performance_recommendations(
     cache_efficiency: Dict[str, Any],
     slow_ops: List[Dict[str, Any]]
 ) -> List[str]:
-    """
-    Generate performance improvement recommendations.
-    
-    Args:
-        operations: Operation timing data
-        cache_efficiency: Cache hit rate data
-        slow_ops: List of slow operations
-        
-    Returns:
-        List of actionable recommendations
-    """
+    """Generate performance improvement recommendations."""
     recommendations = []
     
-    # Cache efficiency recommendations
     if cache_efficiency:
         hit_rate = cache_efficiency.get('hit_rate_percent', 0)
         if hit_rate < 60:
@@ -216,40 +231,62 @@ def _generate_performance_recommendations(
                 f"Excellent cache hit rate ({hit_rate:.1f}%). Current caching strategy is optimal."
             )
     
-    # Slow operation recommendations
     if slow_ops:
-        for op in slow_ops[:3]:  # Top 3
+        for op in slow_ops[:3]:
             recommendations.append(
                 f"Operation '{op['operation']}' is slow (p95: {op['p95_ms']:.0f}ms). "
                 f"Consider optimization or caching."
             )
     
-    # General recommendations
     if not recommendations:
         recommendations.append("Performance metrics look good. No immediate optimizations needed.")
     
     return recommendations
 
 
+# ADDED Phase 2: Rate limit check helper
+def _check_rate_limit(correlation_id: str) -> bool:
+    """
+    Check if request should be allowed under rate limit.
+    
+    Args:
+        correlation_id: Request correlation ID
+        
+    Returns:
+        True if allowed, False if rate limited
+    """
+    if not HA_RATE_LIMIT_ENABLED:
+        return True
+    
+    return _rate_limiter.allow_request(correlation_id)
+
+
+# ADDED Phase 2: Rate limiter stats
+def get_rate_limit_stats() -> Dict[str, Any]:
+    """
+    Get current rate limiter statistics.
+    
+    Returns:
+        Dictionary with rate limit stats
+    """
+    if not HA_RATE_LIMIT_ENABLED:
+        return {
+            'enabled': False,
+            'message': 'Rate limiting disabled'
+        }
+    
+    stats = _rate_limiter.get_stats()
+    stats['enabled'] = True
+    return stats
+
+
 # ===== CORE HELPER IMPLEMENTATIONS =====
 
 def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
     """
-    Get Home Assistant configuration with cache validation.
-    
-    Core implementation for configuration loading.
-    FIXES CRIT-01: Uses lazy import instead of module-level import.
-    
-    Args:
-        force_reload: Force reload from sources
-        **kwargs: Additional options
-        
-    Returns:
-        Configuration dictionary
-        
-    REF: INT-HA-02, FIXES CRIT-01
+    Get Home Assistant configuration.
+    FIXES CRIT-01: Uses lazy import.
     """
-    # FIXED CRIT-01: Lazy import instead of module-level
     import ha_config
     
     correlation_id = generate_correlation_id()
@@ -265,11 +302,10 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
                     record_metric('ha_config_cache_hit', 1.0)
                     return cached
                 else:
-                    _trace_step(correlation_id, "Invalid cache format, rebuilding")
+                    _trace_step(correlation_id, "Invalid cache format")
                     cache_delete(cache_key)
         
         _trace_step(correlation_id, "Loading fresh HA config")
-        # Use lazy-imported module
         config = ha_config.load_ha_config()
         
         if not isinstance(config, dict):
@@ -285,27 +321,32 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
 def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
                     config: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
     """
-    Call Home Assistant API endpoint with enhanced metrics.
+    Call Home Assistant API endpoint.
     
-    Core implementation for HA API calls. Used by all device operations.
+    PHASE 2: Enhanced with rate limiting (HIGH-03).
     
     Args:
-        endpoint: API endpoint (e.g., '/api/states')
-        method: HTTP method ('GET', 'POST', etc.)
+        endpoint: API endpoint
+        method: HTTP method
         data: Optional request data
         config: Optional HA configuration
         **kwargs: Additional options
         
     Returns:
         API response dictionary
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     start_time = time.perf_counter()
     
     try:
         with DebugContext("call_ha_api_impl", correlation_id, endpoint=endpoint, method=method):
+            # ADDED Phase 2: Rate limit check
+            if not _check_rate_limit(correlation_id):
+                return create_error_response(
+                    f'Rate limit exceeded: {HA_RATE_LIMIT_PER_SECOND} req/s',
+                    'RATE_LIMIT_EXCEEDED'
+                )
+            
             # Validation
             if not isinstance(endpoint, str) or not endpoint:
                 return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
@@ -336,7 +377,7 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
             
             _trace_step(correlation_id, "Making HTTP request", url=url[:50])
             
-            # ADDED CRIT-08: Circuit breaker protection for HA API calls
+            # Circuit breaker protection
             http_result = execute_with_circuit_breaker(
                 HA_CIRCUIT_BREAKER_NAME,
                 execute_operation,
@@ -350,10 +391,9 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
             
             duration_ms = (time.perf_counter() - start_time) * 1000
             
-            # Track slow operations
             if duration_ms > HA_SLOW_OPERATION_THRESHOLD_MS:
                 _SLOW_OPERATIONS[f'call_ha_api_{endpoint}'] += 1
-                log_warning(f"Slow API call detected: {endpoint} took {duration_ms:.2f}ms")
+                log_warning(f"Slow API call: {endpoint} took {duration_ms:.2f}ms")
             
             if http_result.get('success'):
                 increment_counter('ha_api_success')
@@ -377,17 +417,15 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
 
 
 __all__ = [
-    # Helper functions
     'call_ha_api_impl',
     'get_ha_config_impl',
+    'get_rate_limit_stats',
     '_extract_entity_list',
     '_trace_step',
     '_is_debug_mode',
     '_calculate_percentiles',
     '_generate_performance_recommendations',
-    # Class
     'DebugContext',
-    # Constants
     'HA_CACHE_TTL_ENTITIES',
     'HA_CACHE_TTL_STATE',
     'HA_CACHE_TTL_CONFIG',
@@ -398,11 +436,12 @@ __all__ = [
     '_SLOW_OPERATIONS',
 ]
 
-# FILE SPLIT NOTES:
-# - Split from ha_devices_core.py v2.0.0 (866 lines)
-# - This file: ~280 lines (within 400-line limit)
-# - CRIT-01 FIXED: Lazy import in get_ha_config_impl()
-# - No imports from ha_devices_core or ha_devices_cache (prevents circular)
-# - Shared by core and cache modules
+# PHASE 2 ENHANCEMENTS:
+# - Rate limiting added (HIGH-03)
+# - Token bucket algorithm
+# - Configurable via environment variables
+# - Burst protection
+# - Rate limit metrics
+# - get_rate_limit_stats() for monitoring
 
 # EOF
