@@ -1,9 +1,15 @@
 """
 gateway_wrappers.py - Gateway Convenience Wrapper Functions (Main Module)
-Version: 2025.10.26.01
+Version: 2025.11.20.01
 Description: Main module that imports and re-exports all interface wrappers
 
 CHANGELOG:
+- 2025.11.20.01: CRITICAL FIX - Added singleton_register to exports
+  - FIXED: Import error "cannot import name 'singleton_register' from 'gateway'"
+  - ADDED: 'singleton_register' to SINGLETON wrappers section (13 functions now)
+  - Routes to gateway_wrappers_singleton.py implementation
+  - Resolves logging_manager.py and singleton_core.py import failures
+
 - 2025.10.26.01: PHASE 5 EXTRACTION - Added performance reporting export
   - ADDED: 'get_performance_report' to METRICS wrappers section
   - Routes to gateway_wrappers_metrics.py implementation
@@ -20,9 +26,9 @@ STRUCTURE:
 - gateway_wrappers_cache.py - CACHE interface (6 functions)
 - gateway_wrappers_logging.py - LOGGING interface (7 functions)
 - gateway_wrappers_security.py - SECURITY interface (16 functions)
-- gateway_wrappers_metrics.py - METRICS interface (8 functions) ← UPDATED Phase 5
+- gateway_wrappers_metrics.py - METRICS interface (8 functions)
 - gateway_wrappers_config.py - CONFIG interface (20 functions)
-- gateway_wrappers_singleton.py - SINGLETON interface (12 functions)
+- gateway_wrappers_singleton.py - SINGLETON interface (13 functions) ← UPDATED 2025.11.20.01
 - gateway_wrappers_initialization.py - INITIALIZATION interface (4 functions)
 - gateway_wrappers_http_client.py - HTTP_CLIENT interface (8 functions)
 - gateway_wrappers_websocket.py - WEBSOCKET interface (5 functions)
@@ -85,7 +91,7 @@ __all__ = [
     'validate_module_name',
     'validate_number_range',
     
-    # METRICS wrappers (8) ← UPDATED Phase 5: Added get_performance_report
+    # METRICS wrappers (8)
     'record_metric',
     'increment_counter',
     'get_metrics_stats',
@@ -93,7 +99,7 @@ __all__ = [
     'record_error_metric',
     'record_cache_metric',
     'record_api_metric',
-    'get_performance_report',  # ADDED Phase 5
+    'get_performance_report',
     
     # CONFIG wrappers (20)
     'initialize_config',
@@ -117,8 +123,10 @@ __all__ = [
     'config_get_state',
     'config_reset',
     
-    # SINGLETON wrappers (12)
+    # SINGLETON wrappers (13) ← UPDATED 2025.11.20.01: Added singleton_register
     'singleton_get',
+    'singleton_set',
+    'singleton_register',  # ADDED: Missing function causing import errors
     'singleton_has',
     'singleton_delete',
     'singleton_clear',
