@@ -1,9 +1,14 @@
 """
 gateway.py - Universal Lambda Gateway (Consolidated Module)
-Version: 2025.10.26.01
+Version: 2025.11.20.01
 Description: Single entry point consolidating gateway_core and gateway_wrappers
 
 CHANGELOG:
+- 2025.11.20.01: CRITICAL FIX - Added singleton_register to imports and exports
+  - FIXED: Import error "cannot import name 'singleton_register' from 'gateway'"
+  - ADDED: singleton_register to SINGLETON wrappers imports
+  - ADDED: singleton_register to __all__ exports
+  - Resolves logging_manager.py and singleton_core.py import failures
 - 2025.10.26.01: PHASE 5 EXTRACTION - Added performance reporting export
   - ADDED: get_performance_report to METRICS wrappers imports and exports
   - Makes performance reporting available system-wide via gateway module
@@ -88,7 +93,7 @@ from gateway_wrappers import (
     record_error_metric,
     record_cache_metric,
     record_api_metric,
-    get_performance_report,  # ADDED Phase 5
+    get_performance_report,
     
     # CONFIG wrappers
     get_config,
@@ -101,8 +106,10 @@ from gateway_wrappers import (
     load_config_from_file,
     validate_all_config,
     
-    # SINGLETON wrappers
+    # SINGLETON wrappers (FIXED 2025.11.20.01)
     singleton_get,
+    singleton_set,
+    singleton_register,  # ADDED: Missing function causing import errors
     singleton_has,
     singleton_delete,
     singleton_clear,
@@ -223,7 +230,7 @@ __all__ = [
     'validate_module_name',
     'validate_number_range',
     
-    # Generated Wrappers - METRICS (from gateway_wrappers) ← UPDATED Phase 5
+    # Generated Wrappers - METRICS (from gateway_wrappers)
     'record_metric',
     'increment_counter',
     'get_metrics_stats',
@@ -231,7 +238,7 @@ __all__ = [
     'record_error_metric',
     'record_cache_metric',
     'record_api_metric',
-    'get_performance_report',  # ADDED Phase 5
+    'get_performance_report',
     
     # Generated Wrappers - CONFIG (from gateway_wrappers)
     'get_config',
@@ -244,8 +251,10 @@ __all__ = [
     'load_config_from_file',
     'validate_all_config',
     
-    # Generated Wrappers - SINGLETON (from gateway_wrappers)
+    # Generated Wrappers - SINGLETON (FIXED 2025.11.20.01)
     'singleton_get',
+    'singleton_set',
+    'singleton_register',  # ADDED: Export the missing function
     'singleton_has',
     'singleton_delete',
     'singleton_clear',
