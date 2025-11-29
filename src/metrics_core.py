@@ -435,7 +435,6 @@ __all__ = [
     '_execute_get_performance_report_implementation',  # ADDED Phase 5
     'execute_metrics_operation',
     'get_metrics_summary',
-    '_MANAGER',  # FIXED 2025.11.29.02: Export _MANAGER so metrics_operations can import it
 ]
 
 # EOF
