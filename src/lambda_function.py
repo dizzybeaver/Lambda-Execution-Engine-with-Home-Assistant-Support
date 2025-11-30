@@ -19,18 +19,6 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
  
-# ADD THIS DEBUG CODE:
-print(f"[DEBUG] ROOT_DIR: {ROOT_DIR}")
-print(f"[DEBUG] sys.path: {sys.path}")
-print(f"[DEBUG] Files in ROOT_DIR: {os.listdir(ROOT_DIR)}")
-
-# Check if home_assistant directory exists
-ha_dir = os.path.join(ROOT_DIR, 'home_assistant')
-if os.path.exists(ha_dir):
-    print(f"[DEBUG] home_assistant exists: {os.listdir(ha_dir)}")
-else:
-    print(f"[DEBUG] home_assistant directory NOT FOUND!")
- 
 # ===== STANDARD IMPORTS =====
 import json
 import time
