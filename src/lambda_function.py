@@ -4,29 +4,6 @@ lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
 Version: 2025.11.04.1
 Description: Production code with lambda_preload + HA-SUGA subdirectory
 
-CHANGELOG:
-- 2025.1104.1: PHASE 6 - Complete HA-SUGA Migration
-  * REMOVED: Fallback to old homeassistant_extension
-  * MODIFIED: Alexa routing - HA-SUGA only (no fallback)
-  * ADDED: Proper error handling when HA disabled
-  * PHASE 6 CLEANUP: All old HA code paths removed
-- 2025.11.03.HA_SUGA: PHASE 2 - HA-SUGA Integration
-  * ADDED: sys.path fix for subdirectory imports
-  * ADDED: HOME_ASSISTANT_ENABLE environment variable check
-  * ADDED: Conditional import of home_assistant.ha_interconnect
-- 2025.10.19.TIMING_FIX: Added DEBUG_MODE check for all timing logs
-- 2025.10.19.SELECTIVE: Import lambda_preload FIRST for LUGS preloading
-
-CRITICAL CHANGES (Phase 6):
-1. HA-SUGA ONLY: No fallback to old homeassistant_extension
-2. Clean separation: LEE works without HA when disabled
-3. Proper error responses when HA needed but not enabled
-
-Performance Impact:
-- BEFORE: 239ms INIT + 10,615ms first request = 10,854ms total
-- AFTER (LUGS): 400ms INIT + 150ms first request = 550ms total
-- HA-SUGA: No impact when disabled, minimal when enabled (lazy imports)
-
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
@@ -41,7 +18,19 @@ import os
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+ 
+# ADD THIS DEBUG CODE:
+print(f"[DEBUG] ROOT_DIR: {ROOT_DIR}")
+print(f"[DEBUG] sys.path: {sys.path}")
+print(f"[DEBUG] Files in ROOT_DIR: {os.listdir(ROOT_DIR)}")
 
+# Check if home_assistant directory exists
+ha_dir = os.path.join(ROOT_DIR, 'home_assistant')
+if os.path.exists(ha_dir):
+    print(f"[DEBUG] home_assistant exists: {os.listdir(ha_dir)}")
+else:
+    print(f"[DEBUG] home_assistant directory NOT FOUND!")
+ 
 # ===== STANDARD IMPORTS =====
 import json
 import time
@@ -89,7 +78,7 @@ if HA_ENABLED:
     _ha_start = time.perf_counter()
     _print_timing("HOME_ASSISTANT_ENABLE=true, loading HA-SUGA...")
     try:
-        from home_assistant import ha_interconnect
+        from home_assistant.ha_interconnect import *
         HA_AVAILABLE = True
         _ha_time = (time.perf_counter() - _ha_start) * 1000
         _print_timing(f"HA-SUGA loaded: {_ha_time:.2f}ms")
