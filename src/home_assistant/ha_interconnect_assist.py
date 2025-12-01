@@ -28,7 +28,7 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Dict, Any, Optional, List
-from ha_interconnect_validation import _validate_message
+from home.assistant.ha_interconnect_validation import _validate_message
 from gateway import create_error_response
 
 
@@ -61,7 +61,7 @@ def assist_send_message(message: str, context: Optional[Dict] = None,
     if context is not None and not isinstance(context, dict):
         return create_error_response('context must be a dictionary', 'INVALID_INPUT')
     
-    import ha_interface_assist
+    import home_assistant.ha_interface_assist as ha_interface_assist
     return ha_interface_assist.send_message(message, context, **kwargs)
 
 
@@ -89,7 +89,7 @@ def assist_get_response(conversation_id: str, **kwargs) -> Dict[str, Any]:
     if not isinstance(conversation_id, str) or not conversation_id:
         return create_error_response('Invalid conversation_id', 'INVALID_INPUT')
     
-    import ha_interface_assist
+    import home_assistant.ha_interface_assist as ha_interface_assist
     return ha_interface_assist.get_response(conversation_id, **kwargs)
 
 
@@ -120,7 +120,7 @@ def assist_process_conversation(messages: List[Dict[str, Any]], **kwargs) -> Dic
     if not messages:
         return create_error_response('messages cannot be empty', 'INVALID_INPUT')
     
-    import ha_interface_assist
+    import home_assistant.ha_interface_assist as ha_interface_assist
     return ha_interface_assist.process_conversation(messages, **kwargs)
 
 
@@ -148,7 +148,7 @@ def assist_handle_pipeline(pipeline_data: Dict[str, Any], **kwargs) -> Dict[str,
     if not isinstance(pipeline_data, dict):
         return create_error_response('pipeline_data must be a dictionary', 'INVALID_INPUT')
     
-    import ha_interface_assist
+    import home_assistant.ha_interface_assist as ha_interface_assist
     return ha_interface_assist.handle_pipeline(pipeline_data, **kwargs)
 
 
