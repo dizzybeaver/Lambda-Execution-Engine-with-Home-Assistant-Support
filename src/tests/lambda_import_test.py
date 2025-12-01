@@ -1,6 +1,5 @@
 """
 lambda_function.py - UNIVERSAL IMPORT DIAGNOSTIC
-Drop-In Lambda_Function.py import tester.
 
 Version: DIAGNOSTIC-UNIVERSAL
 Date: 2025-11-30
@@ -189,54 +188,8 @@ def run_import_tests():
     except Exception as e:
         print_result(f"import {TEST_PACKAGE}.{TEST_MODULE}", False, str(e))
     
-    # ===== SUBMODULE TESTS =====
-    if TEST_SUBMODULES:
-        print_test_header("SUBMODULE IMPORT TESTS")
-        
-        for submodule in TEST_SUBMODULES:
-            print(f"\n--- Testing submodule: {submodule} ---")
-            
-            # TEST: Direct import from package
-            print(f"\n[SUBMODULE TEST A] from {TEST_PACKAGE} import {submodule}")
-            try:
-                exec(f"from {TEST_PACKAGE} import {submodule}")
-                print_result(f"from {TEST_PACKAGE} import {submodule}", True)
-            except Exception as e:
-                print_result(f"from {TEST_PACKAGE} import {submodule}", False, str(e))
-            
-            # TEST: Dot notation import
-            print(f"\n[SUBMODULE TEST B] import {TEST_PACKAGE}.{submodule}")
-            try:
-                exec(f"import {TEST_PACKAGE}.{submodule}")
-                print_result(f"import {TEST_PACKAGE}.{submodule}", True)
-            except Exception as e:
-                print_result(f"import {TEST_PACKAGE}.{submodule}", False, str(e))
-            
-            # TEST: Relative import simulation (check what's in the file)
-            print(f"\n[SUBMODULE TEST C] Checking for relative imports in {submodule}")
-            submodule_path = os.path.join(package_dir, f"{submodule}.py")
-            if os.path.exists(submodule_path):
-                try:
-                    with open(submodule_path, 'r') as f:
-                        submodule_content = f.read()
-                    
-                    # Look for relative imports
-                    relative_imports = [
-                        line.strip() for line in submodule_content.splitlines()
-                        if line.strip().startswith(('from .', 'from..'))
-                        and not line.strip().startswith('#')
-                    ]
-                    
-                    if relative_imports:
-                        print(f"Found {len(relative_imports)} relative import(s):")
-                        for ri in relative_imports[:5]:  # Show first 5
-                            print(f"  {ri}")
-                    else:
-                        print(f"No relative imports found in {submodule}.py")
-                except Exception as e:
-                    print(f"❌ ERROR reading {submodule}.py: {e}")
-            else:
-                print(f"⚠️  {submodule}.py not found")
+    # ===== FOCUS: Load main module only =====
+    # We don't test submodules individually - ha_interconnect.py imports them all
     
     # ===== MODULE FILE INSPECTION =====
     print_test_header("MAIN MODULE FILE INSPECTION")
@@ -252,22 +205,83 @@ def run_import_tests():
             
             print(f"File: {TEST_MODULE}.py")
             print(f"Total lines: {len(lines)}")
-            print(f"\nImport statements (first 100 lines):")
+            print(f"\nImport statements (all lines):")
             
-            import_count = 0
-            for i, line in enumerate(lines[:100], 1):
+            import_lines = []
+            for i, line in enumerate(lines, 1):
                 stripped = line.strip()
-                if (('import' in stripped or 'from' in stripped) and 
-                    not stripped.startswith('#') and stripped):
-                    print(f"  Line {i:3d}: {line.rstrip()}")
-                    import_count += 1
+                if (stripped.startswith(('import ', 'from ')) and 
+                    not stripped.startswith('#')):
+                    import_lines.append((i, line.rstrip()))
             
-            if import_count == 0:
-                print(f"  No import statements found in first 100 lines")
+            if import_lines:
+                for line_num, import_stmt in import_lines:
+                    print(f"  Line {line_num:3d}: {import_stmt}")
+                print(f"\nTotal imports found: {len(import_lines)}")
             else:
-                print(f"\nTotal imports found: {import_count}")
+                print(f"  No import statements found")
         except Exception as e:
             print(f"❌ ERROR reading {TEST_MODULE}.py: {e}")
+    
+    # ===== IMPORT STYLE ANALYSIS =====
+    print_test_header("IMPORT STYLE ANALYSIS FOR MAIN MODULE")
+    
+    if os.path.exists(module_path):
+        print(f"Analyzing import styles in {TEST_MODULE}.py:\n")
+        
+        try:
+            with open(module_path, 'r') as f:
+                content = f.read()
+            
+            # Count different import types
+            relative_imports = [l.strip() for l in content.splitlines() 
+                              if l.strip().startswith('from .') and not l.strip().startswith('#')]
+            absolute_package_imports = [l.strip() for l in content.splitlines() 
+                                       if l.strip().startswith(f'from {TEST_PACKAGE}.') 
+                                       and not l.strip().startswith('#')]
+            absolute_imports = [l.strip() for l in content.splitlines() 
+                              if l.strip().startswith('from ') 
+                              and not l.strip().startswith(('from .', f'from {TEST_PACKAGE}.', '#'))]
+            
+            print(f"Relative imports (from .module): {len(relative_imports)}")
+            if relative_imports:
+                for ri in relative_imports[:5]:
+                    print(f"  {ri}")
+                if len(relative_imports) > 5:
+                    print(f"  ... and {len(relative_imports) - 5} more")
+            
+            print(f"\nAbsolute package imports (from {TEST_PACKAGE}.module): {len(absolute_package_imports)}")
+            if absolute_package_imports:
+                for ai in absolute_package_imports[:5]:
+                    print(f"  {ai}")
+                if len(absolute_package_imports) > 5:
+                    print(f"  ... and {len(absolute_package_imports) - 5} more")
+            
+            print(f"\nOther imports: {len(absolute_imports)}")
+            if absolute_imports:
+                for oi in absolute_imports[:5]:
+                    print(f"  {oi}")
+                if len(absolute_imports) > 5:
+                    print(f"  ... and {len(absolute_imports) - 5} more")
+            
+            # Recommendation
+            print(f"\n{'=' * 60}")
+            print("RECOMMENDATION:")
+            if relative_imports and not absolute_package_imports:
+                print(f"✗ Using relative imports (from .module)")
+                print(f"  These may not work when importing via: from {TEST_PACKAGE} import {TEST_MODULE}")
+                print(f"\n  Try changing to: from {TEST_PACKAGE}.module_name import ...")
+            elif absolute_package_imports and not relative_imports:
+                print(f"✓ Using absolute package imports (from {TEST_PACKAGE}.module)")
+                print(f"  This should work correctly")
+            elif relative_imports and absolute_package_imports:
+                print(f"⚠ MIXED import styles detected!")
+                print(f"  {len(relative_imports)} relative, {len(absolute_package_imports)} absolute")
+                print(f"  Consider using only one style for consistency")
+            print(f"{'=' * 60}")
+            
+        except Exception as e:
+            print(f"❌ ERROR analyzing imports: {e}")
     
     # ===== sys.modules CHECK =====
     print_test_header("sys.modules CHECK")
