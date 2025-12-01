@@ -1,17 +1,9 @@
 # ha_devices_helpers.py
 """
 ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 3.1.0 - PHASE 2 ENHANCEMENTS
+Version: 3.1.0
 Date: 2025-11-05
 Purpose: Helper functions and utilities for HA device operations
-
-PHASE 2 CHANGES:
-- ADDED: Rate limiting for HA API calls (HIGH-03)
-- ADDED: Request throttling per endpoint
-- ADDED: Burst protection
-- ADDED: Rate limit metrics
-
-Split from ha_devices_core.py v2.0.0 (866 lines) for SIMAv4 compliance.
 
 Architecture:
 - Shared by ha_devices_core.py and ha_devices_cache.py
@@ -48,7 +40,6 @@ HA_CIRCUIT_BREAKER_NAME = "home_assistant"
 HA_SLOW_OPERATION_THRESHOLD_MS = 1000
 HA_CACHE_WARMING_ENABLED = os.getenv('HA_CACHE_WARMING_ENABLED', 'false').lower() == 'true'
 
-# ADDED Phase 2: Rate limiting configuration
 HA_RATE_LIMIT_ENABLED = os.getenv('HA_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
 HA_RATE_LIMIT_PER_SECOND = int(os.getenv('HA_RATE_LIMIT_PER_SECOND', '10'))
 HA_RATE_LIMIT_BURST = int(os.getenv('HA_RATE_LIMIT_BURST', '20'))
@@ -57,7 +48,6 @@ HA_RATE_LIMIT_WINDOW_SECONDS = 1.0
 _DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 _SLOW_OPERATIONS = defaultdict(int)
 
-# ADDED Phase 2: Rate limiter state
 class RateLimiter:
     """
     Token bucket rate limiter for HA API calls.
@@ -126,7 +116,6 @@ class RateLimiter:
             'recent_requests_10s': recent
         }
 
-# ADDED Phase 2: Global rate limiter instance
 _rate_limiter = RateLimiter(
     rate=HA_RATE_LIMIT_PER_SECOND,
     burst=HA_RATE_LIMIT_BURST
@@ -244,7 +233,6 @@ def _generate_performance_recommendations(
     return recommendations
 
 
-# ADDED Phase 2: Rate limit check helper
 def _check_rate_limit(correlation_id: str) -> bool:
     """
     Check if request should be allowed under rate limit.
@@ -260,8 +248,6 @@ def _check_rate_limit(correlation_id: str) -> bool:
     
     return _rate_limiter.allow_request(correlation_id)
 
-
-# ADDED Phase 2: Rate limiter stats
 def get_rate_limit_stats() -> Dict[str, Any]:
     """
     Get current rate limiter statistics.
@@ -287,7 +273,7 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
     Get Home Assistant configuration.
     FIXES CRIT-01: Uses lazy import.
     """
-    import ha_config
+    import home_assistant.ha_config
     
     correlation_id = generate_correlation_id()
     
@@ -323,8 +309,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
     """
     Call Home Assistant API endpoint.
     
-    PHASE 2: Enhanced with rate limiting (HIGH-03).
-    
     Args:
         endpoint: API endpoint
         method: HTTP method
@@ -340,7 +324,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
     
     try:
         with DebugContext("call_ha_api_impl", correlation_id, endpoint=endpoint, method=method):
-            # ADDED Phase 2: Rate limit check
             if not _check_rate_limit(correlation_id):
                 return create_error_response(
                     f'Rate limit exceeded: {HA_RATE_LIMIT_PER_SECOND} req/s',
@@ -435,13 +418,5 @@ __all__ = [
     'HA_CACHE_WARMING_ENABLED',
     '_SLOW_OPERATIONS',
 ]
-
-# PHASE 2 ENHANCEMENTS:
-# - Rate limiting added (HIGH-03)
-# - Token bucket algorithm
-# - Configurable via environment variables
-# - Burst protection
-# - Rate limit metrics
-# - get_rate_limit_stats() for monitoring
 
 # EOF
