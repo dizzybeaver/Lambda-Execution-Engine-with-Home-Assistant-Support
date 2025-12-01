@@ -34,7 +34,8 @@ def process_directive(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Returns:
         Alexa response dictionary
     """
-    import ha_alexa_core
+
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.process_directive_impl(event, **kwargs)
 
 
@@ -52,7 +53,7 @@ def handle_discovery(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Returns:
         Discovery response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_discovery_impl(event, **kwargs)
 
 
@@ -70,7 +71,7 @@ def handle_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Returns:
         Control response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_control_impl(event, **kwargs)
 
 
@@ -88,7 +89,7 @@ def handle_power_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Returns:
         Power control response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_power_control_impl(event, **kwargs)
 
 
@@ -106,7 +107,7 @@ def handle_brightness_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any]
     Returns:
         Brightness control response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_brightness_control_impl(event, **kwargs)
 
 
@@ -124,7 +125,7 @@ def handle_thermostat_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any]
     Returns:
         Thermostat control response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_thermostat_control_impl(event, **kwargs)
 
 
@@ -142,7 +143,7 @@ def handle_accept_grant(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Returns:
         AcceptGrant response
     """
-    import ha_alexa_core
+    import home_assistant.ha_alexa_core as ha_alexa_core
     return ha_alexa_core.handle_accept_grant_impl(event, **kwargs)
 
 
