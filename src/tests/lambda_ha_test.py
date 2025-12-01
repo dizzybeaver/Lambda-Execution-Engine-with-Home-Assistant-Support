@@ -85,11 +85,11 @@ def run_comprehensive_test():
     results = []
     first_failure = None
     
-    for test_import, description in tests:
+    for import_statement, description in tests:
         print(f"\n[TEST] {description}")
-        print(f"       Import: {test_import}")
+        print(f"       Import: {import_statement}")
         
-        success, error = test_import(test_import, description)
+        success, error = test_import(import_statement, description)
         
         if success:
             print(f"       ✅ SUCCESS")
