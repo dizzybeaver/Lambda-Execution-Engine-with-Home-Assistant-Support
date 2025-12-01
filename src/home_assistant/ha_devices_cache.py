@@ -33,8 +33,8 @@ from gateway import (
     generate_correlation_id, get_timestamp
 )
 
-# Import helpers from ha_devices_helpers
-from ha_devices_helpers import (
+# Import helpers from home_assistant.ha_devices_helpers
+from home_assistant.ha_devices_helpers import (
     get_ha_config_impl,
     _calculate_percentiles,
     _generate_performance_recommendations,
@@ -76,7 +76,7 @@ def warm_cache_impl(**kwargs) -> Dict[str, Any]:
         # 1. Warm HA configuration (most frequently accessed)
         try:
             # Import get_states_impl lazily to avoid circular import
-            from ha_devices_core import get_states_impl
+            from home_assistant.ha_devices_core import get_states_impl
             
             config = get_ha_config_impl()
             # Uses existing cache_set() from INT-01
@@ -91,7 +91,7 @@ def warm_cache_impl(**kwargs) -> Dict[str, Any]:
         try:
             if config and config.get('enabled'):
                 # Import inside try block to avoid circular import
-                from ha_devices_core import get_states_impl
+                from home_assistant.ha_devices_core import get_states_impl
                 
                 # Predictive pre-loading: States are accessed in 80% of requests
                 states_result = get_states_impl(use_cache=False)
@@ -296,7 +296,7 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-02
     """
-    from ha_devices_helpers import (
+    from home_assistant.ha_devices_helpers import (
         HA_CACHE_TTL_ENTITIES,
         HA_CACHE_TTL_STATE,
         HA_CACHE_TTL_FUZZY_MATCH,
