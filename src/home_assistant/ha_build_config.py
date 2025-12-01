@@ -1,14 +1,8 @@
 # ha_build_config.py
 """
 ha_build_config.py - Feature Configuration
-Version: 3.0.0 (Phase 5)
+Version: 3.0.0
 Description: Feature flags and build configuration with debug tracing
-
-PHASE 5 CHANGES:
-- ADDED: Debug tracing for feature loading and validation
-- ADDED: Timing metrics for validation
-- ADDED: Correlation IDs
-- MOVED: To /src/home_assistant/ directory
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -237,13 +231,5 @@ def get_feature_info() -> Dict[str, Any]:
                 features=len(enabled), modules=len(modules), valid=validation.get('valid'))
     
     return info
-
-
-# PHASE 5 ENHANCEMENTS:
-# - Debug tracing for feature loading and validation
-# - Timing metrics for validation operations
-# - Correlation IDs for request tracing
-# - Success/failure counters
-# - Ready for /src/home_assistant/ directory
 
 # EOF
