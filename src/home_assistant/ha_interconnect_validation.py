@@ -161,7 +161,6 @@ def _validate_threshold(threshold: float) -> bool:
         return False
     return True
 
-
 def _validate_endpoint(endpoint: str) -> bool:
     """
     Validate API endpoint.
