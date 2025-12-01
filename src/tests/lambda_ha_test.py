@@ -21,24 +21,19 @@ if ROOT_DIR not in sys.path:
 from typing import Dict, Any, List, Tuple
 
 
-def test_import(module_path: str, description: str) -> Tuple[bool, str]:
+def test_import(import_statement: str, description: str) -> Tuple[bool, str]:
     """
     Test a single import.
     
     Args:
-        module_path: Import path (e.g., "home_assistant.ha_interconnect")
+        import_statement: Import statement (e.g., "import home_assistant")
         description: Human-readable description
         
     Returns:
         (success, error_message)
     """
     try:
-        if " import " in module_path:
-            # It's a "from X import Y" style
-            exec(module_path)
-        else:
-            # It's a "import X" style
-            exec(f"import {module_path}")
+        exec(import_statement, globals())
         return (True, "")
     except Exception as e:
         return (False, str(e))
