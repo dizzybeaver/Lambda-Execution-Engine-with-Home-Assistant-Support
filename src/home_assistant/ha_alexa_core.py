@@ -1,23 +1,11 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 3.0.0 - PHASE 3
-Date: 2025-11-04
+Version: 3.0.0
+Date: 2025-12-01
 Description: Core implementation for Alexa Smart Home integration
-
-PHASE 3: Updated Imports
-- Changed from ha_core imports to ha_interconnect
-- Now uses HA-SUGA internal routing for device operations
-- Alexa Smart Home directive processing
-- Device discovery
-- Control operations (power, brightness, thermostat)
-- Authorization grant handling
 
 Architecture:
 ha_interconnect.py → ha_interface_alexa.py → ha_alexa_core.py (THIS FILE)
-
-Migration History:
-- Phase 2: Migrated all 7 functions from ha_alexa.py
-- Phase 3: Updated to use ha_interconnect instead of ha_core
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -35,9 +23,6 @@ from gateway import (
 def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """
     Process Alexa Smart Home directive implementation.
-    
-    PHASE 2: MIGRATED from ha_alexa.py
-    PHASE 3: UPDATED to use ha_interconnect
     
     Core implementation for Alexa directive processing.
     Routes to appropriate handlers based on directive namespace and name.
@@ -57,10 +42,9 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
-        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         try:
-            import ha_interconnect
+            import home_assistant.ha_interconnect
         except ImportError as e:
             log_error(f"[{correlation_id}] ha_interconnect not available: {e}")
             increment_counter('ha_alexa_import_error')
@@ -95,9 +79,6 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa device discovery implementation.
     
-    PHASE 2: MIGRATED from ha_alexa.py
-    PHASE 3: UPDATED to use ha_interconnect
-    
     Core implementation for device discovery.
     Queries Home Assistant for all available devices.
     
@@ -113,11 +94,9 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     correlation_id = generate_correlation_id()
     
     try:
-        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
         # LAZY IMPORT: Only load ha_interconnect when actually needed
-        import ha_interconnect
+        import home_assistant.ha_interconnect
         
-        # MODIFIED Phase 3: Use devices_call_ha_api via ha_interconnect
         result = ha_interconnect.devices_call_ha_api('/api/alexa/smart_home', method='POST', data=event)
         
         if not result.get('success'):
@@ -146,9 +125,6 @@ def handle_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa device control implementation.
     
-    PHASE 2: MIGRATED from ha_alexa.py
-    PHASE 3: UPDATED to use ha_interconnect
-    
     Core implementation for device control.
     Forwards control directives to Home Assistant.
     
@@ -173,8 +149,6 @@ def handle_power_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]
     """
     Handle Alexa power control implementation.
     
-    PHASE 2: MIGRATED from ha_alexa.py
-    
     Core implementation for power control (on/off).
     
     Args:
@@ -193,8 +167,6 @@ def handle_power_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]
 def handle_brightness_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa brightness control implementation.
-    
-    PHASE 2: MIGRATED from ha_alexa.py
     
     Core implementation for brightness adjustment.
     
@@ -215,8 +187,6 @@ def handle_thermostat_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str,
     """
     Handle Alexa thermostat control implementation.
     
-    PHASE 2: MIGRATED from ha_alexa.py
-    
     Core implementation for thermostat operations.
     
     Args:
@@ -235,8 +205,6 @@ def handle_thermostat_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str,
 def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa AcceptGrant directive implementation.
-    
-    PHASE 2: MIGRATED from ha_alexa.py
     
     Core implementation for authorization grant.
     Simple acknowledgment response per Alexa Smart Home API.
@@ -278,9 +246,6 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
     """
     Forward directive to Home Assistant's native Alexa endpoint.
     
-    PHASE 2: MIGRATED from ha_alexa.py
-    PHASE 3: UPDATED to use ha_interconnect
-    
     Helper function to forward directives to HA.
     
     Args:
@@ -291,11 +256,9 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
         HA response or error response
     """
     try:
-        # MODIFIED Phase 3: Use ha_interconnect instead of ha_core
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         import ha_interconnect
         
-        # MODIFIED Phase 3: Use devices_call_ha_api via ha_interconnect
         result = ha_interconnect.devices_call_ha_api(
             '/api/alexa/smart_home',
             method='POST',
@@ -329,8 +292,6 @@ def _create_error_response(header: Dict[str, Any], error_type: str,
                           error_message: str) -> Dict[str, Any]:
     """
     Create Alexa error response.
-    
-    PHASE 2: MIGRATED from ha_alexa.py
     
     Note: This maintains Alexa Smart Home API format requirements.
     Not replaced with gateway create_error_response() as Alexa
@@ -372,14 +333,5 @@ __all__ = [
     'handle_thermostat_control_impl',
     'handle_accept_grant_impl',
 ]
-
-# PHASE 3 UPDATE SUMMARY:
-# - Removed: from ha_core import call_ha_api, get_ha_config
-# - Added: import ha_interconnect (lazy, in functions)
-# - Changed: call_ha_api(...) → ha_interconnect.devices_call_ha_api(...)
-# - Now routes device operations through HA-SUGA architecture
-# - Maintains lazy import pattern for performance
-# - All Alexa functions still work identically
-# - Complete HA-SUGA compliance achieved
 
 # EOF
