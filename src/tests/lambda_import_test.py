@@ -1,287 +1,292 @@
 """
-lambda_import_test.py - Import Diagnostics for Lambda
-Drop-in Import testing for lambda_function.py
+lambda_function.py - UNIVERSAL IMPORT DIAGNOSTIC
+Drop-In Lambda_Function.py import tester.
 
-Version: DIAGNOSTIC
+Version: DIAGNOSTIC-UNIVERSAL
 Date: 2025-11-30
 Purpose: Systematic testing of Python import paths in AWS Lambda
 
 ⚠️ THIS IS A TEMPORARY DIAGNOSTIC FILE ⚠️
-USAGE:
-1. Rename your current lambda_function.py to lambda_function.py.backup
-2. Rename this file to lambda_function.py
-3. Deploy to Lambda (handler is already lambda_function.lambda_handler)
-4. Trigger Lambda with any event (Alexa request will work)
-5. Check CloudWatch logs for test results
-6. Restore lambda_function.py.backup when done
 
-CUSTOMIZATION:
-- Modify TEST_PACKAGE to test different packages
-- Add/remove tests as needed
-- Change file inspection in TEST 5
+USAGE:
+1. Backup: mv lambda_function.py lambda_function.py.backup
+2. Deploy this file as lambda_function.py
+3. Set environment variables to configure what to test:
+   - TEST_PACKAGE: Package name to test (default: "home_assistant")
+   - TEST_MODULE: Main module name (default: "ha_interconnect")
+   - TEST_SUBMODULES: Comma-separated list of submodules (optional)
+4. Trigger Lambda with any event
+5. Check CloudWatch logs for results
+6. Restore: mv lambda_function.py.backup lambda_function.py
+
+EXAMPLES:
+- Test home_assistant: TEST_PACKAGE=home_assistant TEST_MODULE=ha_interconnect
+- Test custom_module: TEST_PACKAGE=custom_module TEST_MODULE=main
+- Test with submodules: TEST_SUBMODULES=utils,helpers,validators
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-# ===== CRITICAL: sys.path fix for subdirectory imports =====
-# This MUST be first, before any imports
 import sys
 import os
 
-# Ensure lambda_function.py's directory is in sys.path
+# Setup sys.path
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 
-# ===== CONFIGURATION =====
-TEST_PACKAGE = "home_assistant"  # Change this to test other packages
-TEST_MODULE = "ha_interconnect"  # Change this to test other modules
-TEST_SUBMODULE = "ha_interconnect_validation"  # Change this to test other submodules
+# ===== CONFIGURATION FROM ENVIRONMENT =====
+TEST_PACKAGE = os.getenv('TEST_PACKAGE', 'home_assistant')
+TEST_MODULE = os.getenv('TEST_MODULE', 'ha_interconnect')
+TEST_SUBMODULES_ENV = os.getenv('TEST_SUBMODULES', '')
+
+# Parse submodules from comma-separated string
+if TEST_SUBMODULES_ENV:
+    TEST_SUBMODULES = [s.strip() for s in TEST_SUBMODULES_ENV.split(',') if s.strip()]
+else:
+    # Default submodules for home_assistant (used if not specified)
+    if TEST_PACKAGE == 'home_assistant':
+        TEST_SUBMODULES = ['ha_interconnect_validation', 'ha_interconnect_alexa', 
+                          'ha_interconnect_devices', 'ha_interconnect_assist']
+    else:
+        TEST_SUBMODULES = []
 
 
-def _print_timing(msg: str):
-    """Print timing message."""
-    print(f"[TIMING] {msg}")
+def print_test_header(test_name: str):
+    """Print formatted test header."""
+    print(f"\n{'=' * 80}")
+    print(f"{test_name}")
+    print(f"{'=' * 80}\n")
+
+
+def print_result(test_name: str, passed: bool, reason: Optional[str] = None):
+    """Print test result in standard format."""
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"{test_name}: {status}")
+    if reason:
+        print(f"Reason: {reason}")
 
 
 def run_import_tests():
-    """
-    Run systematic import tests to diagnose Python package issues.
+    """Run systematic import diagnostics."""
     
-    Tests are numbered and independent - if one fails, others still run.
-    All results print to CloudWatch logs.
-    """
+    print("=" * 80)
+    print("LAMBDA IMPORT DIAGNOSTIC TEST - UNIVERSAL")
+    print("=" * 80)
+    print(f"\nConfiguration:")
+    print(f"  TEST_PACKAGE: {TEST_PACKAGE}")
+    print(f"  TEST_MODULE: {TEST_MODULE}")
+    print(f"  TEST_SUBMODULES: {TEST_SUBMODULES if TEST_SUBMODULES else '(none)'}")
     
-    print("=" * 70)
-    print("LAMBDA IMPORT DIAGNOSTIC TEST")
-    print("=" * 70)
+    # ===== FILE SYSTEM CHECK =====
+    print_test_header("FILE SYSTEM CHECK")
     
-    # Get ROOT_DIR (Lambda's /var/task directory)
-    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-    print(f"\n[SETUP] ROOT_DIR: {ROOT_DIR}")
-    print(f"[SETUP] sys.path (first 3): {sys.path[:3]}")
+    # Show sys.path
+    print(f"sys.path: {sys.path}")
     
-    # Show COMPLETE list of files in Lambda root directory
-    print(f"\n[SETUP] === COMPLETE FILE LIST IN LAMBDA ROOT ===")
+    # Show root directory
+    print(f"\nRoot Directory: {ROOT_DIR}")
+    
+    # Check if module directory is accessible
+    package_dir = os.path.join(ROOT_DIR, TEST_PACKAGE)
+    print(f"\nChecking module directory access: {TEST_PACKAGE}/")
+    
+    if not os.path.exists(package_dir):
+        print(f"❌ FATAL: {TEST_PACKAGE}/ directory does NOT exist")
+        print(f"Cannot proceed with tests.")
+        sys.exit(1)
+    
+    if not os.path.isdir(package_dir):
+        print(f"❌ FATAL: {TEST_PACKAGE} exists but is NOT a directory")
+        sys.exit(1)
+    
+    if not os.access(package_dir, os.R_OK):
+        print(f"❌ FATAL: {TEST_PACKAGE}/ exists but is NOT readable (permission denied)")
+        sys.exit(1)
+    
+    print(f"✅ Module directory accessible: {TEST_PACKAGE}/")
+    
+    # List package contents
     try:
-        root_files = sorted(os.listdir(ROOT_DIR))
-        print(f"[SETUP] Total files/directories: {len(root_files)}")
-        
-        # Separate files from directories
-        files = []
-        dirs = []
-        for item in root_files:
-            item_path = os.path.join(ROOT_DIR, item)
-            if os.path.isdir(item_path):
-                dirs.append(item)
-            else:
-                files.append(item)
-        
-        print(f"\n[SETUP] Directories ({len(dirs)}):")
-        for d in dirs:
-            print(f"         📁 {d}/")
-        
-        print(f"\n[SETUP] Python files ({len([f for f in files if f.endswith('.py')])}):")
-        for f in files:
-            if f.endswith('.py'):
-                print(f"         📄 {f}")
-        
-        print(f"\n[SETUP] Other files ({len([f for f in files if not f.endswith('.py')])}):")
-        for f in files:
-            if not f.endswith('.py'):
-                print(f"         📄 {f}")
+        package_files = sorted(os.listdir(package_dir))
+        print(f"\nPackage contents ({len(package_files)} files):")
+        for pf in package_files:
+            if pf.endswith('.py'):
+                print(f"  🐍 {pf}")
     except Exception as e:
-        print(f"[SETUP] ❌ Error listing root directory: {e}")
+        print(f"❌ ERROR: Cannot list {TEST_PACKAGE}/ contents: {e}")
     
-    # Check if test package directory exists and is accessible
-    print(f"\n[SETUP] === CHECKING {TEST_PACKAGE}/ DIRECTORY ===")
-    try:
-        package_dir = os.path.join(ROOT_DIR, TEST_PACKAGE)
-        
-        if not os.path.exists(package_dir):
-            print(f"[SETUP] ❌ {TEST_PACKAGE}/ directory NOT FOUND")
-        elif not os.path.isdir(package_dir):
-            print(f"[SETUP] ❌ {TEST_PACKAGE} exists but is NOT a directory")
-        else:
-            print(f"[SETUP] ✅ {TEST_PACKAGE}/ directory exists")
+    # ===== CHECK __init__.py =====
+    print_test_header("CHECKING __init__.py")
+    
+    init_path = os.path.join(package_dir, "__init__.py")
+    
+    if not os.path.exists(init_path):
+        print(f"⚠️  __init__.py does NOT exist")
+        print(f"Note: {TEST_PACKAGE} may not be a valid Python package")
+        has_init_imports = False
+    else:
+        try:
+            with open(init_path, 'r') as f:
+                init_content = f.read()
             
-            # Check read permissions
-            if os.access(package_dir, os.R_OK):
-                print(f"[SETUP] ✅ {TEST_PACKAGE}/ is readable")
+            # Check if blank
+            if len(init_content.strip()) == 0:
+                print(f"✅ __init__.py is BLANK")
+                has_init_imports = False
             else:
-                print(f"[SETUP] ❌ {TEST_PACKAGE}/ is NOT readable (permission issue)")
-            
-            # List contents
-            package_files = sorted(os.listdir(package_dir))
-            print(f"[SETUP] {TEST_PACKAGE}/ contains {len(package_files)} files:")
-            for pf in package_files:
-                pf_path = os.path.join(package_dir, pf)
-                if os.path.isdir(pf_path):
-                    print(f"         📁 {pf}/")
-                elif pf.endswith('.py'):
-                    print(f"         🐍 {pf}")
+                # Check if has imports
+                has_init_imports = any(
+                    line.strip().startswith(('import ', 'from ')) 
+                    and not line.strip().startswith('#')
+                    for line in init_content.splitlines()
+                )
+                
+                if not has_init_imports:
+                    print(f"✅ __init__.py has content but NO imports")
                 else:
-                    print(f"         📄 {pf}")
-            
-            # Check if __init__.py exists
-            init_file = os.path.join(package_dir, "__init__.py")
-            if os.path.exists(init_file):
-                print(f"[SETUP] ✅ {TEST_PACKAGE}/__init__.py exists (valid package)")
-            else:
-                print(f"[SETUP] ⚠️  {TEST_PACKAGE}/__init__.py NOT FOUND (not a valid package!)")
-            
-            # Check if test module exists
-            module_file = os.path.join(package_dir, f"{TEST_MODULE}.py")
-            if os.path.exists(module_file):
-                print(f"[SETUP] ✅ {TEST_PACKAGE}/{TEST_MODULE}.py exists")
-            else:
-                print(f"[SETUP] ⚠️  {TEST_PACKAGE}/{TEST_MODULE}.py NOT FOUND")
-    except Exception as e:
-        print(f"[SETUP] ❌ Error checking {TEST_PACKAGE}/ directory: {e}")
+                    print(f"⚠️  __init__.py has IMPORTS - testing...")
+                    
+                    # Test if __init__.py imports work
+                    try:
+                        exec(f"import {TEST_PACKAGE}")
+                        print_result("__init__.py imports test", True)
+                    except Exception as e:
+                        print_result("__init__.py imports test", False, str(e))
+        except Exception as e:
+            print(f"❌ ERROR reading __init__.py: {e}")
+            has_init_imports = False
     
-    print("\n" + "=" * 70)
-    print("RUNNING TESTS")
-    print("=" * 70)
+    # ===== BASIC IMPORT TESTS =====
+    print_test_header("BASIC IMPORT TESTS")
     
-    # ===== TEST 1: Import package =====
+    # TEST 1: Import package
     print("\n[TEST 1] Import package")
-    print(f"         Trying: import {TEST_PACKAGE}")
-    print(f"         Purpose: Verify package is importable")
-    print(f"         Customize: Change TEST_PACKAGE variable")
     try:
         exec(f"import {TEST_PACKAGE}")
-        print(f"         ✅ SUCCESS - {TEST_PACKAGE} imported")
+        print_result(f"import {TEST_PACKAGE}", True)
     except Exception as e:
-        print(f"         ❌ FAILED - {e}")
+        print_result(f"import {TEST_PACKAGE}", False, str(e))
     
-    # ===== TEST 2: Import module from package =====
+    # TEST 2: Import module from package
     print("\n[TEST 2] Import module from package")
-    print(f"         Trying: from {TEST_PACKAGE} import {TEST_MODULE}")
-    print(f"         Purpose: Verify module inside package is importable")
-    print(f"         Customize: Change TEST_MODULE variable")
     try:
         exec(f"from {TEST_PACKAGE} import {TEST_MODULE}")
-        print(f"         ✅ SUCCESS - {TEST_MODULE} imported from {TEST_PACKAGE}")
+        print_result(f"from {TEST_PACKAGE} import {TEST_MODULE}", True)
     except Exception as e:
-        print(f"         ❌ FAILED - {e}")
+        print_result(f"from {TEST_PACKAGE} import {TEST_MODULE}", False, str(e))
     
-    # ===== TEST 3: Import submodule directly =====
-    print("\n[TEST 3] Import submodule directly from package")
-    print(f"         Trying: from {TEST_PACKAGE} import {TEST_SUBMODULE}")
-    print(f"         Purpose: Verify submodules are directly importable")
-    print(f"         Customize: Change TEST_SUBMODULE variable")
+    # TEST 3: Import using dot notation
+    print("\n[TEST 3] Import using dot notation")
     try:
-        exec(f"from {TEST_PACKAGE} import {TEST_SUBMODULE}")
-        print(f"         ✅ SUCCESS - {TEST_SUBMODULE} imported")
+        exec(f"import {TEST_PACKAGE}.{TEST_MODULE}")
+        print_result(f"import {TEST_PACKAGE}.{TEST_MODULE}", True)
     except Exception as e:
-        print(f"         ❌ FAILED - {e}")
+        print_result(f"import {TEST_PACKAGE}.{TEST_MODULE}", False, str(e))
     
-    # ===== TEST 4: Check sys.modules =====
-    print("\n[TEST 4] Check what's loaded in sys.modules")
-    print(f"         Purpose: See which modules Python has loaded")
-    print(f"         Customize: Change filter string in list comprehension")
-    try:
-        loaded_modules = [k for k in sys.modules.keys() if TEST_PACKAGE in k]
-        print(f"         Loaded modules containing '{TEST_PACKAGE}':")
-        if loaded_modules:
-            for mod in loaded_modules:
-                print(f"           - {mod}")
-        else:
-            print(f"         ⚠️  No modules containing '{TEST_PACKAGE}' found")
-        print(f"         ✅ SUCCESS - sys.modules checked")
-    except Exception as e:
-        print(f"         ❌ FAILED - {e}")
-    
-    # ===== TEST 5: Inspect module file content =====
-    print("\n[TEST 5] Inspect module file for import statements")
-    print(f"         Purpose: See actual import statements in deployed file")
-    print(f"         Customize: Change file path and line filters")
-    try:
-        module_path = os.path.join(ROOT_DIR, TEST_PACKAGE, f"{TEST_MODULE}.py")
+    # ===== SUBMODULE TESTS =====
+    if TEST_SUBMODULES:
+        print_test_header("SUBMODULE IMPORT TESTS")
         
-        if not os.path.exists(module_path):
-            print(f"         ⚠️  File not found: {module_path}")
-        else:
+        for submodule in TEST_SUBMODULES:
+            print(f"\n--- Testing submodule: {submodule} ---")
+            
+            # TEST: Direct import from package
+            print(f"\n[SUBMODULE TEST A] from {TEST_PACKAGE} import {submodule}")
+            try:
+                exec(f"from {TEST_PACKAGE} import {submodule}")
+                print_result(f"from {TEST_PACKAGE} import {submodule}", True)
+            except Exception as e:
+                print_result(f"from {TEST_PACKAGE} import {submodule}", False, str(e))
+            
+            # TEST: Dot notation import
+            print(f"\n[SUBMODULE TEST B] import {TEST_PACKAGE}.{submodule}")
+            try:
+                exec(f"import {TEST_PACKAGE}.{submodule}")
+                print_result(f"import {TEST_PACKAGE}.{submodule}", True)
+            except Exception as e:
+                print_result(f"import {TEST_PACKAGE}.{submodule}", False, str(e))
+            
+            # TEST: Relative import simulation (check what's in the file)
+            print(f"\n[SUBMODULE TEST C] Checking for relative imports in {submodule}")
+            submodule_path = os.path.join(package_dir, f"{submodule}.py")
+            if os.path.exists(submodule_path):
+                try:
+                    with open(submodule_path, 'r') as f:
+                        submodule_content = f.read()
+                    
+                    # Look for relative imports
+                    relative_imports = [
+                        line.strip() for line in submodule_content.splitlines()
+                        if line.strip().startswith(('from .', 'from..'))
+                        and not line.strip().startswith('#')
+                    ]
+                    
+                    if relative_imports:
+                        print(f"Found {len(relative_imports)} relative import(s):")
+                        for ri in relative_imports[:5]:  # Show first 5
+                            print(f"  {ri}")
+                    else:
+                        print(f"No relative imports found in {submodule}.py")
+                except Exception as e:
+                    print(f"❌ ERROR reading {submodule}.py: {e}")
+            else:
+                print(f"⚠️  {submodule}.py not found")
+    
+    # ===== MODULE FILE INSPECTION =====
+    print_test_header("MAIN MODULE FILE INSPECTION")
+    
+    module_path = os.path.join(package_dir, f"{TEST_MODULE}.py")
+    
+    if not os.path.exists(module_path):
+        print(f"⚠️  {TEST_MODULE}.py not found in {TEST_PACKAGE}/")
+    else:
+        try:
             with open(module_path, 'r') as f:
                 lines = f.readlines()
             
-            print(f"         File: {module_path}")
-            print(f"         Total lines: {len(lines)}")
-            print(f"         Import statements found:")
+            print(f"File: {TEST_MODULE}.py")
+            print(f"Total lines: {len(lines)}")
+            print(f"\nImport statements (first 100 lines):")
             
             import_count = 0
-            for i, line in enumerate(lines[:100], 1):  # Check first 100 lines
+            for i, line in enumerate(lines[:100], 1):
                 stripped = line.strip()
-                # Find import lines (not comments)
-                if ('import' in stripped and 
-                    not stripped.startswith('#') and 
-                    stripped):
-                    print(f"           Line {i:3d}: {line.rstrip()}")
+                if (('import' in stripped or 'from' in stripped) and 
+                    not stripped.startswith('#') and stripped):
+                    print(f"  Line {i:3d}: {line.rstrip()}")
                     import_count += 1
             
             if import_count == 0:
-                print(f"         ⚠️  No import statements found in first 100 lines")
-            
-            print(f"         ✅ SUCCESS - File inspected ({import_count} imports found)")
-    except Exception as e:
-        print(f"         ❌ FAILED - {e}")
-    
-    # ===== TEST 6: Check __init__.py content =====
-    print("\n[TEST 6] Check package __init__.py content")
-    print(f"         Purpose: Verify __init__.py is not causing import issues")
-    print(f"         Customize: Change package path")
-    try:
-        init_path = os.path.join(ROOT_DIR, TEST_PACKAGE, "__init__.py")
-        
-        if not os.path.exists(init_path):
-            print(f"         ⚠️  __init__.py not found (package might not be valid)")
-        else:
-            with open(init_path, 'r') as f:
-                content = f.read()
-            
-            print(f"         File: {init_path}")
-            print(f"         Size: {len(content)} characters")
-            print(f"         Lines: {len(content.splitlines())} lines")
-            
-            if len(content.strip()) == 0:
-                print(f"         ℹ️  __init__.py is EMPTY (blank)")
+                print(f"  No import statements found in first 100 lines")
             else:
-                print(f"         Content preview (first 500 chars):")
-                print(f"         {'-' * 60}")
-                print(content[:500])
-                if len(content) > 500:
-                    print(f"         ... (truncated)")
-                print(f"         {'-' * 60}")
-            
-            print(f"         ✅ SUCCESS - __init__.py checked")
-    except Exception as e:
-        print(f"         ❌ FAILED - {e}")
+                print(f"\nTotal imports found: {import_count}")
+        except Exception as e:
+            print(f"❌ ERROR reading {TEST_MODULE}.py: {e}")
     
-    # ===== TEST 7: Try alternative import style =====
-    print("\n[TEST 7] Try alternative import: import package.module")
-    print(f"         Trying: import {TEST_PACKAGE}.{TEST_MODULE}")
-    print(f"         Purpose: Test if dot-notation import works")
-    print(f"         Customize: Change package.module path")
-    try:
-        exec(f"import {TEST_PACKAGE}.{TEST_MODULE}")
-        print(f"         ✅ SUCCESS - {TEST_PACKAGE}.{TEST_MODULE} imported")
-    except Exception as e:
-        print(f"         ❌ FAILED - {e}")
+    # ===== sys.modules CHECK =====
+    print_test_header("sys.modules CHECK")
+    
+    loaded_modules = [k for k in sys.modules.keys() if TEST_PACKAGE in k]
+    print(f"Modules loaded containing '{TEST_PACKAGE}': {len(loaded_modules)}")
+    if loaded_modules:
+        for mod in sorted(loaded_modules):
+            print(f"  ✓ {mod}")
+    else:
+        print(f"  (none)")
     
     # ===== SUMMARY =====
-    print("\n" + "=" * 70)
-    print("TEST SUMMARY")
-    print("=" * 70)
-    print(f"All tests completed. Check results above.")
+    print_test_header("TEST COMPLETE")
     print(f"Package tested: {TEST_PACKAGE}")
     print(f"Module tested: {TEST_MODULE}")
-    print(f"Submodule tested: {TEST_SUBMODULE}")
-    print("=" * 70)
+    print(f"Submodules tested: {len(TEST_SUBMODULES)}")
+    print(f"\nAll tests completed. Review results above.")
+    print("=" * 80)
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -295,7 +300,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Returns:
         Never returns - exits after tests
     """
-    print("[LAMBDA HANDLER] Starting import diagnostic tests...")
+    print("[LAMBDA HANDLER] Starting universal import diagnostic tests...")
     
     # Run all tests
     run_import_tests()
@@ -305,4 +310,4 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     sys.exit(0)
 
 
-# EOF - lambda_import_test.py
+# EOF
