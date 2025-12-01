@@ -55,7 +55,7 @@ def alexa_process_directive(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.process_directive(event, **kwargs)
 
 
@@ -83,7 +83,7 @@ def alexa_handle_discovery(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_discovery(event, **kwargs)
 
 
@@ -111,7 +111,7 @@ def alexa_handle_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_control(event, **kwargs)
 
 
@@ -139,7 +139,7 @@ def alexa_handle_power_control(event: Dict[str, Any], **kwargs) -> Dict[str, Any
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_power_control(event, **kwargs)
 
 
@@ -167,7 +167,7 @@ def alexa_handle_brightness_control(event: Dict[str, Any], **kwargs) -> Dict[str
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_brightness_control(event, **kwargs)
 
 
@@ -195,7 +195,7 @@ def alexa_handle_thermostat_control(event: Dict[str, Any], **kwargs) -> Dict[str
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_thermostat_control(event, **kwargs)
 
 
@@ -223,7 +223,7 @@ def alexa_handle_accept_grant(event: Dict[str, Any], **kwargs) -> Dict[str, Any]
     if not _validate_event(event):
         return create_error_response('Invalid event format', 'INVALID_INPUT')
     
-    import ha_interface_alexa
+    import home_assistant.ha_interface_alexa as ha_interface_alexa
     return ha_interface_alexa.handle_accept_grant(event, **kwargs)
 
 
@@ -240,12 +240,5 @@ __all__ = [
     'alexa_handle_thermostat_control',
     'alexa_handle_accept_grant',
 ]
-
-# ALEXA GATEWAY WRAPPER:
-# - 7 functions for Alexa Smart Home operations
-# - Input validation via ha_interconnect_validation
-# - Error responses via gateway.create_error_response
-# - Routes to ha_interface_alexa (interface layer)
-# - Lazy imports for performance
 
 # EOF
