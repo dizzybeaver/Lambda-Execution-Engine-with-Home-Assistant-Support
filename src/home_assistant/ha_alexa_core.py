@@ -44,7 +44,7 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     try:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         try:
-            import home_assistant.ha_interconnect
+            import home_assistant.ha_interconnect as ha_interconnect
         except ImportError as e:
             log_error(f"[{correlation_id}] ha_interconnect not available: {e}")
             increment_counter('ha_alexa_import_error')
@@ -95,7 +95,7 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     
     try:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
-        import home_assistant.ha_interconnect
+        import home_assistant.ha_interconnect as ha_interconnect
         
         result = ha_interconnect.devices_call_ha_api('/api/alexa/smart_home', method='POST', data=event)
         
@@ -257,7 +257,7 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
     """
     try:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
-        import ha_interconnect
+        import home_assistant.ha_interconnect as ha_interconnect
         
         result = ha_interconnect.devices_call_ha_api(
             '/api/alexa/smart_home',
