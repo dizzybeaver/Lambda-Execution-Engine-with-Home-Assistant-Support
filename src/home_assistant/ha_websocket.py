@@ -1,16 +1,8 @@
 # ha_websocket.py
 """
 ha_websocket.py - WebSocket Operations
-Version: 3.0.0 (Phase 5)
+Version: 3.0.0
 Description: WebSocket communication with debug tracing and timing metrics
-
-PHASE 5 CHANGES:
-- ADDED: Debug tracing (_DEBUG_MODE_ENABLED, _debug_trace)
-- ADDED: Timing metrics for all operations
-- ADDED: Slow operation detection
-- ADDED: Reconnection attempt tracking
-- MOVED: To /src/home_assistant/ directory
-- Enhanced error handling with conditional tracebacks
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -418,7 +410,6 @@ def get_entity_registry_via_websocket(use_cache: bool = True) -> Dict[str, Any]:
             return cached
     
     try:
-        # MODIFIED Phase 5: Import from home_assistant package
         from home_assistant.ha_config import load_ha_config
         config = load_ha_config()
         
@@ -543,15 +534,5 @@ def is_websocket_enabled() -> bool:
     """Check if WebSocket feature is enabled."""
     return HA_WEBSOCKET_ENABLED
 
-
-# PHASE 5 ENHANCEMENTS:
-# - Debug tracing integrated throughout
-# - Timing metrics for all operations
-# - Correlation IDs for request tracing
-# - Slow operation detection (connection, send, receive)
-# - Reconnection attempt tracking
-# - Success/failure counters
-# - Conditional tracebacks in DEBUG_MODE
-# - Ready for /src/home_assistant/ directory
 
 # EOF
