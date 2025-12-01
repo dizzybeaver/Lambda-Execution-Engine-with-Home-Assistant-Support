@@ -1,14 +1,8 @@
 """
 ha_interface_devices.py - Devices Interface Layer (INT-HA-02)
-Version: 1.0.0 - PHASE 1
+Version: 1.0.0
 Date: 2025-11-03
 Description: Interface layer for Home Assistant device operations
-
-PHASE 1: Setup & Structure
-- Created Devices interface routing layer
-- 7 routing functions to ha_devices_core
-- Lazy imports to core layer
-- ISP compliant
 
 Architecture:
 ha_interconnect.py → ha_interface_devices.py → ha_devices_core.py
@@ -36,7 +30,8 @@ def get_states(entity_ids: Optional[List[str]] = None,
     Returns:
         States response
     """
-    import ha_devices_core
+
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.get_states_impl(entity_ids, use_cache, **kwargs)
 
 
@@ -54,7 +49,7 @@ def get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
     Returns:
         Device state
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.get_by_id_impl(entity_id, **kwargs)
 
 
@@ -73,7 +68,7 @@ def find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[s
     Returns:
         Best match entity ID or None
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.find_fuzzy_impl(search_name, threshold, **kwargs)
 
 
@@ -92,7 +87,7 @@ def update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[s
     Returns:
         Update response
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.update_state_impl(entity_id, state_data, **kwargs)
 
 
@@ -115,7 +110,7 @@ def call_service(domain: str, service: str,
     Returns:
         Service response
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.call_service_impl(domain, service, entity_id, service_data, **kwargs)
 
 
@@ -133,7 +128,7 @@ def list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
     Returns:
         Device list
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.list_by_domain_impl(domain, **kwargs)
 
 
@@ -150,7 +145,7 @@ def check_status(**kwargs) -> Dict[str, Any]:
     Returns:
         Connection status
     """
-    import ha_devices_core
+    import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.check_status_impl(**kwargs)
 
 
