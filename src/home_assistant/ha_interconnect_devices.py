@@ -31,7 +31,7 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Dict, Any, Optional, List
-from ha_interconnect_validation import (
+from home_assistant.ha_interconnect_validation import (
     _validate_entity_id,
     _validate_domain,
     _validate_threshold,
