@@ -1,15 +1,8 @@
 # ha_common.py
 """
 ha_common.py
-Version: 3.0.0 (Phase 5)
+Version: 3.0.0
 Description: Home Assistant common utilities with debug tracing
-
-PHASE 5 CHANGES:
-- ADDED: Debug tracing for API calls and batch operations
-- ADDED: Timing metrics for significant operations
-- ADDED: Correlation IDs
-- MOVED: To /src/home_assistant/ directory
-- Updated import paths (home_assistant.ha_config)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -117,7 +110,6 @@ def get_ha_config() -> Dict[str, Any]:
         - timeout: Request timeout
         - verify_ssl: SSL verification flag
     """
-    # MODIFIED Phase 5: Import from home_assistant package
     from home_assistant.ha_config import load_ha_config
     return load_ha_config()
 
@@ -512,14 +504,5 @@ __all__ = [
     'minimize_entity',
     'minimize_entity_list',
 ]
-
-# PHASE 5 ENHANCEMENTS:
-# - Debug tracing for API calls and batch operations
-# - Timing metrics for significant operations
-# - Correlation IDs for request tracing
-# - Slow operation detection (>2000ms)
-# - Success/failure counters
-# - Updated import paths (home_assistant.ha_config)
-# - Ready for /src/home_assistant/ directory
 
 # EOF
