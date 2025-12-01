@@ -1,12 +1,9 @@
 # ha_devices_cache.py
 """
 ha_devices_cache.py - Cache Management Functions
-Version: 3.0.0 - FILE SPLIT COMPLIANT
+Version: 3.0.0
 Date: 2025-11-05
 Purpose: Cache management and performance reporting for HA devices
-
-Split from ha_devices_core.py v2.0.0 (866 lines) for SIMAv4 compliance.
-This file contains cache warming, invalidation, and performance analysis.
 
 Architecture:
 - Uses ha_devices_helpers for shared utilities
@@ -322,7 +319,7 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
         'file_split': {
             'complete': True,
             'from_file': 'ha_devices_core.py',
-            'split_reason': 'SIMAv4 400-line limit compliance',
+            'split_reason': 'SIMAv4 350-line limit compliance',
             'files': [
                 'ha_devices_core.py',
                 'ha_devices_helpers.py',
@@ -347,11 +344,5 @@ __all__ = [
     'get_performance_report_impl',
     'get_diagnostic_info_impl',
 ]
-
-# FILE SPLIT NOTES:
-# - Split from ha_devices_core.py v2.0.0 (866 lines)
-# - This file: ~240 lines (within 400-line limit)
-# - Uses helpers from ha_devices_helpers (shared utilities)
-# - No imports from ha_devices_core except lazy inside functions
 
 # EOF
