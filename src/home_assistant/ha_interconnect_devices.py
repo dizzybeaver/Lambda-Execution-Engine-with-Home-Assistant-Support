@@ -75,7 +75,7 @@ def devices_get_states(entity_ids: Optional[List[str]] = None,
     if not isinstance(use_cache, bool):
         use_cache = True
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.get_states(entity_ids, use_cache, **kwargs)
 
 
@@ -103,7 +103,7 @@ def devices_get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
     if not _validate_entity_id(entity_id):
         return create_error_response(f'Invalid entity_id: {entity_id}', 'INVALID_INPUT')
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.get_by_id(entity_id, **kwargs)
 
 
@@ -135,7 +135,7 @@ def devices_find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Op
     if not _validate_threshold(threshold):
         threshold = 0.6  # Default safe value
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.find_fuzzy(search_name, threshold, **kwargs)
 
 
@@ -167,7 +167,7 @@ def devices_update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -
     if not isinstance(state_data, dict):
         return create_error_response('state_data must be a dictionary', 'INVALID_INPUT')
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.update_state(entity_id, state_data, **kwargs)
 
 
@@ -208,7 +208,7 @@ def devices_call_service(domain: str, service: str,
     if service_data is not None and not isinstance(service_data, dict):
         return create_error_response('service_data must be a dictionary', 'INVALID_INPUT')
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.call_service(domain, service, entity_id, service_data, **kwargs)
 
 
@@ -236,7 +236,7 @@ def devices_list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
     if not _validate_domain(domain):
         return create_error_response(f'Invalid domain: {domain}', 'INVALID_INPUT')
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.list_by_domain(domain, **kwargs)
 
 
@@ -259,7 +259,7 @@ def devices_check_status(**kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-02
     """
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.check_status(**kwargs)
 
 
@@ -296,7 +296,7 @@ def devices_call_ha_api(endpoint: str, method: str = 'GET',
     if data is not None and not isinstance(data, dict):
         return create_error_response('data must be a dictionary', 'INVALID_INPUT')
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.call_ha_api(endpoint, method, data, **kwargs)
 
 
@@ -324,7 +324,7 @@ def devices_get_ha_config(force_reload: bool = False, **kwargs) -> Dict[str, Any
     if not isinstance(force_reload, bool):
         force_reload = False
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.get_ha_config(force_reload, **kwargs)
 
 
@@ -347,7 +347,7 @@ def devices_warm_cache(**kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-02
     """
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.warm_cache(**kwargs)
 
 
@@ -375,7 +375,7 @@ def devices_invalidate_entity_cache(entity_id: str, **kwargs) -> bool:
     if not _validate_entity_id(entity_id):
         return False
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.invalidate_entity_cache(entity_id, **kwargs)
 
 
@@ -403,7 +403,7 @@ def devices_invalidate_domain_cache(domain: str, **kwargs) -> int:
     if not _validate_domain(domain):
         return 0
     
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.invalidate_domain_cache(domain, **kwargs)
 
 
@@ -426,7 +426,7 @@ def devices_get_performance_report(**kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-02
     """
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.get_performance_report(**kwargs)
 
 
@@ -449,7 +449,7 @@ def devices_get_diagnostic_info(**kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-02
     """
-    import ha_interface_devices
+    import home_assistant.ha_interface_devices as ha_interface_devices
     return ha_interface_devices.get_diagnostic_info(**kwargs)
 
 
