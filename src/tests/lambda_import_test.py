@@ -53,23 +53,85 @@ def run_import_tests():
     # Get ROOT_DIR (Lambda's /var/task directory)
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     print(f"\n[SETUP] ROOT_DIR: {ROOT_DIR}")
-    print(f"[SETUP] sys.path: {sys.path[:3]}...")  # Show first 3 paths
+    print(f"[SETUP] sys.path (first 3): {sys.path[:3]}")
     
-    # Show what files exist in ROOT_DIR
+    # Show COMPLETE list of files in Lambda root directory
+    print(f"\n[SETUP] === COMPLETE FILE LIST IN LAMBDA ROOT ===")
     try:
-        root_files = os.listdir(ROOT_DIR)
-        print(f"[SETUP] Files in ROOT_DIR: {len(root_files)} files")
+        root_files = sorted(os.listdir(ROOT_DIR))
+        print(f"[SETUP] Total files/directories: {len(root_files)}")
         
-        # Check if test package exists
-        package_dir = os.path.join(ROOT_DIR, TEST_PACKAGE)
-        if os.path.exists(package_dir):
-            package_files = os.listdir(package_dir)
-            print(f"[SETUP] {TEST_PACKAGE}/ exists with {len(package_files)} files")
-            print(f"[SETUP] {TEST_PACKAGE}/ contents: {package_files[:10]}...")
-        else:
-            print(f"[SETUP] ❌ {TEST_PACKAGE}/ directory NOT FOUND")
+        # Separate files from directories
+        files = []
+        dirs = []
+        for item in root_files:
+            item_path = os.path.join(ROOT_DIR, item)
+            if os.path.isdir(item_path):
+                dirs.append(item)
+            else:
+                files.append(item)
+        
+        print(f"\n[SETUP] Directories ({len(dirs)}):")
+        for d in dirs:
+            print(f"         📁 {d}/")
+        
+        print(f"\n[SETUP] Python files ({len([f for f in files if f.endswith('.py')])}):")
+        for f in files:
+            if f.endswith('.py'):
+                print(f"         📄 {f}")
+        
+        print(f"\n[SETUP] Other files ({len([f for f in files if not f.endswith('.py')])}):")
+        for f in files:
+            if not f.endswith('.py'):
+                print(f"         📄 {f}")
     except Exception as e:
-        print(f"[SETUP] ❌ Error checking directories: {e}")
+        print(f"[SETUP] ❌ Error listing root directory: {e}")
+    
+    # Check if test package directory exists and is accessible
+    print(f"\n[SETUP] === CHECKING {TEST_PACKAGE}/ DIRECTORY ===")
+    try:
+        package_dir = os.path.join(ROOT_DIR, TEST_PACKAGE)
+        
+        if not os.path.exists(package_dir):
+            print(f"[SETUP] ❌ {TEST_PACKAGE}/ directory NOT FOUND")
+        elif not os.path.isdir(package_dir):
+            print(f"[SETUP] ❌ {TEST_PACKAGE} exists but is NOT a directory")
+        else:
+            print(f"[SETUP] ✅ {TEST_PACKAGE}/ directory exists")
+            
+            # Check read permissions
+            if os.access(package_dir, os.R_OK):
+                print(f"[SETUP] ✅ {TEST_PACKAGE}/ is readable")
+            else:
+                print(f"[SETUP] ❌ {TEST_PACKAGE}/ is NOT readable (permission issue)")
+            
+            # List contents
+            package_files = sorted(os.listdir(package_dir))
+            print(f"[SETUP] {TEST_PACKAGE}/ contains {len(package_files)} files:")
+            for pf in package_files:
+                pf_path = os.path.join(package_dir, pf)
+                if os.path.isdir(pf_path):
+                    print(f"         📁 {pf}/")
+                elif pf.endswith('.py'):
+                    print(f"         🐍 {pf}")
+                else:
+                    print(f"         📄 {pf}")
+            
+            # Check if __init__.py exists
+            init_file = os.path.join(package_dir, "__init__.py")
+            if os.path.exists(init_file):
+                print(f"[SETUP] ✅ {TEST_PACKAGE}/__init__.py exists (valid package)")
+            else:
+                print(f"[SETUP] ⚠️  {TEST_PACKAGE}/__init__.py NOT FOUND (not a valid package!)")
+            
+            # Check if test module exists
+            module_file = os.path.join(package_dir, f"{TEST_MODULE}.py")
+            if os.path.exists(module_file):
+                print(f"[SETUP] ✅ {TEST_PACKAGE}/{TEST_MODULE}.py exists")
+            else:
+                print(f"[SETUP] ⚠️  {TEST_PACKAGE}/{TEST_MODULE}.py NOT FOUND")
+    except Exception as e:
+        print(f"[SETUP] ❌ Error checking {TEST_PACKAGE}/ directory: {e}")
     
     print("\n" + "=" * 70)
     print("RUNNING TESTS")
