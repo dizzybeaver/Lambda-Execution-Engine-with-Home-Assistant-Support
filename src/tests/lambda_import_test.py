@@ -1,16 +1,19 @@
 """
 lambda_import_test.py - Import Diagnostics for Lambda
+Drop-in Import testing for lambda_function.py
 
-Version: 1.0.0
+Version: DIAGNOSTIC
 Date: 2025-11-30
 Purpose: Systematic testing of Python import paths in AWS Lambda
 
+⚠️ THIS IS A TEMPORARY DIAGNOSTIC FILE ⚠️
 USAGE:
-1. Deploy this file as your Lambda handler
-2. Set handler to: lambda_import_test.lambda_handler
-3. Trigger Lambda with any event
-4. Check CloudWatch logs for test results
-5. Restore original lambda_function.py when done
+1. Rename your current lambda_function.py to lambda_function.py.backup
+2. Rename this file to lambda_function.py
+3. Deploy to Lambda (handler is already lambda_function.lambda_handler)
+4. Trigger Lambda with any event (Alexa request will work)
+5. Check CloudWatch logs for test results
+6. Restore lambda_function.py.backup when done
 
 CUSTOMIZATION:
 - Modify TEST_PACKAGE to test different packages
@@ -21,8 +24,16 @@ Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+# ===== CRITICAL: sys.path fix for subdirectory imports =====
+# This MUST be first, before any imports
 import sys
 import os
+
+# Ensure lambda_function.py's directory is in sys.path
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 import time
 from typing import Dict, Any
 
