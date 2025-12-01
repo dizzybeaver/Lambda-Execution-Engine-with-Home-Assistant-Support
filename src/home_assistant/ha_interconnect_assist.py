@@ -28,7 +28,7 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Dict, Any, Optional, List
-from home.assistant.ha_interconnect_validation import _validate_message
+from home_assistant.ha_interconnect_validation import _validate_message
 from gateway import create_error_response
 
 
