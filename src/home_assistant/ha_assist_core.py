@@ -1,14 +1,8 @@
 """
 ha_assist_core.py - Assist/Conversation Core Implementation (INT-HA-03)
-Version: 1.0.0 - PHASE 4
+Version: 1.0.0
 Date: 2025-11-04
 Description: Core implementation for Home Assistant Assist/Conversation feature
-
-PHASE 4: Assist Migration Complete
-- Conversation processing via HA Conversation API
-- Pipeline-based conversation flow
-- Integrated debug tracing and timing
-- LEE access via gateway.py only
 
 Architecture:
 ha_interconnect.py → ha_interface_assist.py → ha_assist_core.py (THIS FILE)
@@ -38,24 +32,15 @@ from gateway import (
     generate_correlation_id, get_timestamp
 )
 
-# ADDED Phase 4: Import HA device functions via ha_interconnect
-import ha_interconnect
+import home_assistant.ha_interconnect
 
-# ADDED Phase 4: Debug tracing
 import os
 _DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
-
-# ADDED Phase 4: Cache TTL for conversation results
 HA_CONVERSATION_CACHE_TTL = 60  # Cache conversation responses for 1 minute
-
-# ADDED Phase 4: Slow operation threshold
 HA_SLOW_CONVERSATION_THRESHOLD_MS = 2000  # Alert if conversation > 2s
-
 
 def _debug_trace(correlation_id: str, step: str, **details):
     """
-    ADDED Phase 4: Debug trace helper for assist operations.
-    
     Args:
         correlation_id: Correlation ID for request tracing
         step: Step description
@@ -70,8 +55,6 @@ def send_assist_message_impl(message: str, conversation_id: Optional[str] = None
                              language: str = 'en', **kwargs) -> Dict[str, Any]:
     """
     Send message to Home Assistant Assist.
-    
-    PHASE 4: Based on process_conversation() from ha_features.py
     
     Core implementation for sending messages to HA Conversation API.
     
@@ -124,12 +107,10 @@ def send_assist_message_impl(message: str, conversation_id: Optional[str] = None
         
         duration_ms = (time.perf_counter() - start_time) * 1000
         
-        # ADDED Phase 4: Track slow conversations
         if duration_ms > HA_SLOW_CONVERSATION_THRESHOLD_MS:
             log_warning(f"[{correlation_id}] Slow conversation detected: {duration_ms:.2f}ms")
             increment_counter('ha_assist_slow_conversation')
         
-        # ADDED Phase 4: Record timing metrics
         record_metric('ha_assist_duration_ms', duration_ms)
         
         if api_result.get('success'):
@@ -181,8 +162,6 @@ def get_assist_response_impl(conversation_id: str, **kwargs) -> Dict[str, Any]:
     """
     Get response from a conversation.
     
-    PHASE 4: Simple wrapper for retrieving cached conversation results
-    
     Note: HA Conversation API is synchronous, so this is mainly for
     retrieving cached results or polling for async operations.
     
@@ -224,8 +203,6 @@ def process_assist_conversation_impl(message: str, context: Optional[Dict] = Non
                                      **kwargs) -> Dict[str, Any]:
     """
     Process full conversation with Assist.
-    
-    PHASE 4: Main conversation processing function
     
     Core implementation for complete conversation flow. Based on
     process_conversation() from ha_features.py.
@@ -316,8 +293,6 @@ def handle_assist_pipeline_impl(pipeline_id: str, message: str, **kwargs) -> Dic
     """
     Handle pipeline-specific conversation operations.
     
-    PHASE 4: Pipeline-specific conversation handler
-    
     Allows using specific conversation pipelines (if HA has multiple
     configured conversation agents/pipelines).
     
@@ -363,7 +338,6 @@ def handle_assist_pipeline_impl(pipeline_id: str, message: str, **kwargs) -> Dic
         
         duration_ms = (time.perf_counter() - start_time) * 1000
         
-        # ADDED Phase 4: Track slow pipeline operations
         if duration_ms > HA_SLOW_CONVERSATION_THRESHOLD_MS:
             log_warning(f"[{correlation_id}] Slow pipeline conversation: {duration_ms:.2f}ms")
             increment_counter('ha_assist_pipeline_slow')
@@ -417,13 +391,5 @@ __all__ = [
     'process_assist_conversation_impl',
     'handle_assist_pipeline_impl'
 ]
-
-# PHASE 4 MIGRATION SUMMARY:
-# - Created 4 assist/conversation functions
-# - Based on process_conversation() from ha_features.py
-# - Integrated debug tracing and timing
-# - Uses ha_interconnect to access devices_call_ha_api
-# - All timing and metrics tracked
-# - Ready for ha_interconnect wrappers
 
 # EOF
