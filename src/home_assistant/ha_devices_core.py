@@ -1,12 +1,9 @@
 # ha_devices_core.py
 """
 ha_devices_core.py - Core Device Operations (INT-HA-02)
-Version: 3.0.0 - FILE SPLIT COMPLIANT
+Version: 3.0.0
 Date: 2025-11-05
 Purpose: Core implementation for Home Assistant device operations
-
-Split from v2.0.0 (866 lines) for SIMAv4 compliance.
-This file contains ONLY the 7 core device operations.
 
 Architecture:
 ha_interconnect.py → ha_interface_devices.py → ha_devices_core.py (THIS FILE)
@@ -467,14 +464,5 @@ __all__ = [
     'list_by_domain_impl',
     'check_status_impl',
 ]
-
-# FILE SPLIT NOTES:
-# - Split from v2.0.0 (866 lines) to v3.0.0 (320 lines)
-# - Helpers moved to ha_devices_helpers.py
-# - Cache management moved to ha_devices_cache.py
-# - CRIT-01 fixed in ha_devices_helpers.py
-# - All files ≤400 lines (SIMAv4 compliant)
-# - SUGA pattern maintained
-# - No circular imports
 
 # EOF
