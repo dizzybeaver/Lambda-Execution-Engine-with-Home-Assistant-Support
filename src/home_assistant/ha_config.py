@@ -1,16 +1,8 @@
 # ha_config.py
 """
 ha_config.py - Home Assistant Configuration Management
-Version: 3.0.0 (Phase 5)
+Version: 3.0.0
 Description: Configuration with debug tracing and timing metrics
-
-PHASE 5 CHANGES:
-- ADDED: Debug tracing (_DEBUG_MODE_ENABLED, _debug_trace)
-- ADDED: Timing metrics (record_metric)
-- ADDED: Correlation IDs for all functions
-- ADDED: Slow operation detection
-- MOVED: To /src/home_assistant/ directory
-- Enhanced error handling with conditional tracebacks
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -463,14 +455,5 @@ __all__ = [
     'load_ha_connection_config',
     'load_ha_preset_config'
 ]
-
-# PHASE 5 ENHANCEMENTS:
-# - Debug tracing integrated throughout
-# - Timing metrics for all operations
-# - Correlation IDs for request tracing
-# - Slow operation detection (>1000ms)
-# - Success/failure counters
-# - Conditional tracebacks in DEBUG_MODE
-# - Ready for /src/home_assistant/ directory
 
 # EOF
