@@ -5,13 +5,6 @@ Version: 1.0.0
 Date: 2025-11-05
 Purpose: Health checks for Home Assistant integration
 
-PHASE 2: HIGH-04 - Health monitoring implementation
-- HA connectivity checks
-- Circuit breaker status
-- Rate limiter status
-- Cache health
-- Overall system health
-
 Architecture:
 Provides health check endpoints for monitoring and diagnostics.
 
@@ -30,7 +23,7 @@ from gateway import (
 )
 
 # Import HA modules
-import ha_interconnect
+import home_assistant.ha_interconnect
 from ha_devices_helpers import get_rate_limit_stats
 
 
@@ -326,13 +319,5 @@ __all__ = [
     'get_overall_health',
     'get_health_summary'
 ]
-
-# PHASE 2 IMPLEMENTATION:
-# - HIGH-04: Health monitoring system
-# - Component health checks
-# - Overall system health aggregation
-# - Quick summary endpoint
-# - Detailed diagnostic endpoint
-# - Integration-ready for monitoring systems
 
 # EOF
