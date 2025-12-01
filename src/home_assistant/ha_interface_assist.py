@@ -1,14 +1,8 @@
 """
 ha_interface_assist.py - Assist Interface Layer (INT-HA-03)
-Version: 2.0.0 - PHASE 4
+Version: 2.0.0
 Date: 2025-11-04
 Description: Interface layer for Talk to Assist integration
-
-PHASE 4: Assist Migration Complete
-- Updated interface routing to match ha_assist_core implementations
-- 4 routing functions correctly aligned
-- Lazy imports to core layer
-- ISP compliant
 
 Architecture:
 ha_interconnect.py → ha_interface_assist.py (THIS FILE) → ha_assist_core.py
@@ -25,7 +19,6 @@ def send_message(message: str, conversation_id: Optional[str] = None,
     """
     Send message to Talk to Assist.
     
-    UPDATED Phase 4: Interface layer routing.
     Routes to: ha_assist_core.send_assist_message_impl
     
     Args:
@@ -39,7 +32,8 @@ def send_message(message: str, conversation_id: Optional[str] = None,
         
     REF: INT-HA-03
     """
-    import ha_assist_core
+    
+    import home_assistant.ha_assist_core as ha_assist_core
     return ha_assist_core.send_assist_message_impl(message, conversation_id, language, **kwargs)
 
 
@@ -59,7 +53,7 @@ def get_response(conversation_id: str, **kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-03
     """
-    import ha_assist_core
+    import home_assistant.ha_alexa_core as ha_assist_core
     return ha_assist_core.get_assist_response_impl(conversation_id, **kwargs)
 
 
@@ -68,7 +62,6 @@ def process_conversation(message: str, context: Optional[Dict] = None,
     """
     Process conversation with Assist.
     
-    UPDATED Phase 4: Interface layer routing.
     Routes to: ha_assist_core.process_assist_conversation_impl
     
     Args:
@@ -81,7 +74,7 @@ def process_conversation(message: str, context: Optional[Dict] = None,
         
     REF: INT-HA-03
     """
-    import ha_assist_core
+    import home_assistant.ha_alexa_core as ha_assist_core
     return ha_assist_core.process_assist_conversation_impl(message, context, **kwargs)
 
 
@@ -89,7 +82,6 @@ def handle_pipeline(pipeline_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
     Handle Assist pipeline.
     
-    UPDATED Phase 4: Interface layer routing.
     Routes to: ha_assist_core.handle_assist_pipeline_impl
     
     Args:
@@ -102,7 +94,7 @@ def handle_pipeline(pipeline_id: str, message: str, **kwargs) -> Dict[str, Any]:
         
     REF: INT-HA-03
     """
-    import ha_assist_core
+    import home_assistant.ha_alexa_core as ha_assist_core
     return ha_assist_core.handle_assist_pipeline_impl(pipeline_id, message, **kwargs)
 
 
@@ -112,12 +104,5 @@ __all__ = [
     'process_conversation',
     'handle_pipeline',
 ]
-
-# PHASE 4 UPDATE SUMMARY:
-# - Updated function signatures to match ha_assist_core implementations
-# - send_message: Added conversation_id and language parameters
-# - process_conversation: Changed from List[messages] to message + context
-# - handle_pipeline: Changed from pipeline_data dict to pipeline_id + message
-# - All routing verified correct
 
 # EOF
