@@ -23,8 +23,8 @@ from gateway import (
 )
 
 # Import HA modules
-import home_assistant.ha_interconnect
-from ha_devices_helpers import get_rate_limit_stats
+import home_assistant.ha_interconnect as ha_interconnect
+from home_assistant.ha_devices_helpers import get_rate_limit_stats
 
 
 def check_ha_connectivity(timeout: int = 5) -> Dict[str, Any]:
