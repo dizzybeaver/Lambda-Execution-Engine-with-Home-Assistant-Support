@@ -32,7 +32,7 @@ from gateway import (
     generate_correlation_id, get_timestamp
 )
 
-import home_assistant.ha_interconnect
+import home_assistant.ha_interconnect as ha_interconnect
 
 import os
 _DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
