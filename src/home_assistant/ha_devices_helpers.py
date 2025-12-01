@@ -273,7 +273,7 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
     Get Home Assistant configuration.
     FIXES CRIT-01: Uses lazy import.
     """
-    import home_assistant.ha_config
+    import home_assistant.ha_config as ha_config
     
     correlation_id = generate_correlation_id()
     
