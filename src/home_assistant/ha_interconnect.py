@@ -22,7 +22,7 @@ Licensed under Apache 2.0 (see LICENSE).
 """
 
 # Import validation helpers
-from home_assistant.ha_interconnect_validation import (
+from .ha_interconnect_validation import (
     _validate_entity_id,
     _validate_domain,
     _validate_event,
@@ -33,7 +33,7 @@ from home_assistant.ha_interconnect_validation import (
 )
 
 # Import Alexa gateway functions
-from home_assistant.ha_interconnect_alexa import (
+from .ha_interconnect_alexa import (
     alexa_process_directive,
     alexa_handle_discovery,
     alexa_handle_control,
@@ -44,7 +44,7 @@ from home_assistant.ha_interconnect_alexa import (
 )
 
 # Import Devices gateway functions
-from home_assistant.ha_interconnect_devices import (
+from .ha_interconnect_devices import (
     devices_get_states,
     devices_get_by_id,
     devices_find_fuzzy,
@@ -62,7 +62,7 @@ from home_assistant.ha_interconnect_devices import (
 )
 
 # Import Assist gateway functions
-from home_assistant.ha_interconnect_assist import (
+from .ha_interconnect_assist import (
     assist_send_message,
     assist_get_response,
     assist_process_conversation,
