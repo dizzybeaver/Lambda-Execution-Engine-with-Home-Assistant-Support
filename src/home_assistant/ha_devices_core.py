@@ -38,7 +38,7 @@ from gateway import (
 )
 
 # Import helpers from ha_devices_helpers
-from ha_devices_helpers import (
+from home_assistant.ha_devices_helpers import (
     call_ha_api_impl,
     get_ha_config_impl,
     _extract_entity_list,
@@ -274,7 +274,7 @@ def call_service_impl(domain: str, service: str,
     REF: INT-HA-02
     """
     # Lazy import to avoid circular dependency
-    from ha_devices_cache import invalidate_entity_cache_impl
+    from home_assistant.ha_devices_cache import invalidate_entity_cache_impl
     
     correlation_id = generate_correlation_id()
     
