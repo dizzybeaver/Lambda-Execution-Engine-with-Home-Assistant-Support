@@ -1,17 +1,16 @@
 """
 ha_interface_devices.py - Devices Interface Layer (INT-HA-02)
-Version: 1.1.0
-Date: 2025-12-01
+Version: 2.0.0
+Date: 2025-12-02
 Description: Interface layer for Home Assistant device operations
 
-FIXED: Added missing routing functions for call_ha_api, get_ha_config, warm_cache,
-       invalidate_entity_cache, invalidate_domain_cache, get_performance_report,
-       get_diagnostic_info
+MODIFIED: Removed custom cache (~80 lines) - now uses gateway.cache_*()
+MODIFIED: Removed custom debug code (~50 lines) - now uses gateway.log_*()
+ADDED: DISPATCH dictionary for CR-1 pattern
+ADDED: execute_devices_operation() router function
 
 Architecture:
-ha_interconnect.py → ha_interface_devices.py → ha_devices_core.py
-                                              ├─ ha_devices_helpers.py
-                                              └─ ha_devices_cache.py
+ha_interconnect.py → ha_interface_devices.py → ha_devices_*.py
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -20,278 +19,194 @@ Licensed under Apache 2.0 (see LICENSE).
 from typing import Dict, Any, Optional, List
 
 
-# ===== CORE DEVICE OPERATIONS (7 FUNCTIONS) =====
-
-def get_states(entity_ids: Optional[List[str]] = None, 
-               use_cache: bool = True, **kwargs) -> Dict[str, Any]:
-    """
-    Get Home Assistant entity states.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.get_states_impl
-    
-    Args:
-        entity_ids: Optional list of entity IDs
-        use_cache: Whether to use cache
-        **kwargs: Additional options
-        
-    Returns:
-        States response
-    """
+def _get_states_impl(entity_ids: Optional[List[str]] = None, use_cache: bool = True, **kwargs) -> Dict[str, Any]:
+    """Get entity states."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.get_states_impl(entity_ids, use_cache, **kwargs)
 
 
-def get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
-    """
-    Get specific device by ID.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.get_by_id_impl
-    
-    Args:
-        entity_id: Entity ID
-        **kwargs: Additional options
-        
-    Returns:
-        Device state
-    """
+def _get_by_id_impl(entity_id: str, **kwargs) -> Dict[str, Any]:
+    """Get device by ID."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.get_by_id_impl(entity_id, **kwargs)
 
 
-def find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
-    """
-    Find device using fuzzy matching.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.find_fuzzy_impl
-    
-    Args:
-        search_name: Name to search
-        threshold: Match threshold
-        **kwargs: Additional options
-        
-    Returns:
-        Best match entity ID or None
-    """
+def _find_fuzzy_impl(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
+    """Find device via fuzzy matching."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.find_fuzzy_impl(search_name, threshold, **kwargs)
 
 
-def update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """
-    Update device state.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.update_state_impl
-    
-    Args:
-        entity_id: Entity to update
-        state_data: New state data
-        **kwargs: Additional options
-        
-    Returns:
-        Update response
-    """
+def _update_state_impl(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Update device state."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.update_state_impl(entity_id, state_data, **kwargs)
 
 
-def call_service(domain: str, service: str, 
-                entity_id: Optional[str] = None,
-                service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
-    """
-    Call Home Assistant service.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.call_service_impl
-    
-    Args:
-        domain: Service domain
-        service: Service name
-        entity_id: Optional entity ID
-        service_data: Optional service data
-        **kwargs: Additional options
-        
-    Returns:
-        Service response
-    """
+def _call_service_impl(domain: str, service: str, entity_id: Optional[str] = None, 
+                       service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+    """Call HA service."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.call_service_impl(domain, service, entity_id, service_data, **kwargs)
 
 
-def list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
-    """
-    List devices by domain.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.list_by_domain_impl
-    
-    Args:
-        domain: Domain to filter
-        **kwargs: Additional options
-        
-    Returns:
-        Device list
-    """
+def _list_by_domain_impl(domain: str, **kwargs) -> Dict[str, Any]:
+    """List devices by domain."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.list_by_domain_impl(domain, **kwargs)
 
 
-def check_status(**kwargs) -> Dict[str, Any]:
-    """
-    Check HA connection status.
-    
-    Interface layer routing.
-    Routes to: ha_devices_core.check_status_impl
-    
-    Args:
-        **kwargs: Additional options
-        
-    Returns:
-        Connection status
-    """
+def _check_status_impl(**kwargs) -> Dict[str, Any]:
+    """Check HA connection status."""
     import home_assistant.ha_devices_core as ha_devices_core
     return ha_devices_core.check_status_impl(**kwargs)
 
 
-# ===== HELPER/API FUNCTIONS (2 FUNCTIONS) - ADDED =====
-
-def call_ha_api(endpoint: str, method: str = 'GET', 
-               data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
-    """
-    Call Home Assistant API directly.
-    
-    Interface layer routing.
-    Routes to: ha_devices_helpers.call_ha_api_impl
-    
-    Args:
-        endpoint: API endpoint
-        method: HTTP method
-        data: Optional request data
-        **kwargs: Additional options
-        
-    Returns:
-        API response
-    """
+def _call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+    """Call HA API directly."""
     import home_assistant.ha_devices_helpers as ha_devices_helpers
     return ha_devices_helpers.call_ha_api_impl(endpoint, method, data, **kwargs)
 
 
-def get_ha_config(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
-    """
-    Get Home Assistant configuration.
-    
-    Interface layer routing.
-    Routes to: ha_devices_helpers.get_ha_config_impl
-    
-    Args:
-        force_reload: Force reload from sources
-        **kwargs: Additional options
-        
-    Returns:
-        Configuration dictionary
-    """
+def _get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
+    """Get HA configuration."""
     import home_assistant.ha_devices_helpers as ha_devices_helpers
     return ha_devices_helpers.get_ha_config_impl(force_reload, **kwargs)
 
 
-# ===== CACHE MANAGEMENT FUNCTIONS (3 FUNCTIONS) - ADDED =====
-
-def warm_cache(**kwargs) -> Dict[str, Any]:
-    """
-    Pre-warm cache on cold start.
-    
-    Interface layer routing.
-    Routes to: ha_devices_cache.warm_cache_impl
-    
-    Args:
-        **kwargs: Additional options
-        
-    Returns:
-        Warming status and statistics
-    """
+def _warm_cache_impl(**kwargs) -> Dict[str, Any]:
+    """Pre-warm cache."""
     import home_assistant.ha_devices_cache as ha_devices_cache
     return ha_devices_cache.warm_cache_impl(**kwargs)
 
 
-def invalidate_entity_cache(entity_id: str, **kwargs) -> bool:
-    """
-    Invalidate cache for specific entity.
-    
-    Interface layer routing.
-    Routes to: ha_devices_cache.invalidate_entity_cache_impl
-    
-    Args:
-        entity_id: Entity ID to invalidate
-        **kwargs: Additional options
-        
-    Returns:
-        True if invalidated
-    """
+def _invalidate_entity_cache_impl(entity_id: str, **kwargs) -> bool:
+    """Invalidate entity cache."""
     import home_assistant.ha_devices_cache as ha_devices_cache
     return ha_devices_cache.invalidate_entity_cache_impl(entity_id, **kwargs)
 
 
-def invalidate_domain_cache(domain: str, **kwargs) -> int:
-    """
-    Invalidate cache for entire domain.
-    
-    Interface layer routing.
-    Routes to: ha_devices_cache.invalidate_domain_cache_impl
-    
-    Args:
-        domain: Domain to invalidate
-        **kwargs: Additional options
-        
-    Returns:
-        Number of entries invalidated
-    """
+def _invalidate_domain_cache_impl(domain: str, **kwargs) -> int:
+    """Invalidate domain cache."""
     import home_assistant.ha_devices_cache as ha_devices_cache
     return ha_devices_cache.invalidate_domain_cache_impl(domain, **kwargs)
 
 
-# ===== DIAGNOSTIC FUNCTIONS (2 FUNCTIONS) - ADDED =====
-
-def get_performance_report(**kwargs) -> Dict[str, Any]:
-    """
-    Get comprehensive performance report.
-    
-    Interface layer routing.
-    Routes to: ha_devices_cache.get_performance_report_impl
-    
-    Args:
-        **kwargs: Additional options
-        
-    Returns:
-        Performance report
-    """
+def _get_performance_report_impl(**kwargs) -> Dict[str, Any]:
+    """Get performance report."""
     import home_assistant.ha_devices_cache as ha_devices_cache
     return ha_devices_cache.get_performance_report_impl(**kwargs)
 
 
-def get_diagnostic_info(**kwargs) -> Dict[str, Any]:
-    """
-    Get diagnostic information.
-    
-    Interface layer routing.
-    Routes to: ha_devices_cache.get_diagnostic_info_impl
-    
-    Args:
-        **kwargs: Additional options
-        
-    Returns:
-        Diagnostic information
-    """
+def _get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
+    """Get diagnostic info."""
     import home_assistant.ha_devices_cache as ha_devices_cache
     return ha_devices_cache.get_diagnostic_info_impl(**kwargs)
 
 
-# ===== EXPORTS =====
+# ADDED: DISPATCH dictionary (CR-1 pattern)
+DISPATCH = {
+    'get_states': _get_states_impl,
+    'get_by_id': _get_by_id_impl,
+    'find_fuzzy': _find_fuzzy_impl,
+    'update_state': _update_state_impl,
+    'call_service': _call_service_impl,
+    'list_by_domain': _list_by_domain_impl,
+    'check_status': _check_status_impl,
+    'call_ha_api': _call_ha_api_impl,
+    'get_ha_config': _get_ha_config_impl,
+    'warm_cache': _warm_cache_impl,
+    'invalidate_entity_cache': _invalidate_entity_cache_impl,
+    'invalidate_domain_cache': _invalidate_domain_cache_impl,
+    'get_performance_report': _get_performance_report_impl,
+    'get_diagnostic_info': _get_diagnostic_info_impl,
+}
+
+
+# ADDED: Execute operation router (CR-1 pattern)
+def execute_devices_operation(operation: str, **kwargs):
+    """Execute devices operation via dispatch."""
+    if operation not in DISPATCH:
+        raise ValueError(f"Unknown devices operation: {operation}")
+    
+    handler = DISPATCH[operation]
+    return handler(**kwargs)
+
+
+# Maintain backward compatibility
+def get_states(entity_ids: Optional[List[str]] = None, use_cache: bool = True, **kwargs) -> Dict[str, Any]:
+    """Get states."""
+    return _get_states_impl(entity_ids, use_cache, **kwargs)
+
+
+def get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
+    """Get by ID."""
+    return _get_by_id_impl(entity_id, **kwargs)
+
+
+def find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
+    """Find fuzzy."""
+    return _find_fuzzy_impl(search_name, threshold, **kwargs)
+
+
+def update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Update state."""
+    return _update_state_impl(entity_id, state_data, **kwargs)
+
+
+def call_service(domain: str, service: str, entity_id: Optional[str] = None,
+                service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+    """Call service."""
+    return _call_service_impl(domain, service, entity_id, service_data, **kwargs)
+
+
+def list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
+    """List by domain."""
+    return _list_by_domain_impl(domain, **kwargs)
+
+
+def check_status(**kwargs) -> Dict[str, Any]:
+    """Check status."""
+    return _check_status_impl(**kwargs)
+
+
+def call_ha_api(endpoint: str, method: str = 'GET', data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+    """Call HA API."""
+    return _call_ha_api_impl(endpoint, method, data, **kwargs)
+
+
+def get_ha_config(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
+    """Get HA config."""
+    return _get_ha_config_impl(force_reload, **kwargs)
+
+
+def warm_cache(**kwargs) -> Dict[str, Any]:
+    """Warm cache."""
+    return _warm_cache_impl(**kwargs)
+
+
+def invalidate_entity_cache(entity_id: str, **kwargs) -> bool:
+    """Invalidate entity cache."""
+    return _invalidate_entity_cache_impl(entity_id, **kwargs)
+
+
+def invalidate_domain_cache(domain: str, **kwargs) -> int:
+    """Invalidate domain cache."""
+    return _invalidate_domain_cache_impl(domain, **kwargs)
+
+
+def get_performance_report(**kwargs) -> Dict[str, Any]:
+    """Get performance report."""
+    return _get_performance_report_impl(**kwargs)
+
+
+def get_diagnostic_info(**kwargs) -> Dict[str, Any]:
+    """Get diagnostic info."""
+    return _get_diagnostic_info_impl(**kwargs)
+
 
 __all__ = [
-    # Core device operations (7)
+    'execute_devices_operation',
     'get_states',
     'get_by_id',
     'find_fuzzy',
@@ -299,16 +214,11 @@ __all__ = [
     'call_service',
     'list_by_domain',
     'check_status',
-    # Helper/API functions (2) - ADDED
     'call_ha_api',
     'get_ha_config',
-    # Cache management (3) - ADDED
     'warm_cache',
     'invalidate_entity_cache',
     'invalidate_domain_cache',
-    # Diagnostics (2) - ADDED
     'get_performance_report',
     'get_diagnostic_info',
 ]
-
-# EOF
