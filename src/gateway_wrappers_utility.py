@@ -1,10 +1,14 @@
 """
 gateway_wrappers_utility.py - UTILITY Interface Wrappers
-Version: 2025.10.22.03
+Version: 3.0.0
+Date: 2025-12-02
 Description: Convenience wrappers for UTILITY interface operations
 
+ADDED: render_template - Template rendering wrapper
+ADDED: config_get - Typed config retrieval wrapper
+
 Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Any, Dict, Optional
@@ -37,13 +41,47 @@ def get_timestamp() -> float:
 
 
 def utility_get_stats() -> Dict[str, Any]:
-    """Get utility statistics (alias for utility_get_performance_stats)."""
+    """Get utility statistics."""
     return execute_operation(GatewayInterface.UTILITY, 'get_stats')
 
 
 def utility_reset() -> bool:
-    """Reset UTILITY manager state (lifecycle management)."""
+    """Reset UTILITY manager state."""
     return execute_operation(GatewayInterface.UTILITY, 'reset')
+
+
+# ADDED: Template rendering wrapper
+def render_template(template: dict, **data) -> dict:
+    """
+    Render template with data substitution.
+    
+    Automatically adds correlation ID, logging, and metrics.
+    
+    Args:
+        template: JSON template with {placeholders}
+        **data: Data for substitution
+        
+    Returns:
+        Rendered response dict
+    """
+    return execute_operation(GatewayInterface.UTILITY, 'render_template', template=template, data=data)
+
+
+# ADDED: Config get wrapper
+def config_get(key: str, default=None) -> Any:
+    """
+    Get typed configuration value.
+    
+    Type conversion based on default value type.
+    
+    Args:
+        key: Environment variable name
+        default: Default value (determines type)
+        
+    Returns:
+        Typed configuration value
+    """
+    return execute_operation(GatewayInterface.UTILITY, 'config_get', key=key, default=default)
 
 
 __all__ = [
@@ -54,4 +92,6 @@ __all__ = [
     'get_timestamp',
     'utility_get_stats',
     'utility_reset',
+    'render_template',
+    'config_get',
 ]
