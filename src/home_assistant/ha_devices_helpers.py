@@ -1,15 +1,7 @@
 # ha_devices_helpers.py
 """
-ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 3.1.0
-Date: 2025-11-05
+ha_devices_helpers.py - Device Helper Functions and Utilities Version: 3.1.1 Date: 2025-12-01
 Purpose: Helper functions and utilities for HA device operations
-
-Architecture:
-- Shared by ha_devices_core.py and ha_devices_cache.py
-- NO imports from other ha_devices_* files (prevents circular)
-- Uses gateway services only
-
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
@@ -31,7 +23,6 @@ from gateway import (
 )
 
 # ===== MODULE CONSTANTS =====
-
 HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_CONFIG = 600
@@ -39,7 +30,6 @@ HA_CACHE_TTL_FUZZY_MATCH = 300
 HA_CIRCUIT_BREAKER_NAME = "home_assistant"
 HA_SLOW_OPERATION_THRESHOLD_MS = 1000
 HA_CACHE_WARMING_ENABLED = os.getenv('HA_CACHE_WARMING_ENABLED', 'false').lower() == 'true'
-
 HA_RATE_LIMIT_ENABLED = os.getenv('HA_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
 HA_RATE_LIMIT_PER_SECOND = int(os.getenv('HA_RATE_LIMIT_PER_SECOND', '10'))
 HA_RATE_LIMIT_BURST = int(os.getenv('HA_RATE_LIMIT_BURST', '20'))
@@ -121,13 +111,11 @@ _rate_limiter = RateLimiter(
     burst=HA_RATE_LIMIT_BURST
 )
 
-
 # ===== HELPER FUNCTIONS =====
 
 def _is_debug_mode() -> bool:
     """Check if DEBUG_MODE is enabled."""
     return _DEBUG_MODE_ENABLED
-
 
 class DebugContext:
     """Debug tracing context manager."""
@@ -153,13 +141,11 @@ class DebugContext:
                 log_info(f"[{self.correlation_id}] [TRACE] {self.operation} COMPLETE ({duration_ms:.2f}ms)")
         return False
 
-
 def _trace_step(correlation_id: str, step: str, **details):
     """Log a debug trace step."""
     if _DEBUG_MODE_ENABLED:
         detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
         log_info(f"[{correlation_id}] [STEP] {step}" + (f" ({detail_str})" if detail_str else ""))
-
 
 def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
     """Extract entity list from various response formats."""
@@ -183,7 +169,6 @@ def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, A
     log_warning(f"Could not extract entity list from {type(data).__name__} in {context}")
     return []
 
-
 def _calculate_percentiles(values: List[float], percentiles: List[int]) -> Dict[str, float]:
     """Calculate percentiles from list of values."""
     if not values:
@@ -198,7 +183,6 @@ def _calculate_percentiles(values: List[float], percentiles: List[int]) -> Dict[
         result[f'p{p}'] = sorted_values[index]
     
     return result
-
 
 def _generate_performance_recommendations(
     operations: Dict[str, Any],
@@ -232,7 +216,6 @@ def _generate_performance_recommendations(
     
     return recommendations
 
-
 def _check_rate_limit(correlation_id: str) -> bool:
     """
     Check if request should be allowed under rate limit.
@@ -264,8 +247,6 @@ def get_rate_limit_stats() -> Dict[str, Any]:
     stats = _rate_limiter.get_stats()
     stats['enabled'] = True
     return stats
-
-
 # ===== CORE HELPER IMPLEMENTATIONS =====
 
 def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
@@ -302,7 +283,6 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
         record_metric('ha_config_cache_miss', 1.0)
         
         return config
-
 
 def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
                     config: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
@@ -360,12 +340,10 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
             
             _trace_step(correlation_id, "Making HTTP request", url=url[:50])
             
-            # Circuit breaker protection
             http_result = execute_with_circuit_breaker(
                 HA_CIRCUIT_BREAKER_NAME,
                 execute_operation,
-                GatewayInterface.HTTP_CLIENT,
-                method.lower(),
+                args=(GatewayInterface.HTTP_CLIENT, method.lower()),
                 url=url,
                 headers=headers,
                 json=data,
@@ -398,7 +376,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
         increment_counter('ha_api_error')
         return create_error_response(str(e), 'API_CALL_FAILED')
 
-
 __all__ = [
     'call_ha_api_impl',
     'get_ha_config_impl',
@@ -418,5 +395,4 @@ __all__ = [
     'HA_CACHE_WARMING_ENABLED',
     '_SLOW_OPERATIONS',
 ]
-
 # EOF
