@@ -1,16 +1,23 @@
-# ha_interconnect.py
 """
 ha_interconnect.py - Home Assistant Gateway (HA-SUGA) - Main Entry Point
-Version: 4.0.0
-Date: 2025-11-05
-Purpose: Central gateway importing from specialized wrappers
+Version: 5.0.0
+Date: 2025-12-02
+Purpose: Central gateway with CR-1 pattern and template support
+
+ADDED: Core registry imports (HAInterface, execute_ha_operation, etc.)
+ADDED: Configuration imports (HA_ENABLED, HA_CACHE_ENABLED, etc.)
+ADDED: Template imports (ALEXA_ERROR_RESPONSE, etc.)
+REMOVED: Validation imports (file deleted, now use gateway.validate_*)
+KEPT: All function exports (100% backward compatible)
 
 Structure:
-ha_interconnect.py (main, 80 lines)
-  ├─→ ha_interconnect_validation.py (8 helpers, 160 lines)
-  ├─→ ha_interconnect_alexa.py (7 functions, 150 lines)
-  ├─→ ha_interconnect_devices.py (14 functions, 300 lines)
-  └─→ ha_interconnect_assist.py (4 functions, 100 lines)
+ha_interconnect.py (main, 90 lines) - THIS FILE
+  ├→ ha_interconnect_core.py (CR-1 registry)
+  ├→ ha_config.py (centralized config)
+  ├→ ha_alexa_templates.py (response templates)
+  ├→ ha_interconnect_alexa.py (7 functions)
+  ├→ ha_interconnect_devices.py (14 functions)
+  └→ ha_interconnect_assist.py (4 functions)
 
 Pattern:
 This is the ONLY entry point for Home Assistant operations.
@@ -21,15 +28,35 @@ Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-# Import validation helpers
-from home_assistant.ha_interconnect_validation import (
-    _validate_entity_id,
-    _validate_domain,
-    _validate_event,
-    _validate_threshold,
-    _validate_endpoint,
-    _validate_http_method,
-    _validate_message,
+# ADDED: Core registry
+from home_assistant.ha_interconnect_core import (
+    HAInterface,
+    execute_ha_operation,
+    get_ha_registry_stats,
+    clear_ha_cache,
+)
+
+# ADDED: Configuration
+from home_assistant.ha_config import (
+    HA_ENABLED,
+    HA_CACHE_ENABLED,
+    HA_METRICS_ENABLED,
+    HA_DEBUG_MODE,
+    HA_CACHE_TTL_STATE,
+    HA_CACHE_TTL_DOMAIN,
+    HA_CACHE_TTL_FUZZY,
+    HA_CACHE_TTL_CONFIG,
+    HA_API_TIMEOUT,
+    HA_WEBSOCKET_TIMEOUT,
+    HA_CONNECT_TIMEOUT,
+)
+
+# ADDED: Templates
+from home_assistant.ha_alexa_templates import (
+    ALEXA_ERROR_RESPONSE,
+    ALEXA_SUCCESS_RESPONSE,
+    ALEXA_ACCEPT_GRANT_RESPONSE,
+    ALEXA_DISCOVERY_RESPONSE,
 )
 
 # Import Alexa gateway functions
@@ -69,22 +96,36 @@ from home_assistant.ha_interconnect_assist import (
     assist_handle_pipeline,
 )
 
+# REMOVED: Validation imports (file deleted - use gateway.validate_* instead)
 
-# ====================
-# EXPORTS
-# ====================
 
 __all__ = [
-    # Validation helpers (internal use, not typically called externally)
-    '_validate_entity_id',
-    '_validate_domain',
-    '_validate_event',
-    '_validate_threshold',
-    '_validate_endpoint',
-    '_validate_http_method',
-    '_validate_message',
+    # Core registry (NEW)
+    'HAInterface',
+    'execute_ha_operation',
+    'get_ha_registry_stats',
+    'clear_ha_cache',
     
-    # Alexa interface (7 functions)
+    # Configuration (NEW)
+    'HA_ENABLED',
+    'HA_CACHE_ENABLED',
+    'HA_METRICS_ENABLED',
+    'HA_DEBUG_MODE',
+    'HA_CACHE_TTL_STATE',
+    'HA_CACHE_TTL_DOMAIN',
+    'HA_CACHE_TTL_FUZZY',
+    'HA_CACHE_TTL_CONFIG',
+    'HA_API_TIMEOUT',
+    'HA_WEBSOCKET_TIMEOUT',
+    'HA_CONNECT_TIMEOUT',
+    
+    # Templates (NEW)
+    'ALEXA_ERROR_RESPONSE',
+    'ALEXA_SUCCESS_RESPONSE',
+    'ALEXA_ACCEPT_GRANT_RESPONSE',
+    'ALEXA_DISCOVERY_RESPONSE',
+    
+    # Alexa functions (7)
     'alexa_process_directive',
     'alexa_handle_discovery',
     'alexa_handle_control',
@@ -93,7 +134,7 @@ __all__ = [
     'alexa_handle_thermostat_control',
     'alexa_handle_accept_grant',
     
-    # Devices interface (14 functions)
+    # Devices functions (14)
     'devices_get_states',
     'devices_get_by_id',
     'devices_find_fuzzy',
@@ -109,27 +150,11 @@ __all__ = [
     'devices_get_performance_report',
     'devices_get_diagnostic_info',
     
-    # Assist interface (4 functions)
+    # Assist functions (4)
     'assist_send_message',
     'assist_get_response',
     'assist_process_conversation',
     'assist_handle_pipeline',
 ]
-
-# MODULAR GATEWAY v4.0.0:
-# - Central entry point imports from specialized wrappers
-# - No circular imports (clean dependency tree)
-# - All wrappers ≤400 lines (SIMAv4 compliant)
-# - Follows gateway/gateway_wrappers pattern from LEE
-# - Easy to extend (add functions to appropriate wrapper)
-# - Easy to maintain (changes localized to specific files)
-# - Security hardening via input validation (CRIT-03 compliant)
-
-# BACKWARD COMPATIBILITY:
-# All existing imports still work:
-#   from ha_interconnect import alexa_process_directive
-#   from ha_interconnect import devices_get_states
-#   from ha_interconnect import assist_send_message
-# No breaking changes for consumers.
 
 # EOF
