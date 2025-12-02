@@ -56,17 +56,15 @@ from gateway import (
 _gateway_time = (time.perf_counter() - _timing_start) * 1000
 _print_timing(f"Gateway imports complete: {_gateway_time:.2f}ms")
 
-# ===== PHASE 2/6: HA-SUGA INTEGRATION =====
 # Check if Home Assistant extension is enabled
 HA_ENABLED = os.getenv('HOME_ASSISTANT_ENABLE', 'false').lower() == 'true'
 HA_AVAILABLE = False
 
-# PHASE 6: Conditionally import HA-SUGA interconnect (NO FALLBACK)
 if HA_ENABLED:
     _ha_start = time.perf_counter()
     _print_timing("HOME_ASSISTANT_ENABLE=true, loading HA-SUGA...")
     try:
-        from home_assistant.ha_interconnect import *
+        from home_assistant import ha_interconnect
         HA_AVAILABLE = True
         _ha_time = (time.perf_counter() - _ha_start) * 1000
         _print_timing(f"HA-SUGA loaded: {_ha_time:.2f}ms")
@@ -226,10 +224,6 @@ def _is_ha_event(event: Dict[str, Any]) -> bool:
 def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Handle Alexa Smart Home requests.
-    
-    PHASE 6: MODIFIED - HA-SUGA only, no fallback
-    - Routes to ha_interconnect when HA_AVAILABLE=true
-    - Returns error response if HA needed but not enabled
     """
     
     alexa_start = time.perf_counter()
@@ -244,7 +238,6 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         _print_timing(f"Processing: {namespace}.{name}")
         
-        # PHASE 6: Check if HA is available
         if not HA_AVAILABLE:
             _print_timing("ERROR: Alexa request but HA not available")
             log_error("Alexa request received but HOME_ASSISTANT_ENABLE=false or HA import failed")
@@ -266,7 +259,6 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             }
         
-        # PHASE 6: Route to HA-SUGA (only path)
         _print_timing("Routing to HA-SUGA (ha_interconnect)...")
         route_start = time.perf_counter()
         
