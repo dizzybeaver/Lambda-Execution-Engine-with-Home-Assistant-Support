@@ -1,8 +1,10 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 3.0.0
-Date: 2025-12-01
+Version: 3.1.0
+Date: 2025-12-02
 Description: Core implementation for Alexa Smart Home integration
+
+FIXED: Added capability filtering to prevent ContactSensor on power devices
 
 Architecture:
 ha_interconnect.py → ha_interface_alexa.py → ha_alexa_core.py (THIS FILE)
@@ -82,6 +84,8 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Core implementation for device discovery.
     Queries Home Assistant for all available devices.
     
+    FIXED: Added capability filtering to remove invalid combinations
+    
     Args:
         event: Alexa discovery event
         **kwargs: Additional options
@@ -112,8 +116,11 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
             increment_counter('alexa_discovery_no_data')
             return _create_error_response({}, 'INTERNAL_ERROR', 'No discovery data')
         
+        # FIXED: Filter invalid capability combinations
+        filtered_response = _filter_discovery_response(response_data, correlation_id)
+        
         increment_counter('alexa_discovery_success')
-        return response_data
+        return filtered_response
         
     except Exception as e:
         log_error(f"[{correlation_id}] Discovery error: {str(e)}")
@@ -322,6 +329,109 @@ def _create_error_response(header: Dict[str, Any], error_type: str,
             }
         }
     }
+
+
+# FIXED: Added capability filtering functions
+def _filter_discovery_response(response: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
+    """
+    Filter discovery response to remove invalid capability combinations.
+    
+    FIXED: Prevents ContactSensor on devices with PowerController
+    
+    Args:
+        response: Raw discovery response from HA
+        correlation_id: Correlation ID for logging
+        
+    Returns:
+        Filtered response
+    """
+    try:
+        endpoints = response.get('event', {}).get('payload', {}).get('endpoints', [])
+        
+        if not endpoints:
+            return response
+        
+        log_debug(f"[{correlation_id}] Filtering {len(endpoints)} endpoints")
+        
+        filtered_endpoints = []
+        filtered_count = 0
+        
+        for endpoint in endpoints:
+            filtered_endpoint = _filter_endpoint_capabilities(endpoint, correlation_id)
+            filtered_endpoints.append(filtered_endpoint)
+            
+            # Track if filtering occurred
+            orig_caps = len(endpoint.get('capabilities', []))
+            new_caps = len(filtered_endpoint.get('capabilities', []))
+            if new_caps < orig_caps:
+                filtered_count += 1
+        
+        # Update response with filtered endpoints
+        response['event']['payload']['endpoints'] = filtered_endpoints
+        
+        if filtered_count > 0:
+            log_info(f"[{correlation_id}] Filtered capabilities on {filtered_count} devices")
+            increment_counter('alexa_discovery_filtered', filtered_count)
+        
+        return response
+        
+    except Exception as e:
+        log_error(f"[{correlation_id}] Filtering error: {e}")
+        increment_counter('alexa_discovery_filter_error')
+        return response  # Return original if filtering fails
+
+
+def _filter_endpoint_capabilities(endpoint: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
+    """
+    Filter invalid capability combinations for single endpoint.
+    
+    FIXED: Removes ContactSensor from devices with PowerController
+    
+    Args:
+        endpoint: Alexa endpoint definition
+        correlation_id: Correlation ID for logging
+        
+    Returns:
+        Filtered endpoint
+    """
+    try:
+        capabilities = endpoint.get('capabilities', [])
+        
+        if not capabilities:
+            return endpoint
+        
+        # Check for invalid combinations
+        has_power_controller = any(
+            cap.get('interface') == 'Alexa.PowerController' 
+            for cap in capabilities
+        )
+        
+        has_contact_sensor = any(
+            cap.get('interface') == 'Alexa.ContactSensor'
+            for cap in capabilities
+        )
+        
+        # FIXED: Remove ContactSensor from power devices
+        if has_power_controller and has_contact_sensor:
+            friendly_name = endpoint.get('friendlyName', 'Unknown')
+            log_warning(
+                f"[{correlation_id}] Removing ContactSensor from power device: {friendly_name}"
+            )
+            
+            # Filter out ContactSensor
+            filtered_capabilities = [
+                cap for cap in capabilities
+                if cap.get('interface') != 'Alexa.ContactSensor'
+            ]
+            
+            endpoint['capabilities'] = filtered_capabilities
+            increment_counter('alexa_capability_contactsensor_removed')
+        
+        return endpoint
+        
+    except Exception as e:
+        log_error(f"[{correlation_id}] Endpoint filtering error: {e}")
+        return endpoint  # Return original if filtering fails
 
 
 __all__ = [
