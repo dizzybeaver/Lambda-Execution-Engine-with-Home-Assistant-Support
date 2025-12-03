@@ -1,18 +1,11 @@
 """
 utility_core.py - Core Utility Implementation (Internal)
-Version: 2025.10.22.01
-Description: SharedUtilityCore class with SINGLETON pattern, rate limiting, NO threading locks
+Version: 3.1.0
+Date: 2025-12-02
+Description: SharedUtilityCore class with SINGLETON pattern, rate limiting
 
-CHANGELOG:
-- 2025.10.22.01: Phase 1 + 3 optimizations (Session 6)
-  - REMOVED threading locks (CRITICAL FIX - was violating AP-08, DEC-04)
-  - ADDED SINGLETON pattern with get_utility_manager()
-  - ADDED rate limiting (1000 ops/sec)
-  - ADDED reset() operation for lifecycle management
-  - ADDED get_stats() operation
-  - REPLACED Lock with rate limiting (DoS protection)
-  - Compliance: AP-08, DEC-04, LESS-17, LESS-18, LESS-21
-- 2025.10.16.04: Core utility implementation
+ADDED: render_template_impl - Template {placeholder} substitution
+ADDED: config_get_impl - Typed config from environment
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -22,6 +15,7 @@ import json
 import time
 import uuid
 import traceback
+import os
 from typing import Dict, Any, Optional, List
 from collections import deque
 import logging as stdlib_logging
@@ -30,8 +24,6 @@ from utility_types import UtilityMetrics, DEFAULT_MAX_JSON_CACHE_SIZE
 
 logger = stdlib_logging.getLogger(__name__)
 
-
-# ===== CONSOLIDATED UTILITY CORE =====
 
 class SharedUtilityCore:
     """
@@ -53,7 +45,9 @@ class SharedUtilityCore:
             'template_fallbacks': 0,
             'cache_optimizations': 0,
             'id_pool_reuse': 0,
-            'lugs_integrations': 0
+            'lugs_integrations': 0,
+            'templates_rendered': 0,  # ADDED
+            'configs_retrieved': 0  # ADDED
         }
         
         # Rate limiting (1000 ops/sec for infrastructure - LESS-21)
@@ -62,24 +56,16 @@ class SharedUtilityCore:
         self._rate_limited_count = 0
     
     def _check_rate_limit(self) -> bool:
-        """
-        Check rate limit (1000 ops/sec).
-        
-        Returns:
-            True if within rate limit, False if rate limited
-        """
+        """Check rate limit (1000 ops/sec)."""
         now = time.time() * 1000
         
-        # Remove timestamps outside window
         while self._rate_limiter and (now - self._rate_limiter[0]) > self._rate_limit_window_ms:
             self._rate_limiter.popleft()
         
-        # Check if at limit
         if len(self._rate_limiter) >= 1000:
             self._rate_limited_count += 1
             return False
         
-        # Add timestamp
         self._rate_limiter.append(now)
         return True
     
@@ -144,6 +130,117 @@ class SharedUtilityCore:
         if prefix:
             return f"{prefix}_{base_id}"
         return base_id
+    
+    # ===== ADDED: TEMPLATE RENDERING =====
+    
+    def render_template_impl(self, template: dict, data: dict, **kwargs) -> dict:
+        """
+        Render template with {placeholder} substitution.
+        
+        Features:
+        - {placeholder} replacement in strings
+        - Nested dict/list support
+        - Auto correlation ID injection
+        
+        Args:
+            template: JSON template with {placeholders}
+            data: Data to substitute
+            **kwargs: Additional options
+            
+        Returns:
+            Rendered response dict
+        """
+        if not self._check_rate_limit():
+            return template
+        
+        try:
+            # Auto-inject correlation ID if not provided
+            if 'message_id' not in data:
+                data['message_id'] = self.generate_correlation_id()
+            
+            # Render template via string substitution
+            template_str = json.dumps(template)
+            
+            for key, value in data.items():
+                placeholder = f'{{{key}}}'
+                
+                # Convert value to string
+                if isinstance(value, (list, dict)):
+                    value_str = json.dumps(value)
+                elif value is None:
+                    value_str = ''
+                else:
+                    value_str = str(value)
+                
+                template_str = template_str.replace(placeholder, value_str)
+            
+            result = json.loads(template_str)
+            
+            # Track metrics
+            self._stats['templates_rendered'] += 1
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Template rendering failed: {e}")
+            return template
+    
+    # ===== ADDED: TYPED CONFIG RETRIEVAL =====
+    
+    def config_get_impl(self, key: str, default=None, **kwargs) -> Any:
+        """
+        Get typed configuration value from environment.
+        
+        Automatically converts to type based on default value:
+        - bool: Recognizes 'true'/'1'/'yes' as True
+        - int: Converts to integer
+        - float: Converts to float
+        - str: Returns as-is
+        
+        Args:
+            key: Environment variable name
+            default: Default value (determines type conversion)
+            **kwargs: Additional options
+            
+        Returns:
+            Typed configuration value
+        """
+        if not self._check_rate_limit():
+            return default
+        
+        value = os.getenv(key)
+        
+        # Not found - return default
+        if value is None:
+            return default
+        
+        # No default - return string
+        if default is None:
+            self._stats['configs_retrieved'] += 1
+            return value
+        
+        # Type conversion based on default
+        try:
+            if isinstance(default, bool):
+                # Boolean conversion
+                result = value.lower() in ('true', '1', 'yes', 'on')
+            elif isinstance(default, int):
+                # Integer conversion
+                result = int(value)
+            elif isinstance(default, float):
+                # Float conversion
+                result = float(value)
+            else:
+                # String (default)
+                result = value
+            
+            self._stats['configs_retrieved'] += 1
+            return result
+                
+        except (ValueError, AttributeError):
+            # Conversion failed - return default
+            logger.debug(f"Config conversion failed for {key}={value}, using default={default}")
+            return default
     
     # ===== DATA OPERATIONS =====
     
@@ -458,35 +555,26 @@ class SharedUtilityCore:
             return False
     
     def reset(self) -> bool:
-        """
-        Reset UTILITY manager state (lifecycle management).
-        
-        Returns:
-            True if reset successful, False if rate limited
-        """
+        """Reset UTILITY manager state (lifecycle management)."""
         if not self._check_rate_limit():
             return False
         
         try:
-            # Reset metrics
             self._metrics.clear()
             self._stats = {
                 'template_hits': 0,
                 'template_fallbacks': 0,
                 'cache_optimizations': 0,
                 'id_pool_reuse': 0,
-                'lugs_integrations': 0
+                'lugs_integrations': 0,
+                'templates_rendered': 0,
+                'configs_retrieved': 0
             }
-            
-            # Reset caches
             self._json_cache.clear()
             self._json_cache_order.clear()
             self._id_pool.clear()
-            
-            # Reset rate limiter
             self._rate_limiter.clear()
             self._rate_limited_count = 0
-            
             return True
         except Exception:
             return False
@@ -497,21 +585,14 @@ _manager_core = None
 
 
 def get_utility_manager() -> SharedUtilityCore:
-    """
-    Get the utility manager instance (SINGLETON pattern - LESS-18).
-    
-    Returns:
-        SharedUtilityCore instance
-    """
+    """Get the utility manager instance (SINGLETON pattern - LESS-18)."""
     global _manager_core
     
     try:
-        # Try to use gateway's SINGLETON system if available
         from gateway import singleton_get, singleton_register
         
         manager = singleton_get('utility_manager')
         if manager is None:
-            # Create and register
             if _manager_core is None:
                 _manager_core = SharedUtilityCore()
             singleton_register('utility_manager', _manager_core)
@@ -519,13 +600,10 @@ def get_utility_manager() -> SharedUtilityCore:
         
         return manager
     except (ImportError, Exception):
-        # Fallback: use module-level singleton
         if _manager_core is None:
             _manager_core = SharedUtilityCore()
         return _manager_core
 
-
-# ===== MODULE EXPORTS =====
 
 __all__ = [
     'SharedUtilityCore',
