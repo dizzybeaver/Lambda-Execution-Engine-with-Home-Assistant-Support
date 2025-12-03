@@ -1,11 +1,13 @@
-# ha_devices_helpers.py
 """
 ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 3.1.1
-Date: 2025-12-01
+Version: 3.2.0
+Date: 2025-12-02
 Purpose: Helper functions and utilities for HA device operations
 
-FIXED: Circuit breaker call syntax on line 364 - wrapped positional args in args=() tuple
+REMOVED: DebugContext class (~50 lines) - use gateway.log_debug()
+REMOVED: _trace_step() function (~20 lines) - use gateway.log_debug()
+REMOVED: _DEBUG_MODE_ENABLED checks (~30 lines) - automatic in gateway
+FIXED: Circuit breaker call syntax - wrapped positional args in args=()
 
 Architecture:
 - Shared by ha_devices_core.py and ha_devices_cache.py
@@ -47,7 +49,6 @@ HA_RATE_LIMIT_PER_SECOND = int(os.getenv('HA_RATE_LIMIT_PER_SECOND', '10'))
 HA_RATE_LIMIT_BURST = int(os.getenv('HA_RATE_LIMIT_BURST', '20'))
 HA_RATE_LIMIT_WINDOW_SECONDS = 1.0
 
-_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
 _SLOW_OPERATIONS = defaultdict(int)
 
 class RateLimiter:
@@ -126,41 +127,9 @@ _rate_limiter = RateLimiter(
 
 # ===== HELPER FUNCTIONS =====
 
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled."""
-    return _DEBUG_MODE_ENABLED
-
-
-class DebugContext:
-    """Debug tracing context manager."""
-    def __init__(self, operation: str, correlation_id: str, **params):
-        self.operation = operation
-        self.correlation_id = correlation_id
-        self.params = params
-        self.start_time = None
-        
-    def __enter__(self):
-        if _DEBUG_MODE_ENABLED:
-            self.start_time = time.perf_counter()
-            param_str = ', '.join(f"{k}={v}" for k, v in self.params.items())
-            log_info(f"[{self.correlation_id}] [TRACE] {self.operation} START ({param_str})")
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if _DEBUG_MODE_ENABLED and self.start_time:
-            duration_ms = (time.perf_counter() - self.start_time) * 1000
-            if exc_type:
-                log_error(f"[{self.correlation_id}] [TRACE] {self.operation} FAILED: {exc_val} ({duration_ms:.2f}ms)")
-            else:
-                log_info(f"[{self.correlation_id}] [TRACE] {self.operation} COMPLETE ({duration_ms:.2f}ms)")
-        return False
-
-
-def _trace_step(correlation_id: str, step: str, **details):
-    """Log a debug trace step."""
-    if _DEBUG_MODE_ENABLED:
-        detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
-        log_info(f"[{correlation_id}] [STEP] {step}" + (f" ({detail_str})" if detail_str else ""))
+# REMOVED: DebugContext class - use gateway.log_debug() instead
+# REMOVED: _trace_step() function - use gateway.log_debug() instead
+# REMOVED: _is_debug_mode() function - automatic in gateway
 
 
 def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
@@ -279,31 +248,33 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
     
     correlation_id = generate_correlation_id()
     
-    with DebugContext("get_ha_config_impl", correlation_id, force_reload=force_reload):
-        cache_key = 'ha_config'
-        
-        if not force_reload:
-            cached = cache_get(cache_key)
-            if cached is not None:
-                if isinstance(cached, dict) and 'enabled' in cached:
-                    _trace_step(correlation_id, "Using cached config")
-                    record_metric('ha_config_cache_hit', 1.0)
-                    return cached
-                else:
-                    _trace_step(correlation_id, "Invalid cache format")
-                    cache_delete(cache_key)
-        
-        _trace_step(correlation_id, "Loading fresh HA config")
-        config = ha_config.load_ha_config()
-        
-        if not isinstance(config, dict):
-            log_error(f"[{correlation_id}] Invalid HA config type: {type(config)}")
-            return {'enabled': False, 'error': 'Invalid config type'}
-        
-        cache_set(cache_key, config, ttl=HA_CACHE_TTL_CONFIG)
-        record_metric('ha_config_cache_miss', 1.0)
-        
-        return config
+    # REMOVED: DebugContext usage - replaced with direct log_debug
+    log_debug("Getting HA config", correlation_id=correlation_id, force_reload=force_reload)
+    
+    cache_key = 'ha_config'
+    
+    if not force_reload:
+        cached = cache_get(cache_key)
+        if cached is not None:
+            if isinstance(cached, dict) and 'enabled' in cached:
+                log_debug("Using cached config", correlation_id=correlation_id)
+                record_metric('ha_config_cache_hit', 1.0)
+                return cached
+            else:
+                log_debug("Invalid cache format", correlation_id=correlation_id)
+                cache_delete(cache_key)
+    
+    log_debug("Loading fresh HA config", correlation_id=correlation_id)
+    config = ha_config.load_ha_config()
+    
+    if not isinstance(config, dict):
+        log_error(f"[{correlation_id}] Invalid HA config type: {type(config)}")
+        return {'enabled': False, 'error': 'Invalid config type'}
+    
+    cache_set(cache_key, config, ttl=HA_CACHE_TTL_CONFIG)
+    record_metric('ha_config_cache_miss', 1.0)
+    
+    return config
 
 
 def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
@@ -325,76 +296,76 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
     start_time = time.perf_counter()
     
     try:
-        with DebugContext("call_ha_api_impl", correlation_id, endpoint=endpoint, method=method):
-            if not _check_rate_limit(correlation_id):
-                return create_error_response(
-                    f'Rate limit exceeded: {HA_RATE_LIMIT_PER_SECOND} req/s',
-                    'RATE_LIMIT_EXCEEDED'
-                )
-            
-            # Validation
-            if not isinstance(endpoint, str) or not endpoint:
-                return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
-            
-            if not isinstance(method, str):
-                method = 'GET'
-            
-            _trace_step(correlation_id, "Loading HA config")
-            config = config or get_ha_config_impl()
-            
-            if not isinstance(config, dict):
-                return create_error_response('Invalid config', 'INVALID_CONFIG')
-            
-            if not config.get('enabled'):
-                return create_error_response('HA not enabled', 'HA_DISABLED')
-            
-            base_url = config.get('base_url', '')
-            token = config.get('access_token', '')
-            
-            if not base_url or not token:
-                return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
-            
-            url = f"{base_url}{endpoint}"
-            headers = {
-                'Authorization': f"Bearer {token}",
-                'Content-Type': 'application/json'
-            }
-            
-            _trace_step(correlation_id, "Making HTTP request", url=url[:50])
-            
-            # FIXED: Circuit breaker protection with correct args syntax
-            http_result = execute_with_circuit_breaker(
-                HA_CIRCUIT_BREAKER_NAME,
-                execute_operation,
-                args=(GatewayInterface.HTTP_CLIENT, method.lower()),
-                url=url,
-                headers=headers,
-                json=data,
-                timeout=config.get('timeout', 30)
+        # REMOVED: DebugContext usage - replaced with direct log_debug
+        log_debug("Calling HA API", correlation_id=correlation_id, endpoint=endpoint, method=method)
+        
+        if not _check_rate_limit(correlation_id):
+            return create_error_response(
+                f'Rate limit exceeded: {HA_RATE_LIMIT_PER_SECOND} req/s',
+                'RATE_LIMIT_EXCEEDED'
             )
-            
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            
-            if duration_ms > HA_SLOW_OPERATION_THRESHOLD_MS:
-                _SLOW_OPERATIONS[f'call_ha_api_{endpoint}'] += 1
-                log_warning(f"Slow API call: {endpoint} took {duration_ms:.2f}ms")
-            
-            if http_result.get('success'):
-                increment_counter('ha_api_success')
-                record_metric('ha_api_duration_ms', duration_ms)
-                record_metric(f'ha_api_{method.lower()}_success', 1.0)
-            else:
-                increment_counter('ha_api_failure')
-                record_metric('ha_api_error_duration_ms', duration_ms)
-                record_metric(f'ha_api_{method.lower()}_failure', 1.0)
-            
-            return http_result
+        
+        # Validation
+        if not isinstance(endpoint, str) or not endpoint:
+            return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
+        
+        if not isinstance(method, str):
+            method = 'GET'
+        
+        log_debug("Loading HA config", correlation_id=correlation_id)
+        config = config or get_ha_config_impl()
+        
+        if not isinstance(config, dict):
+            return create_error_response('Invalid config', 'INVALID_CONFIG')
+        
+        if not config.get('enabled'):
+            return create_error_response('HA not enabled', 'HA_DISABLED')
+        
+        base_url = config.get('base_url', '')
+        token = config.get('access_token', '')
+        
+        if not base_url or not token:
+            return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
+        
+        url = f"{base_url}{endpoint}"
+        headers = {
+            'Authorization': f"Bearer {token}",
+            'Content-Type': 'application/json'
+        }
+        
+        log_debug("Making HTTP request", correlation_id=correlation_id, url=url[:50])
+        
+        # FIXED: Circuit breaker protection with correct args syntax
+        http_result = execute_with_circuit_breaker(
+            HA_CIRCUIT_BREAKER_NAME,
+            execute_operation,
+            args=(GatewayInterface.HTTP_CLIENT, method.lower()),
+            url=url,
+            headers=headers,
+            json=data,
+            timeout=config.get('timeout', 30)
+        )
+        
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        if duration_ms > HA_SLOW_OPERATION_THRESHOLD_MS:
+            _SLOW_OPERATIONS[f'call_ha_api_{endpoint}'] += 1
+            log_warning(f"Slow API call: {endpoint} took {duration_ms:.2f}ms")
+        
+        if http_result.get('success'):
+            increment_counter('ha_api_success')
+            record_metric('ha_api_duration_ms', duration_ms)
+            record_metric(f'ha_api_{method.lower()}_success', 1.0)
+        else:
+            increment_counter('ha_api_failure')
+            record_metric('ha_api_error_duration_ms', duration_ms)
+            record_metric(f'ha_api_{method.lower()}_failure', 1.0)
+        
+        return http_result
             
     except Exception as e:
         log_error(f"[{correlation_id}] API call exception: {type(e).__name__}: {str(e)}")
-        if _DEBUG_MODE_ENABLED:
-            import traceback
-            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        # REMOVED: Debug mode traceback check - gateway handles this
         
         increment_counter('ha_api_error')
         return create_error_response(str(e), 'API_CALL_FAILED')
@@ -405,11 +376,11 @@ __all__ = [
     'get_ha_config_impl',
     'get_rate_limit_stats',
     '_extract_entity_list',
-    '_trace_step',
-    '_is_debug_mode',
+    # REMOVED: _trace_step
+    # REMOVED: _is_debug_mode
+    # REMOVED: DebugContext
     '_calculate_percentiles',
     '_generate_performance_recommendations',
-    'DebugContext',
     'HA_CACHE_TTL_ENTITIES',
     'HA_CACHE_TTL_STATE',
     'HA_CACHE_TTL_CONFIG',
