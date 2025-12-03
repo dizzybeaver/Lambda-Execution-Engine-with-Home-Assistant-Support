@@ -1,9 +1,11 @@
 """
 gateway.py - Central Gateway Entry Point
-Version: 3.0.0
-Date: 2025-12-02
+Version: 3.0.2
+Date: 2025-12-03
 Description: Single entry point for all LEE operations
 
+FIXED: Import GatewayInterface from gateway_enums to prevent circular import
+FIXED: Added create_error_response and create_success_response exports
 ADDED: render_template export
 ADDED: config_get export
 
@@ -11,11 +13,15 @@ Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+# FIXED: Import enum from separate file to prevent circular imports
+from gateway_enums import GatewayInterface
+
 from gateway_core import (
-    GatewayInterface,
     execute_operation,
     get_gateway_stats,
-    reset_gateway_state
+    reset_gateway_state,
+    create_error_response,
+    create_success_response,
 )
 
 from gateway_wrappers_cache import *
@@ -36,6 +42,8 @@ __all__ = [
     'execute_operation',
     'get_gateway_stats',
     'reset_gateway_state',
+    'create_error_response',
+    'create_success_response',
     'cache_get',
     'cache_set',
     'cache_exists',
