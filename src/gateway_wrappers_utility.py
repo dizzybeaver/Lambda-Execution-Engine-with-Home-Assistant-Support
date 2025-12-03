@@ -1,6 +1,6 @@
 """
 gateway_wrappers_utility.py - UTILITY Interface Wrappers
-Version: 3.0.0
+Version: 3.1.0
 Date: 2025-12-02
 Description: Convenience wrappers for UTILITY interface operations
 
@@ -51,7 +51,7 @@ def utility_reset() -> bool:
 
 
 # ADDED: Template rendering wrapper
-def render_template(template: dict, **data) -> dict:
+def render_template(template: Dict, **data) -> Dict:
     """
     Render template with data substitution.
     
@@ -59,20 +59,35 @@ def render_template(template: dict, **data) -> dict:
     
     Args:
         template: JSON template with {placeholders}
-        **data: Data for substitution
+        **data: Key-value pairs for substitution
         
     Returns:
-        Rendered response dict
+        Rendered response dictionary
+        
+    Example:
+        from gateway import render_template
+        from ha_alexa_templates import ALEXA_ERROR_RESPONSE
+        
+        response = render_template(
+            ALEXA_ERROR_RESPONSE,
+            correlation_token='abc123',
+            error_type='INVALID_DIRECTIVE',
+            error_message='Unknown directive'
+        )
     """
     return execute_operation(GatewayInterface.UTILITY, 'render_template', template=template, data=data)
 
 
-# ADDED: Config get wrapper
+# ADDED: Typed config retrieval wrapper
 def config_get(key: str, default=None) -> Any:
     """
-    Get typed configuration value.
+    Get typed configuration value from environment.
     
-    Type conversion based on default value type.
+    Type conversion based on default value type:
+    - bool: 'true'/'1'/'yes' → True, else False
+    - int: Convert to integer
+    - float: Convert to float
+    - str: Return as-is
     
     Args:
         key: Environment variable name
@@ -80,6 +95,18 @@ def config_get(key: str, default=None) -> Any:
         
     Returns:
         Typed configuration value
+        
+    Example:
+        from gateway import config_get
+        
+        # Boolean (auto-converted)
+        debug = config_get('DEBUG_MODE', default=False)
+        
+        # Integer (auto-converted)
+        timeout = config_get('TIMEOUT', default=30)
+        
+        # String (no conversion)
+        url = config_get('API_URL', default='http://localhost')
     """
     return execute_operation(GatewayInterface.UTILITY, 'config_get', key=key, default=default)
 
@@ -92,6 +119,6 @@ __all__ = [
     'get_timestamp',
     'utility_get_stats',
     'utility_reset',
-    'render_template',
-    'config_get',
+    'render_template',  # ADDED
+    'config_get',  # ADDED
 ]
