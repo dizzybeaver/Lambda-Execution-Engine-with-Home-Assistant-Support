@@ -1,20 +1,13 @@
 """
 gateway_core.py - Core Gateway Implementation (SUGA-ISP)
-Version: 2025.10.17.18
+Version: 2025.10.17.19
 Description: Pattern-based registry with simplified routing
 
 CHANGELOG:
-- 2025.10.17.18: MODERNIZED with pattern-based registry
-  - Replaced 100+ operation registry with 12 interface mappings
-  - Reduced registry from ~100 lines to 12 lines (~90% reduction)
-  - Leverages dispatch dictionaries in interface routers
-  - Zero breaking changes to external API
-  - Easier maintenance (add operation = 1 place, not 2)
-  - Consistent with interface modernization pattern
-- 2025.10.17.12: Added comprehensive error handling
-  - Wraps execution in try/except for robustness
-  - Clear error context with interface.operation
-  - Exception chaining for debugging
+- 2025.12.03: FIXED: Added missing reset_gateway_state function
+  - Function was imported by gateway.py but not implemented
+  - Resets operation call counts and fast path cache
+  - Maintains consistency with get_gateway_stats
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -174,6 +167,29 @@ def get_gateway_stats() -> Dict[str, Any]:
     }
 
 
+# FIXED: Added missing reset_gateway_state function
+def reset_gateway_state() -> Dict[str, Any]:
+    """
+    Reset gateway state including fast path cache and operation counts.
+    
+    Returns:
+        Dict containing counts of cleared items
+    """
+    global _fast_path_cache, _operation_call_counts
+    
+    fast_path_count = len(_fast_path_cache)
+    operation_count = len(_operation_call_counts)
+    
+    _fast_path_cache.clear()
+    _operation_call_counts.clear()
+    
+    return {
+        'fast_path_entries_cleared': fast_path_count,
+        'operation_counts_cleared': operation_count,
+        'state_reset': True
+    }
+
+
 # ===== FAST PATH MANAGEMENT =====
 
 def set_fast_path_threshold(threshold: int) -> None:
@@ -237,6 +253,7 @@ __all__ = [
     'execute_operation',
     'initialize_lambda',
     'get_gateway_stats',
+    'reset_gateway_state',  # FIXED: Added to exports
     'set_fast_path_threshold',
     'enable_fast_path',
     'disable_fast_path',
