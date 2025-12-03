@@ -1,10 +1,11 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 3.1.0
+Version: 3.2.0
 Date: 2025-12-02
 Description: Core implementation for Alexa Smart Home integration
 
-FIXED: Added capability filtering to prevent ContactSensor on power devices
+MODIFIED: Use gateway.render_template() instead of custom response builders
+MODIFIED: Import templates from ha_alexa_templates
 
 Architecture:
 ha_interconnect.py → ha_interface_alexa.py → ha_alexa_core.py (THIS FILE)
@@ -18,7 +19,14 @@ from typing import Dict, Any
 # Import LEE services via gateway (ONLY way to access LEE)
 from gateway import (
     log_info, log_error, log_debug, log_warning,
-    increment_counter, generate_correlation_id
+    increment_counter, generate_correlation_id,
+    render_template  # ADDED
+)
+
+# ADDED: Import templates
+from home_assistant.ha_alexa_templates import (
+    ALEXA_ERROR_RESPONSE,
+    ALEXA_ACCEPT_GRANT_RESPONSE
 )
 
 
@@ -216,6 +224,8 @@ def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     Core implementation for authorization grant.
     Simple acknowledgment response per Alexa Smart Home API.
     
+    MODIFIED: Uses template rendering
+    
     Args:
         event: Alexa AcceptGrant event
         **kwargs: Additional options
@@ -232,19 +242,11 @@ def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     log_info(f"[{correlation_id}] AcceptGrant received")
     increment_counter('alexa_accept_grant')
     
-    # AcceptGrant just needs to acknowledge
-    return {
-        'event': {
-            'header': {
-                'namespace': 'Alexa.Authorization',
-                'name': 'AcceptGrant.Response',
-                'messageId': generate_correlation_id(),
-                'correlationToken': header.get('correlationToken'),
-                'payloadVersion': '3'
-            },
-            'payload': {}
-        }
-    }
+    # MODIFIED: Use template rendering
+    return render_template(
+        ALEXA_ACCEPT_GRANT_RESPONSE,
+        correlation_token=header.get('correlationToken')
+    )
 
 
 # ===== HELPER FUNCTIONS =====
@@ -295,14 +297,11 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
         return _create_error_response({}, 'BRIDGE_UNREACHABLE', f'Connection error: {str(e)}')
 
 
+# MODIFIED: Use template rendering
 def _create_error_response(header: Dict[str, Any], error_type: str,
                           error_message: str) -> Dict[str, Any]:
     """
-    Create Alexa error response.
-    
-    Note: This maintains Alexa Smart Home API format requirements.
-    Not replaced with gateway create_error_response() as Alexa
-    requires specific response structure per Alexa Smart Home API.
+    Create Alexa error response using template.
     
     Args:
         header: Alexa directive header
@@ -312,23 +311,12 @@ def _create_error_response(header: Dict[str, Any], error_type: str,
     Returns:
         Alexa-formatted error response
     """
-    correlation_id = generate_correlation_id()
-    
-    return {
-        'event': {
-            'header': {
-                'namespace': 'Alexa',
-                'name': 'ErrorResponse',
-                'messageId': correlation_id,
-                'correlationToken': header.get('correlationToken'),
-                'payloadVersion': '3'
-            },
-            'payload': {
-                'type': error_type,
-                'message': error_message
-            }
-        }
-    }
+    return render_template(
+        ALEXA_ERROR_RESPONSE,
+        correlation_token=header.get('correlationToken', ''),
+        error_type=error_type,
+        error_message=error_message
+    )
 
 
 # FIXED: Added capability filtering functions
