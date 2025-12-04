@@ -1,9 +1,11 @@
 """
 ha_config.py - HA Configuration Constants
-Version: 1.0.2
+Version: 1.0.3
 Date: 2025-12-04
 Description: Centralized configuration for Home Assistant integration
 
+FIXED: Added 'enabled' key to config dict (critical bug fix)
+FIXED: Added debug output showing config keys
 FIXED: Added missing import os
 FIXED: Direct boolean conversion without gateway dependency
 FIXED: Added load_ha_config() function
@@ -62,6 +64,7 @@ def load_ha_config():
         - access_token: Long-lived access token
         - timeout: Request timeout
         - verify_ssl: SSL verification flag
+        - enabled: HA enabled flag (CRITICAL - checked by ha_devices_helpers)
     """
     try:
         # Get from environment
@@ -89,10 +92,12 @@ def load_ha_config():
             'base_url': base_url,
             'access_token': token,
             'timeout': HA_API_TIMEOUT,
-            'verify_ssl': verify_ssl
+            'verify_ssl': verify_ssl,
+            'enabled': HA_ENABLED  # CRITICAL: ha_devices_helpers checks this
         }
         
-        _debug_print(f"load_ha_config SUCCESS")
+        _debug_print(f"load_ha_config SUCCESS - config keys: {list(config.keys())}")
+        _debug_print(f"config['enabled']={config.get('enabled')!r}")
         return config
         
     except Exception as e:
