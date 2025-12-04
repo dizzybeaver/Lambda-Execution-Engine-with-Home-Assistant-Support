@@ -1,16 +1,24 @@
 """
 ha_config.py - HA Configuration Constants
-Version: 1.0.1
-Date: 2025-12-03
+Version: 1.0.2
+Date: 2025-12-04
 Description: Centralized configuration for Home Assistant integration
 
-FIXED: Added missing load_ha_config() function
+FIXED: Added missing import os
+FIXED: Direct boolean conversion without gateway dependency
+FIXED: Added load_ha_config() function
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 import os
+import sys
+
+# Debug: Print HA_ENABLED status at import time (helps diagnose issues)
+def _debug_print(msg):
+    """Print to stderr for CloudWatch visibility."""
+    print(f"[HA_CONFIG_DEBUG] {msg}", file=sys.stderr, flush=True)
 
 # Cache TTLs (seconds)
 HA_CACHE_TTL_STATE = 300      # 5 minutes - device states
@@ -33,16 +41,17 @@ HA_DOMAIN_PATTERN = r'^[a-z_]+$'
 HA_SERVICE_PATTERN = r'^[a-z_]+$'
 
 # Feature Flags (loaded from environment)
-# Use gateway.config_get for typed retrieval
-from gateway import config_get
+# Direct os.getenv with explicit boolean conversion
+_ha_enable_raw = os.getenv('HOME_ASSISTANT_ENABLE', 'false')
+_debug_print(f"HOME_ASSISTANT_ENABLE={_ha_enable_raw!r}")
+HA_ENABLED = _ha_enable_raw.strip().lower() in ('true', '1', 'yes')
+_debug_print(f"HA_ENABLED={HA_ENABLED}")
 
-HA_ENABLED = config_get('HOME_ASSISTANT_ENABLE', default=False)
-HA_CACHE_ENABLED = config_get('HA_CACHE_ENABLED', default=True)
-HA_METRICS_ENABLED = config_get('HA_METRICS_ENABLED', default=True)
-HA_DEBUG_MODE = config_get('DEBUG_MODE', default=False)
+HA_CACHE_ENABLED = os.getenv('HA_CACHE_ENABLED', 'true').strip().lower() in ('true', '1', 'yes')
+HA_METRICS_ENABLED = os.getenv('HA_METRICS_ENABLED', 'true').strip().lower() in ('true', '1', 'yes')
+HA_DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').strip().lower() in ('true', '1', 'yes')
 
 
-# FIXED: Added missing load_ha_config function
 def load_ha_config():
     """
     Load Home Assistant configuration from environment.
@@ -54,24 +63,41 @@ def load_ha_config():
         - timeout: Request timeout
         - verify_ssl: SSL verification flag
     """
-    # Get from environment or SSM
-    base_url = os.getenv('HOME_ASSISTANT_URL', 'http://homeassistant.local:8123')
-    
-    # Token from SSM if enabled
-    use_ssm = os.getenv('USE_PARAMETER_STORE', 'false').lower() == 'true'
-    if use_ssm:
-        # Lazy import
-        import gateway
-        token = gateway.config_get('/lambda-execution-engine/home_assistant/token')
-    else:
-        token = os.getenv('HOME_ASSISTANT_TOKEN', '')
-    
-    return {
-        'base_url': base_url,
-        'access_token': token,
-        'timeout': HA_API_TIMEOUT,
-        'verify_ssl': os.getenv('HA_VERIFY_SSL', 'true').lower() == 'true'
-    }
+    try:
+        # Get from environment
+        base_url = os.getenv('HOME_ASSISTANT_URL', 'http://homeassistant.local:8123')
+        _debug_print(f"base_url={base_url}")
+        
+        # Token from SSM if enabled
+        use_ssm_raw = os.getenv('USE_PARAMETER_STORE', 'false')
+        use_ssm = use_ssm_raw.strip().lower() in ('true', '1', 'yes')
+        _debug_print(f"USE_PARAMETER_STORE={use_ssm_raw!r} -> {use_ssm}")
+        
+        if use_ssm:
+            # Lazy import to avoid circular dependency
+            import gateway
+            token = gateway.get_config_value('/lambda-execution-engine/home_assistant/token')
+            _debug_print(f"token=<from SSM, length={len(token) if token else 0}>")
+        else:
+            token = os.getenv('HOME_ASSISTANT_TOKEN', '')
+            _debug_print(f"token=<from env, length={len(token) if token else 0}>")
+        
+        verify_ssl_raw = os.getenv('HA_VERIFY_SSL', 'true')
+        verify_ssl = verify_ssl_raw.strip().lower() in ('true', '1', 'yes')
+        
+        config = {
+            'base_url': base_url,
+            'access_token': token,
+            'timeout': HA_API_TIMEOUT,
+            'verify_ssl': verify_ssl
+        }
+        
+        _debug_print(f"load_ha_config SUCCESS")
+        return config
+        
+    except Exception as e:
+        _debug_print(f"load_ha_config FAILED: {e}")
+        raise
 
 
 __all__ = [
