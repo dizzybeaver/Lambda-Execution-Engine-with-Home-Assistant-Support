@@ -36,7 +36,7 @@ HA_SERVICE_PATTERN = r'^[a-z_]+$'
 # Use gateway.config_get for typed retrieval
 from gateway import config_get
 
-HA_ENABLED = config_get('HOME_ASSISTANT_ENABLED', default=False)
+HA_ENABLED = config_get('HOME_ASSISTANT_ENABLE', default=False)
 HA_CACHE_ENABLED = config_get('HA_CACHE_ENABLED', default=True)
 HA_METRICS_ENABLED = config_get('HA_METRICS_ENABLED', default=True)
 HA_DEBUG_MODE = config_get('DEBUG_MODE', default=False)
