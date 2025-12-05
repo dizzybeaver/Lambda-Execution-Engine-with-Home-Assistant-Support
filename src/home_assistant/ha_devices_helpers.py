@@ -1,18 +1,13 @@
 """
 ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 3.2.0
-Date: 2025-12-02
+Version: 4.0.0
+Date: 2025-12-05
 Purpose: Helper functions and utilities for HA device operations
 
-REMOVED: DebugContext class (~50 lines) - use gateway.log_debug()
-REMOVED: _trace_step() function (~20 lines) - use gateway.log_debug()
-REMOVED: _DEBUG_MODE_ENABLED checks (~30 lines) - automatic in gateway
-FIXED: Circuit breaker call syntax - wrapped positional args in args=()
-
-Architecture:
-- Shared by ha_devices_core.py and ha_devices_cache.py
-- NO imports from other ha_devices_* files (prevents circular)
-- Uses gateway services only
+CHANGES (4.0.0 - LWA MIGRATION):
+- MODIFIED: call_ha_api_impl accepts oauth_token parameter
+- Token priority: oauth_token > config['access_token']
+- Token from config is optional (None OK for LWA mode)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -52,20 +47,8 @@ HA_RATE_LIMIT_WINDOW_SECONDS = 1.0
 _SLOW_OPERATIONS = defaultdict(int)
 
 class RateLimiter:
-    """
-    Token bucket rate limiter for HA API calls.
-    
-    Protects Home Assistant from overload while allowing bursts.
-    Thread-safe for Lambda's single-threaded environment.
-    """
+    """Token bucket rate limiter for HA API calls."""
     def __init__(self, rate: int, burst: int):
-        """
-        Initialize rate limiter.
-        
-        Args:
-            rate: Requests per second
-            burst: Maximum burst size
-        """
         self.rate = rate
         self.burst = burst
         self.tokens = float(burst)
@@ -73,42 +56,24 @@ class RateLimiter:
         self.request_times = deque(maxlen=burst)
         
     def allow_request(self, correlation_id: str) -> bool:
-        """
-        Check if request is allowed under rate limit.
-        
-        Uses token bucket algorithm with time-based refill.
-        
-        Args:
-            correlation_id: Request correlation ID for logging
-            
-        Returns:
-            True if request allowed, False if rate limited
-        """
+        """Check if request is allowed under rate limit."""
         now = time.time()
         
-        # Refill tokens based on time elapsed
         elapsed = now - self.last_update
         self.tokens = min(self.burst, self.tokens + (elapsed * self.rate))
         self.last_update = now
         
-        # Check if we have tokens available
         if self.tokens >= 1.0:
             self.tokens -= 1.0
             self.request_times.append(now)
             return True
         
-        # Rate limited
         log_warning(f"[{correlation_id}] Rate limit exceeded: {self.rate} req/s")
         increment_counter('ha_api_rate_limited')
         return False
     
     def get_stats(self) -> Dict[str, Any]:
-        """
-        Get current rate limiter statistics.
-        
-        Returns:
-            Dictionary with tokens, recent requests, etc.
-        """
+        """Get current rate limiter statistics."""
         now = time.time()
         recent = len([t for t in self.request_times if now - t < 10.0])
         
@@ -126,11 +91,6 @@ _rate_limiter = RateLimiter(
 
 
 # ===== HELPER FUNCTIONS =====
-
-# REMOVED: DebugContext class - use gateway.log_debug() instead
-# REMOVED: _trace_step() function - use gateway.log_debug() instead
-# REMOVED: _is_debug_mode() function - automatic in gateway
-
 
 def _extract_entity_list(data: Any, context: str = "states") -> List[Dict[str, Any]]:
     """Extract entity list from various response formats."""
@@ -205,27 +165,14 @@ def _generate_performance_recommendations(
 
 
 def _check_rate_limit(correlation_id: str) -> bool:
-    """
-    Check if request should be allowed under rate limit.
-    
-    Args:
-        correlation_id: Request correlation ID
-        
-    Returns:
-        True if allowed, False if rate limited
-    """
+    """Check if request should be allowed under rate limit."""
     if not HA_RATE_LIMIT_ENABLED:
         return True
     
     return _rate_limiter.allow_request(correlation_id)
 
 def get_rate_limit_stats() -> Dict[str, Any]:
-    """
-    Get current rate limiter statistics.
-    
-    Returns:
-        Dictionary with rate limit stats
-    """
+    """Get current rate limiter statistics."""
     if not HA_RATE_LIMIT_ENABLED:
         return {
             'enabled': False,
@@ -240,15 +187,11 @@ def get_rate_limit_stats() -> Dict[str, Any]:
 # ===== CORE HELPER IMPLEMENTATIONS =====
 
 def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
-    """
-    Get Home Assistant configuration.
-    FIXES CRIT-01: Uses lazy import.
-    """
+    """Get Home Assistant configuration."""
     import home_assistant.ha_config as ha_config
     
     correlation_id = generate_correlation_id()
     
-    # REMOVED: DebugContext usage - replaced with direct log_debug
     log_debug("Getting HA config", correlation_id=correlation_id, force_reload=force_reload)
     
     cache_key = 'ha_config'
@@ -278,15 +221,20 @@ def get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
 
 
 def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None,
-                    config: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+                    config: Optional[Dict] = None, oauth_token: Optional[str] = None, 
+                    **kwargs) -> Dict[str, Any]:
     """
     Call Home Assistant API endpoint.
+    
+    LWA Migration: Accepts oauth_token parameter.
+    Token priority: oauth_token > config['access_token']
     
     Args:
         endpoint: API endpoint
         method: HTTP method
         data: Optional request data
         config: Optional HA configuration
+        oauth_token: OAuth token from directive (LWA)
         **kwargs: Additional options
         
     Returns:
@@ -296,7 +244,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
     start_time = time.perf_counter()
     
     try:
-        # REMOVED: DebugContext usage - replaced with direct log_debug
         log_debug("Calling HA API", correlation_id=correlation_id, endpoint=endpoint, method=method)
         
         if not _check_rate_limit(correlation_id):
@@ -305,7 +252,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
                 'RATE_LIMIT_EXCEEDED'
             )
         
-        # Validation
         if not isinstance(endpoint, str) or not endpoint:
             return create_error_response('Invalid endpoint', 'INVALID_ENDPOINT')
         
@@ -322,9 +268,12 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
             return create_error_response('HA not enabled', 'HA_DISABLED')
         
         base_url = config.get('base_url', '')
-        token = config.get('access_token', '')
+        
+        # LWA Migration: Use oauth_token if provided, fallback to config token
+        token = oauth_token or config.get('access_token', '')
         
         if not base_url or not token:
+            log_error(f"[{correlation_id}] HA API call failed: INVALID_CONFIG - Missing HA URL or token")
             return create_error_response('Missing HA URL or token', 'INVALID_CONFIG')
         
         url = f"{base_url}{endpoint}"
@@ -335,7 +284,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
         
         log_debug("Making HTTP request", correlation_id=correlation_id, url=url[:50])
         
-        # FIXED: Circuit breaker protection with correct args syntax
         http_result = execute_with_circuit_breaker(
             HA_CIRCUIT_BREAKER_NAME,
             execute_operation,
@@ -365,8 +313,6 @@ def call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = 
             
     except Exception as e:
         log_error(f"[{correlation_id}] API call exception: {type(e).__name__}: {str(e)}")
-        # REMOVED: Debug mode traceback check - gateway handles this
-        
         increment_counter('ha_api_error')
         return create_error_response(str(e), 'API_CALL_FAILED')
 
@@ -376,9 +322,6 @@ __all__ = [
     'get_ha_config_impl',
     'get_rate_limit_stats',
     '_extract_entity_list',
-    # REMOVED: _trace_step
-    # REMOVED: _is_debug_mode
-    # REMOVED: DebugContext
     '_calculate_percentiles',
     '_generate_performance_recommendations',
     'HA_CACHE_TTL_ENTITIES',
