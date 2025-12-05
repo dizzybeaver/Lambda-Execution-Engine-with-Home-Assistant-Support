@@ -1,20 +1,14 @@
+# ha_common.py
 """
 ha_common.py
-Version: 2025.10.22.02
-Description: Home Assistant common utilities
-
-CHANGELOG:
-- 2025.10.22.02: CRITICAL FIX - Corrected gateway import names
-  - Fixed: make_request → http_request
-  - Fixed: make_get_request → http_get
-  - Fixed: make_post_request → http_post
-  - Resolves ImportError on deployment
-- 2025.10.19.04: ARCHITECTURE FIX - Removed duplicate get_ha_config()
+Version: 3.0.0
+Description: Home Assistant common utilities with debug tracing
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
+import os
 import time
 from typing import Dict, Any, Optional, List
 from difflib import SequenceMatcher
@@ -27,6 +21,28 @@ HA_CACHE_TTL_STATE = 60
 HA_CACHE_TTL_ENTITIES = 300
 HA_CACHE_TTL_MAPPINGS = 600
 
+# ===== MODULE-LEVEL DEBUG MODE =====
+_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+# Timing thresholds
+HA_SLOW_API_CALL_THRESHOLD_MS = 2000  # 2 seconds
+
+def _debug_trace(correlation_id: str, step: str, **details):
+    """
+    Debug trace helper for HA common operations.
+    
+    Args:
+        correlation_id: Correlation ID for request tracing
+        step: Step description
+        **details: Additional details to log
+    """
+    if _DEBUG_MODE_ENABLED:
+        from gateway import log_info
+        detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
+        log_info(f"[{correlation_id}] [COMMON-TRACE] {step}" + (f" ({detail_str})" if detail_str else ""))
+
+
+# ===== CACHE FUNCTIONS =====
 
 def get_consolidated_cache() -> Dict[str, Any]:
     """Get consolidated Home Assistant cache."""
@@ -87,10 +103,6 @@ def get_ha_config() -> Dict[str, Any]:
     """
     Get Home Assistant configuration - delegates to ha_config.py.
     
-    ARCHITECTURE NOTE (2025.10.19.04):
-    This function now delegates to ha_config.load_ha_config() to ensure
-    single source of truth for HA configuration.
-    
     Returns:
         Dict containing:
         - base_url: Home Assistant URL
@@ -98,7 +110,7 @@ def get_ha_config() -> Dict[str, Any]:
         - timeout: Request timeout
         - verify_ssl: SSL verification flag
     """
-    from ha_config import load_ha_config
+    from home_assistant.ha_config import load_ha_config
     return load_ha_config()
 
 
@@ -109,11 +121,20 @@ def call_ha_api(
     data: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """Call Home Assistant API with circuit breaker protection."""
-    from gateway import http_request, http_get, http_post, execute_with_circuit_breaker
+    from gateway import (
+        make_request, make_get_request, make_post_request, 
+        execute_with_circuit_breaker, generate_correlation_id,
+        record_metric, increment_counter, log_info, log_error
+    )
     from shared_utilities import (
         create_operation_context, close_operation_context, 
         handle_operation_error, cache_operation_result
     )
+    
+    correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
+    
+    _debug_trace(correlation_id, "call_ha_api START", endpoint=endpoint, method=method)
     
     context = create_operation_context('ha_common', 'api_call', endpoint=endpoint, method=method)
     
@@ -126,21 +147,47 @@ def call_ha_api(
             "Content-Type": "application/json"
         }
         
+        _debug_trace(correlation_id, "Making HA API request", url=url[:50])
+        
         def _make_ha_request():
             if method.upper() == 'GET':
-                return http_get(url=url, headers=headers, timeout=config.get('timeout', 30))
+                return make_get_request(url=url, headers=headers, timeout=config.get('timeout', 30))
             elif method.upper() == 'POST':
-                return http_post(url=url, json=data or {}, headers=headers, timeout=config.get('timeout', 30))
+                return make_post_request(url=url, data=data or {}, headers=headers, timeout=config.get('timeout', 30))
             else:
-                return http_request(method, url=url, headers=headers, json=data, timeout=config.get('timeout', 30))
+                return make_request(method, url, headers=headers, data=data, timeout=config.get('timeout', 30))
         
         result = execute_with_circuit_breaker(HA_CIRCUIT_BREAKER_NAME, _make_ha_request)
+        
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        if result.get('success', False):
+            _debug_trace(correlation_id, "call_ha_api SUCCESS", duration_ms=duration_ms)
+            increment_counter('ha_common_api_call_success')
+            record_metric('ha_common_api_call_duration_ms', duration_ms)
+            
+            # Slow operation detection
+            if duration_ms > HA_SLOW_API_CALL_THRESHOLD_MS:
+                log_info(f"[{correlation_id}] Slow HA API call: {duration_ms:.2f}ms to {endpoint}")
+                increment_counter('ha_common_slow_api_call')
+        else:
+            _debug_trace(correlation_id, "call_ha_api FAILED", duration_ms=duration_ms)
+            increment_counter('ha_common_api_call_failure')
+            record_metric('ha_common_api_call_error_duration_ms', duration_ms)
         
         close_operation_context(context, success=result.get('success', False), result=result)
         return result
         
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "call_ha_api FAILED", error=str(e), duration_ms=duration_ms)
+        
+        if _DEBUG_MODE_ENABLED:
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
         close_operation_context(context, success=False)
+        increment_counter('ha_common_api_call_error')
         return handle_operation_error('ha_common', 'api_call', e, context['correlation_id'])
 
 
@@ -151,13 +198,20 @@ def batch_get_states(
     cache_ttl: int = HA_CACHE_TTL_STATE
 ) -> Dict[str, Any]:
     """Batch retrieve entity states with circuit breaker."""
+    from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import (
         create_operation_context, close_operation_context, 
         handle_operation_error, cache_operation_result
     )
     
+    correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
+    
+    entity_count = len(entity_ids) if entity_ids else 'all'
+    _debug_trace(correlation_id, "batch_get_states START", count=entity_count)
+    
     context = create_operation_context('ha_common', 'batch_get_states', 
-                                      count=len(entity_ids) if entity_ids else 'all')
+                                      count=entity_count)
     
     try:
         if use_cache:
@@ -184,11 +238,27 @@ def batch_get_states(
             ]
             result['data'] = filtered_states
         
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "batch_get_states SUCCESS", 
+                    returned=len(result.get('data', [])), duration_ms=duration_ms)
+        
         close_operation_context(context, success=True, result=result)
+        increment_counter('ha_common_batch_get_states_success')
+        record_metric('ha_common_batch_get_states_duration_ms', duration_ms)
+        
         return result
         
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "batch_get_states FAILED", error=str(e), duration_ms=duration_ms)
+        
+        if _DEBUG_MODE_ENABLED:
+            from gateway import log_error
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
         close_operation_context(context, success=False)
+        increment_counter('ha_common_batch_get_states_error')
         return handle_operation_error('ha_common', 'batch_get_states', e, context['correlation_id'])
 
 
@@ -200,7 +270,14 @@ def call_ha_service(
     service_data: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """Call Home Assistant service with circuit breaker."""
+    from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    
+    correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
+    
+    _debug_trace(correlation_id, "call_ha_service START", 
+                domain=domain, service=service, entity_id=entity_id)
     
     context = create_operation_context('ha_common', 'call_service', 
                                       domain=domain, service=service, entity_id=entity_id)
@@ -221,11 +298,30 @@ def call_ha_service(
                     del cache_data["entity_states"][entity_id]
                     set_consolidated_cache(cache_data)
         
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        if result.get('success', False):
+            _debug_trace(correlation_id, "call_ha_service SUCCESS", duration_ms=duration_ms)
+            increment_counter('ha_common_call_service_success')
+        else:
+            _debug_trace(correlation_id, "call_ha_service FAILED", duration_ms=duration_ms)
+            increment_counter('ha_common_call_service_failure')
+        
+        record_metric('ha_common_call_service_duration_ms', duration_ms)
         close_operation_context(context, success=result.get('success', False), result=result)
         return result
         
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "call_ha_service FAILED", error=str(e), duration_ms=duration_ms)
+        
+        if _DEBUG_MODE_ENABLED:
+            from gateway import log_error
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
         close_operation_context(context, success=False)
+        increment_counter('ha_common_call_service_error')
         return handle_operation_error('ha_common', 'call_service', e, context['correlation_id'])
 
 
@@ -234,7 +330,13 @@ def batch_call_service(
     ha_config: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """Batch call multiple services with circuit breaker."""
+    from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
+    
+    correlation_id = generate_correlation_id()
+    start_time = time.perf_counter()
+    
+    _debug_trace(correlation_id, "batch_call_service START", count=len(operations))
     
     context = create_operation_context('ha_common', 'batch_call_service', count=len(operations))
     
@@ -251,11 +353,26 @@ def batch_call_service(
             )
             results.append(result)
         
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "batch_call_service COMPLETE", duration_ms=duration_ms)
+        
         close_operation_context(context, success=True)
+        increment_counter('ha_common_batch_call_service_success')
+        record_metric('ha_common_batch_call_service_duration_ms', duration_ms)
+        
         return results
         
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _debug_trace(correlation_id, "batch_call_service FAILED", error=str(e), duration_ms=duration_ms)
+        
+        if _DEBUG_MODE_ENABLED:
+            from gateway import log_error
+            import traceback
+            log_error(f"[{correlation_id}] [TRACEBACK]\n{traceback.format_exc()}")
+        
         close_operation_context(context, success=False)
+        increment_counter('ha_common_batch_call_service_error')
         return [handle_operation_error('ha_common', 'batch_call_service', e, context['correlation_id'])]
 
 
@@ -265,18 +382,24 @@ def get_entity_state(
     use_cache: bool = True
 ) -> Dict[str, Any]:
     """Get entity state with circuit breaker and caching."""
+    from gateway import generate_correlation_id
     from shared_utilities import cache_operation_result
+    
+    correlation_id = generate_correlation_id()
+    _debug_trace(correlation_id, "get_entity_state START", entity_id=entity_id, use_cache=use_cache)
     
     if use_cache:
         cache_data = get_consolidated_cache()
         cached_state = cache_data.get("entity_states", {}).get(entity_id)
         if cached_state and time.time() - cached_state.get("timestamp", 0) < HA_CACHE_TTL_STATE:
+            _debug_trace(correlation_id, "get_entity_state COMPLETE (CACHE)")
             return cached_state.get("data", {})
     
     endpoint = f"/api/states/{entity_id}"
     response = call_ha_api(endpoint, ha_config)
     
     if not response.get('success'):
+        _debug_trace(correlation_id, "get_entity_state FAILED (API error)")
         return {}
     
     entity_data = response.get('data', {})
@@ -291,12 +414,17 @@ def get_entity_state(
         }
         set_consolidated_cache(cache_data)
     
+    _debug_trace(correlation_id, "get_entity_state COMPLETE")
     return entity_data
 
 
 def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
     """Check if Home Assistant is available using circuit breaker."""
+    from gateway import generate_correlation_id
     from shared_utilities import create_operation_context, close_operation_context
+    
+    correlation_id = generate_correlation_id()
+    _debug_trace(correlation_id, "is_ha_available START")
     
     context = create_operation_context('ha_common', 'availability_check')
     
@@ -304,13 +432,17 @@ def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
         result = call_ha_api("/api/", ha_config)
         is_available = result.get('success', False) and result.get('status_code') == 200
         
+        _debug_trace(correlation_id, "is_ha_available COMPLETE", available=is_available)
         close_operation_context(context, success=is_available)
         return is_available
         
     except Exception:
+        _debug_trace(correlation_id, "is_ha_available FAILED")
         close_operation_context(context, success=False)
         return False
 
+
+# ===== UTILITY FUNCTIONS (No debug tracing - simple utilities) =====
 
 def fuzzy_match_name(search: str, options: List[str], threshold: float = 0.6) -> Optional[str]:
     """Fuzzy match name against options."""

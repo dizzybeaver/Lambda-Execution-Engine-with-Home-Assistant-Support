@@ -1,9 +1,17 @@
 """
 gateway_core.py - Core Gateway Implementation (SUGA-ISP)
-Version: 2025.10.17.18
+Version: 2025.10.17.20
 Description: Pattern-based registry with simplified routing
 
 CHANGELOG:
+- 2025.12.03: FIXED: Moved GatewayInterface to gateway_enums.py
+  - Breaks circular import between gateway_core and gateway_wrappers
+  - Gateway wrappers can now import enum without triggering circular dependency
+  - No API changes, just import source moved
+- 2025.12.03: FIXED: Added missing reset_gateway_state function
+  - Function was imported by gateway.py but not implemented
+  - Resets operation call counts and fast path cache
+  - Maintains consistency with get_gateway_stats
 - 2025.10.17.18: MODERNIZED with pattern-based registry
   - Replaced 100+ operation registry with 12 interface mappings
   - Reduced registry from ~100 lines to 12 lines (~90% reduction)
@@ -20,26 +28,11 @@ Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
 
-from enum import Enum
 from typing import Any, Dict, Optional, Tuple, Callable
 from collections import defaultdict
 
-# ===== INTERFACE ENUMERATION =====
-
-class GatewayInterface(Enum):
-    """Gateway interface enumeration."""
-    CACHE = "cache"
-    LOGGING = "logging"
-    SECURITY = "security"
-    METRICS = "metrics"
-    CONFIG = "config"
-    SINGLETON = "singleton"
-    INITIALIZATION = "initialization"
-    HTTP_CLIENT = "http_client"
-    WEBSOCKET = "websocket"
-    CIRCUIT_BREAKER = "circuit_breaker"
-    UTILITY = "utility"
-    DEBUG = "debug"
+# FIXED: Import enum from separate file to prevent circular imports
+from gateway_enums import GatewayInterface
 
 
 # ===== PATTERN-BASED REGISTRY =====
@@ -174,6 +167,28 @@ def get_gateway_stats() -> Dict[str, Any]:
     }
 
 
+def reset_gateway_state() -> Dict[str, Any]:
+    """
+    Reset gateway state including fast path cache and operation counts.
+    
+    Returns:
+        Dict containing counts of cleared items
+    """
+    global _fast_path_cache, _operation_call_counts
+    
+    fast_path_count = len(_fast_path_cache)
+    operation_count = len(_operation_call_counts)
+    
+    _fast_path_cache.clear()
+    _operation_call_counts.clear()
+    
+    return {
+        'fast_path_entries_cleared': fast_path_count,
+        'operation_counts_cleared': operation_count,
+        'state_reset': True
+    }
+
+
 # ===== FAST PATH MANAGEMENT =====
 
 def set_fast_path_threshold(threshold: int) -> None:
@@ -233,10 +248,11 @@ def create_success_response(message: str, data: Any = None) -> Dict[str, Any]:
 # ===== EXPORTS =====
 
 __all__ = [
-    'GatewayInterface',
+    'GatewayInterface',  # Re-exported from gateway_enums
     'execute_operation',
     'initialize_lambda',
     'get_gateway_stats',
+    'reset_gateway_state',
     'set_fast_path_threshold',
     'enable_fast_path',
     'disable_fast_path',

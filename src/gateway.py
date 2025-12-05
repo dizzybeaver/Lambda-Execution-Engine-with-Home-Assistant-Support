@@ -1,198 +1,55 @@
 """
-gateway.py - Universal Lambda Gateway (Consolidated Module)
-Version: 2025.10.22.04
-Description: Single entry point consolidating gateway_core and gateway_wrappers
+gateway.py - Central Gateway Entry Point
+Version: 3.0.2
+Date: 2025-12-03
+Description: Single entry point for all LEE operations
 
-CHANGELOG:
-- 2025.10.22.04: CLEANUP - Removed legacy HTTP_CLIENT function names
-  - Removed: get_http_client_state (use http_get_state)
-  - Removed: reset_http_client_state (use http_reset_state)
-  - Standardized on new naming convention
-- 2025.10.22.03: CRITICAL FIX - Updated HTTP_CLIENT wrapper imports for refactoring
-- 2025.10.21.03: SECURITY FIX - Added sanitize_for_log to imports and exports
+FIXED: Import GatewayInterface from gateway_enums to prevent circular import
+FIXED: Added create_error_response and create_success_response exports
+ADDED: render_template export
+ADDED: config_get export
 
 Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+Licensed under Apache 2.0 (see LICENSE).
 """
 
-# Import all from gateway_core
+# FIXED: Import enum from separate file to prevent circular imports
+from gateway_enums import GatewayInterface
+
 from gateway_core import (
-    GatewayInterface,
     execute_operation,
-    initialize_lambda,
     get_gateway_stats,
-    _OPERATION_REGISTRY,
-    set_fast_path_threshold,
-    enable_fast_path,
-    disable_fast_path,
-    clear_fast_path_cache,
-    get_fast_path_stats,
+    reset_gateway_state,
     create_error_response,
     create_success_response,
 )
 
-# Import all from gateway_wrappers
-from gateway_wrappers import (
-    # Configuration Helpers
-    initialize_config,
-    get_cache_config,
-    get_metrics_config,
-    
-    # Circuit Breaker Helpers
-    is_circuit_breaker_open,
-    get_circuit_breaker_state,
-    
-    # CACHE wrappers
-    cache_get,
-    cache_set,
-    cache_exists,
-    cache_delete,
-    cache_clear,
-    cache_stats,
-    
-    # LOGGING wrappers
-    log_info,
-    log_error,
-    log_warning,
-    log_debug,
-    log_operation_start,
-    log_operation_success,
-    log_operation_failure,
-    
-    # SECURITY wrappers
-    validate_request,
-    validate_token,
-    encrypt_data,
-    decrypt_data,
-    generate_correlation_id,
-    validate_string,
-    validate_email,
-    validate_url,
-    hash_data,
-    verify_hash,
-    sanitize_input,
-    sanitize_for_log,
-    validate_cache_key,
-    validate_ttl,
-    validate_module_name,
-    validate_number_range,
-    
-    # METRICS wrappers
-    record_metric,
-    increment_counter,
-    get_metrics_stats,
-    record_operation_metric,
-    record_error_metric,
-    record_cache_metric,
-    record_api_metric,
-    
-    # CONFIG wrappers
-    get_config,
-    set_config,
-    get_config_category,
-    reload_config,
-    switch_config_preset,
-    get_config_state,
-    load_config_from_environment,
-    load_config_from_file,
-    validate_all_config,
-    
-    # SINGLETON wrappers
-    singleton_get,
-    singleton_has,
-    singleton_delete,
-    singleton_clear,
-    singleton_stats,
-    get_memory_stats,
-    get_comprehensive_memory_stats,
-    check_lambda_memory_compliance,
-    force_memory_cleanup,
-    optimize_memory,
-    force_comprehensive_memory_cleanup,
-    emergency_memory_preserve,
-    
-    # INITIALIZATION wrappers
-    initialize_system,
-    get_initialization_status,
-    set_initialization_flag,
-    get_initialization_flag,
-    
-    # HTTP_CLIENT wrappers (CLEANED UP 2025.10.22.04)
-    http_request,
-    http_get,
-    http_post,
-    http_put,
-    http_delete,
-    http_reset,
-    http_get_state,
-    http_reset_state,
-    
-    # WEBSOCKET wrappers
-    websocket_connect,
-    websocket_send,
-    websocket_receive,
-    websocket_close,
-    websocket_request,
-    
-    # CIRCUIT_BREAKER wrappers
-    get_circuit_breaker,
-    execute_with_circuit_breaker,
-    get_all_circuit_breaker_states,
-    reset_all_circuit_breakers,
-    
-    # UTILITY wrappers
-    format_response,
-    parse_json,
-    safe_get,
-    generate_uuid,
-    get_timestamp,
-    
-    # DEBUG wrappers
-    check_component_health,
-    check_gateway_health,
-    diagnose_system_health,
-    run_debug_tests,
-    validate_system_architecture,
-)
-
-# ===== MASTER EXPORTS =====
+from gateway_wrappers_cache import *
+from gateway_wrappers_logging import *
+from gateway_wrappers_security import *
+from gateway_wrappers_metrics import *
+from gateway_wrappers_config import *
+from gateway_wrappers_singleton import *
+from gateway_wrappers_initialization import *
+from gateway_wrappers_http_client import *
+from gateway_wrappers_websocket import *
+from gateway_wrappers_circuit_breaker import *
+from gateway_wrappers_utility import *
+from gateway_wrappers_debug import *
 
 __all__ = [
-    # Core (from gateway_core)
     'GatewayInterface',
     'execute_operation',
-    'initialize_lambda',
     'get_gateway_stats',
-    
-    # Fast Path Management (from gateway_core)
-    'set_fast_path_threshold',
-    'enable_fast_path',
-    'disable_fast_path',
-    'clear_fast_path_cache',
-    'get_fast_path_stats',
-    
-    # Response Helpers (from gateway_core)
+    'reset_gateway_state',
     'create_error_response',
     'create_success_response',
-    
-    # Configuration Helpers (from gateway_wrappers)
-    'initialize_config',
-    'get_cache_config',
-    'get_metrics_config',
-    
-    # Circuit Breaker Helpers (from gateway_wrappers)
-    'is_circuit_breaker_open',
-    'get_circuit_breaker_state',
-    
-    # Generated Wrappers - CACHE (from gateway_wrappers)
     'cache_get',
     'cache_set',
     'cache_exists',
     'cache_delete',
     'cache_clear',
     'cache_stats',
-    
-    # Generated Wrappers - LOGGING (from gateway_wrappers)
     'log_info',
     'log_error',
     'log_warning',
@@ -200,101 +57,78 @@ __all__ = [
     'log_operation_start',
     'log_operation_success',
     'log_operation_failure',
-    
-    # Generated Wrappers - SECURITY (from gateway_wrappers)
     'validate_request',
-    'validate_token',
-    'encrypt_data',
-    'decrypt_data',
-    'generate_correlation_id',
     'validate_string',
-    'validate_email',
-    'validate_url',
-    'hash_data',
-    'verify_hash',
+    'validate_integer',
+    'validate_dict',
+    'validate_list',
+    'validate_required_fields',
     'sanitize_input',
-    'sanitize_for_log',
-    'validate_cache_key',
-    'validate_ttl',
-    'validate_module_name',
-    'validate_number_range',
-    
-    # Generated Wrappers - METRICS (from gateway_wrappers)
-    'record_metric',
+    'sanitize_string',
+    'sanitize_dict',
+    'sanitize_list',
+    'encode_data',
+    'decode_data',
+    'hash_data',
+    'compare_hashes',
+    'generate_token',
+    'verify_token',
     'increment_counter',
+    'record_metric',
     'get_metrics_stats',
-    'record_operation_metric',
-    'record_error_metric',
-    'record_cache_metric',
-    'record_api_metric',
-    
-    # Generated Wrappers - CONFIG (from gateway_wrappers)
-    'get_config',
-    'set_config',
-    'get_config_category',
-    'reload_config',
-    'switch_config_preset',
-    'get_config_state',
-    'load_config_from_environment',
-    'load_config_from_file',
-    'validate_all_config',
-    
-    # Generated Wrappers - SINGLETON (from gateway_wrappers)
+    'reset_metrics',
+    'get_config_value',
+    'set_config_value',
+    'config_exists',
+    'get_all_config',
+    'singleton_register',
     'singleton_get',
-    'singleton_has',
-    'singleton_delete',
+    'singleton_exists',
     'singleton_clear',
-    'singleton_stats',
-    'get_memory_stats',
-    'get_comprehensive_memory_stats',
-    'check_lambda_memory_compliance',
-    'force_memory_cleanup',
-    'optimize_memory',
-    'force_comprehensive_memory_cleanup',
-    'emergency_memory_preserve',
-    
-    # Generated Wrappers - INITIALIZATION (from gateway_wrappers)
+    'preload_resources',
     'initialize_system',
-    'get_initialization_status',
-    'set_initialization_flag',
-    'get_initialization_flag',
-    
-    # Generated Wrappers - HTTP_CLIENT (CLEANED UP 2025.10.22.04)
-    'http_request',
-    'http_get',
-    'http_post',
-    'http_put',
-    'http_delete',
-    'http_reset',
-    'http_get_state',
-    'http_reset_state',
-    
-    # Generated Wrappers - WEBSOCKET (from gateway_wrappers)
-    'websocket_connect',
-    'websocket_send',
-    'websocket_receive',
-    'websocket_close',
-    'websocket_request',
-    
-    # Generated Wrappers - CIRCUIT_BREAKER (from gateway_wrappers)
-    'get_circuit_breaker',
+    'get_initialization_stats',
+    'reset_initialization',
+    'make_request',
+    'make_get_request',
+    'make_post_request',
+    'make_put_request',
+    'make_delete_request',
+    'make_patch_request',
+    'http_retry_request',
+    'http_get_stats',
+    'ws_connect',
+    'ws_send',
+    'ws_receive',
+    'ws_close',
+    'ws_get_stats',
     'execute_with_circuit_breaker',
-    'get_all_circuit_breaker_states',
-    'reset_all_circuit_breakers',
-    
-    # Generated Wrappers - UTILITY (from gateway_wrappers)
+    'get_circuit_breaker_state',
+    'reset_circuit_breaker',
+    'get_all_circuit_breaker_stats',
+    'get_circuit_breaker_stats',
+    'set_circuit_breaker_threshold',
     'format_response',
     'parse_json',
     'safe_get',
     'generate_uuid',
     'get_timestamp',
-    
-    # Generated Wrappers - DEBUG (from gateway_wrappers)
-    'check_component_health',
-    'check_gateway_health',
-    'diagnose_system_health',
-    'run_debug_tests',
-    'validate_system_architecture',
+    'utility_get_stats',
+    'utility_reset',
+    'render_template',
+    'config_get',
+    'debug_trace',
+    'debug_dump_state',
+    'debug_clear_traces',
+    'debug_get_traces',
+    'debug_get_stats',
+    'debug_enable',
+    'debug_disable',
+    'debug_is_enabled',
+    'debug_log_memory',
+    'debug_log_timing',
+    'debug_log_cache_state',
+    'debug_log_metrics',
+    'debug_full_diagnostic',
+    'debug_reset',
 ]
-
-# EOF

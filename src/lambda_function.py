@@ -1,31 +1,26 @@
+# lambda_function.py
 """
-lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS)
-Version: 2025.10.19.TIMING_FIX
-Description: Production code with lambda_preload for optimal cold start performance
-
-CHANGELOG:
-- 2025.10.19.TIMING_FIX: CRITICAL FIX - Added DEBUG_MODE check for all timing logs
-  - Added _is_debug_mode() and _print_timing() helper functions
-  - Wrapped all print([TIMING]) statements in DEBUG_MODE checks
-  - Timing logs now only appear when DEBUG_MODE=true
-- 2025.10.19.SELECTIVE: Import lambda_preload FIRST for LUGS preloading
-
-CRITICAL CHANGE: Import lambda_preload FIRST!
-This triggers LUGS-protected preloading during Lambda INIT phase:
-- typing, enum, urllib3 (selective), boto3 SSM (selective) all load in ~400ms
-- First request only handles business logic (~150ms)
-- Total cold start: ~550ms (vs 10,854ms before!)
-
-Performance Impact:
-- BEFORE: 239ms INIT + 10,615ms first request = 10,854ms total
-- AFTER: 400ms INIT + 150ms first request = 550ms total (95% improvement!)
+lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
+Version: 2025.11.04.1
+Description: Production code with lambda_preload + HA-SUGA subdirectory
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
-import json
+# ===== CRITICAL: sys.path fix for subdirectory imports =====
+# This MUST be first, before any imports
+import sys
 import os
+
+# Ensure lambda_function.py's directory is in sys.path
+# This allows subdirectory imports like: from home_assistant import ha_interconnect
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+ 
+# ===== STANDARD IMPORTS =====
+import json
 import time
 from typing import Dict, Any
 
@@ -60,6 +55,27 @@ from gateway import (
 
 _gateway_time = (time.perf_counter() - _timing_start) * 1000
 _print_timing(f"Gateway imports complete: {_gateway_time:.2f}ms")
+
+# Check if Home Assistant extension is enabled
+HA_ENABLED = os.getenv('HOME_ASSISTANT_ENABLE', 'false').lower() == 'true'
+HA_AVAILABLE = False
+
+if HA_ENABLED:
+    _ha_start = time.perf_counter()
+    _print_timing("HOME_ASSISTANT_ENABLE=true, loading HA-SUGA...")
+    try:
+        from home_assistant import ha_interconnect
+        HA_AVAILABLE = True
+        _ha_time = (time.perf_counter() - _ha_start) * 1000
+        _print_timing(f"HA-SUGA loaded: {_ha_time:.2f}ms")
+        log_info("HA-SUGA extension loaded successfully")
+    except ImportError as e:
+        _ha_time = (time.perf_counter() - _ha_start) * 1000
+        _print_timing(f"HA-SUGA import failed after {_ha_time:.2f}ms: {e}")
+        log_error(f"Failed to import HA-SUGA: {e}")
+        HA_AVAILABLE = False
+else:
+    _print_timing("HOME_ASSISTANT_ENABLE=false, HA-SUGA not loaded")
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -183,8 +199,32 @@ def determine_request_type(event: Dict[str, Any]) -> str:
         return 'unknown'
 
 
+def _is_ha_event(event: Dict[str, Any]) -> bool:
+    """
+    Determine if event is HA-related.
+    
+    PHASE 6: Helper function for HA event detection.
+    """
+    # Check for Alexa Smart Home directive
+    if 'directive' in event:
+        directive = event.get('directive', {})
+        header = directive.get('header', {})
+        namespace = header.get('namespace', '')
+        if namespace.startswith('Alexa'):
+            return True
+    
+    # Check for HA-specific event types
+    event_type = event.get('type', '')
+    if event_type in ['ha_devices', 'ha_assist', 'ha_alexa']:
+        return True
+    
+    return False
+
+
 def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Handle Alexa Smart Home requests with full namespace routing."""
+    """
+    Handle Alexa Smart Home requests.
+    """
     
     alexa_start = time.perf_counter()
     _print_timing("===== ALEXA REQUEST HANDLER =====")
@@ -198,39 +238,34 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         _print_timing(f"Processing: {namespace}.{name}")
         
-        # Import homeassistant_extension (already optimized with preloaded modules!)
-        _print_timing("Importing homeassistant_extension module...")
-        import_start = time.perf_counter()
-        from homeassistant_extension import (
-            handle_alexa_discovery,
-            handle_alexa_authorization,
-            handle_alexa_control
-        )
-        import_ms = (time.perf_counter() - import_start) * 1000
-        _print_timing(f"homeassistant_extension imported: {import_ms:.2f}ms")
+        if not HA_AVAILABLE:
+            _print_timing("ERROR: Alexa request but HA not available")
+            log_error("Alexa request received but HOME_ASSISTANT_ENABLE=false or HA import failed")
+            increment_counter('alexa_ha_not_available')
+            
+            return {
+                'event': {
+                    'header': {
+                        'namespace': 'Alexa',
+                        'name': 'ErrorResponse',
+                        'messageId': 'error',
+                        'correlationToken': header.get('correlationToken'),
+                        'payloadVersion': '3'
+                    },
+                    'payload': {
+                        'type': 'BRIDGE_UNREACHABLE',
+                        'message': 'Home Assistant extension not enabled. Set HOME_ASSISTANT_ENABLE=true'
+                    }
+                }
+            }
         
-        # Route based on namespace
-        if namespace == 'Alexa.Discovery':
-            _print_timing("Routing to Discovery handler...")
-            route_start = time.perf_counter()
-            result = handle_alexa_discovery(event)
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Discovery handler: {route_ms:.2f}ms")
-            
-        elif namespace == 'Alexa.Authorization':
-            _print_timing("Routing to Authorization handler...")
-            route_start = time.perf_counter()
-            result = handle_alexa_authorization(event)
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Authorization handler: {route_ms:.2f}ms")
-            
-        else:
-            # All other controllers (Power, Brightness, Color, etc.)
-            _print_timing(f"Routing to Control handler for {namespace}...")
-            route_start = time.perf_counter()
-            result = handle_alexa_control(event)
-            route_ms = (time.perf_counter() - route_start) * 1000
-            _print_timing(f"Control handler: {route_ms:.2f}ms")
+        _print_timing("Routing to HA-SUGA (ha_interconnect)...")
+        route_start = time.perf_counter()
+        
+        result = ha_interconnect.alexa_process_directive(event)
+        
+        route_ms = (time.perf_counter() - route_start) * 1000
+        _print_timing(f"HA-SUGA handler: {route_ms:.2f}ms")
         
         total_ms = (time.perf_counter() - alexa_start) * 1000
         _print_timing(f"*** TOTAL ALEXA REQUEST: {total_ms:.2f}ms ***")
@@ -241,6 +276,7 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         error_time = (time.perf_counter() - alexa_start) * 1000
         _print_timing(f"!!! ALEXA ERROR after {error_time:.2f}ms: {str(e)}")
         log_error(f"Alexa request error: {str(e)}")
+        increment_counter('alexa_request_error')
         return {
             'event': {
                 'header': {
@@ -264,7 +300,9 @@ def handle_diagnostic_request(event: Dict[str, Any], context: Any) -> Dict[str, 
         "status": "ok",
         "request_id": context.aws_request_id,
         "memory_limit_mb": context.memory_limit_in_mb,
-        "remaining_time_ms": context.get_remaining_time_in_millis()
+        "remaining_time_ms": context.get_remaining_time_in_millis(),
+        "ha_suga_enabled": HA_ENABLED,
+        "ha_suga_available": HA_AVAILABLE
     })
 
 

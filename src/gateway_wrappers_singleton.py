@@ -1,7 +1,13 @@
 """
 gateway_wrappers_singleton.py - SINGLETON Interface Wrappers
-Version: 2025.10.22.03
+Version: 2025.11.20.01
 Description: Convenience wrappers for SINGLETON interface operations
+
+CHANGELOG:
+- 2025.11.20.01: CRITICAL FIX - Added missing singleton_register function
+  - ADDED: singleton_register as alias for singleton_set
+  - Fixes import error: "cannot import name 'singleton_register' from 'gateway'"
+  - Used by logging_manager.py and singleton_core.py
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -15,17 +21,37 @@ from gateway_core import GatewayInterface, execute_operation
 
 def singleton_get(key: str) -> Any:
     """Get singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'get', key=key)
+    return execute_operation(GatewayInterface.SINGLETON, 'get', name=key)
+
+
+def singleton_set(key: str, instance: Any) -> None:
+    """Set singleton instance."""
+    execute_operation(GatewayInterface.SINGLETON, 'set', name=key, instance=instance)
+
+
+# ADDED: Missing function that was causing import errors
+def singleton_register(key: str, instance: Any) -> None:
+    """
+    Register singleton instance (alias for singleton_set).
+    
+    This function provides semantic naming for singleton registration
+    while maintaining compatibility with code that imports singleton_register.
+    
+    Args:
+        key: Singleton name
+        instance: Instance to register
+    """
+    singleton_set(key, instance)
 
 
 def singleton_has(key: str) -> bool:
     """Check if singleton exists."""
-    return execute_operation(GatewayInterface.SINGLETON, 'has', key=key)
+    return execute_operation(GatewayInterface.SINGLETON, 'has', name=key)
 
 
 def singleton_delete(key: str) -> bool:
     """Delete singleton instance."""
-    return execute_operation(GatewayInterface.SINGLETON, 'delete', key=key)
+    return execute_operation(GatewayInterface.SINGLETON, 'delete', name=key)
 
 
 def singleton_clear() -> None:
@@ -88,6 +114,8 @@ def emergency_memory_preserve() -> Dict[str, Any]:
 __all__ = [
     # Singleton operations
     'singleton_get',
+    'singleton_set',
+    'singleton_register',  # ADDED: Export the new function
     'singleton_has',
     'singleton_delete',
     'singleton_clear',
