@@ -1,14 +1,14 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 3.2.0
-Date: 2025-12-02
+Version: 4.0.0
+Date: 2025-12-05
 Description: Core implementation for Alexa Smart Home integration
 
-MODIFIED: Use gateway.render_template() instead of custom response builders
-MODIFIED: Import templates from ha_alexa_templates
-
-Architecture:
-ha_interconnect.py → ha_interface_alexa.py → ha_alexa_core.py (THIS FILE)
+CHANGES (4.0.0 - LWA MIGRATION):
+- MODIFIED: All functions accept oauth_token parameter
+- MODIFIED: Pass oauth_token to devices_call_ha_api
+- REMOVED: Token loading from config
+- Token flows: directive -> handler -> core -> HA API
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -20,34 +20,29 @@ from typing import Dict, Any
 from gateway import (
     log_info, log_error, log_debug, log_warning,
     increment_counter, generate_correlation_id,
-    render_template  # ADDED
+    render_template
 )
 
-# ADDED: Import templates
+# Import templates
 from home_assistant.ha_alexa_templates import (
     ALEXA_ERROR_RESPONSE,
     ALEXA_ACCEPT_GRANT_RESPONSE
 )
 
 
-def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def process_directive_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Process Alexa Smart Home directive implementation.
     
-    Core implementation for Alexa directive processing.
-    Routes to appropriate handlers based on directive namespace and name.
+    LWA Migration: Accepts oauth_token parameter.
     
     Args:
         event: Alexa directive event dictionary
+        oauth_token: OAuth token from directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Alexa response dictionary
-        
-    Example:
-        response = process_directive_impl(alexa_event)
-        
-    REF: INT-HA-01
     """
     correlation_id = generate_correlation_id()
     
@@ -71,13 +66,13 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         increment_counter('alexa_directive_received')
         increment_counter(f'alexa_directive_{namespace}')
         
-        # Route to appropriate handler
+        # Route to appropriate handler (pass oauth_token)
         if namespace == 'Alexa.Discovery' and name == 'Discover':
-            return handle_discovery_impl(event, **kwargs)
+            return handle_discovery_impl(event, oauth_token=oauth_token, **kwargs)
         elif namespace == 'Alexa.Authorization' and name == 'AcceptGrant':
-            return handle_accept_grant_impl(event, **kwargs)
+            return handle_accept_grant_impl(event, oauth_token=oauth_token, **kwargs)
         else:
-            return _forward_to_ha_alexa(event, correlation_id)
+            return _forward_to_ha_alexa(event, oauth_token, correlation_id)
         
     except Exception as e:
         log_error(f"[{correlation_id}] Directive processing failed: {str(e)}")
@@ -85,23 +80,19 @@ def process_directive_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         return _create_error_response({}, 'INTERNAL_ERROR', str(e))
 
 
-def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def handle_discovery_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa device discovery implementation.
     
-    Core implementation for device discovery.
-    Queries Home Assistant for all available devices.
-    
-    FIXED: Added capability filtering to remove invalid combinations
+    LWA Migration: Accepts and uses oauth_token parameter.
     
     Args:
         event: Alexa discovery event
+        oauth_token: OAuth token from directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Discovery response with device list
-        
-    REF: INT-HA-01
     """
     correlation_id = generate_correlation_id()
     
@@ -109,7 +100,13 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         import home_assistant.ha_interconnect as ha_interconnect
         
-        result = ha_interconnect.devices_call_ha_api('/api/alexa/smart_home', method='POST', data=event)
+        # LWA Migration: Pass oauth_token to API call
+        result = ha_interconnect.devices_call_ha_api(
+            '/api/alexa/smart_home',
+            method='POST',
+            data=event,
+            oauth_token=oauth_token  # LWA token
+        )
         
         if not result.get('success'):
             error_msg = result.get('error', 'Unknown error')
@@ -124,7 +121,7 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
             increment_counter('alexa_discovery_no_data')
             return _create_error_response({}, 'INTERNAL_ERROR', 'No discovery data')
         
-        # FIXED: Filter invalid capability combinations
+        # Filter invalid capability combinations
         filtered_response = _filter_discovery_response(response_data, correlation_id)
         
         increment_counter('alexa_discovery_success')
@@ -136,104 +133,59 @@ def handle_discovery_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         return _create_error_response({}, 'BRIDGE_UNREACHABLE', f'Discovery error: {str(e)}')
 
 
-def handle_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def handle_control_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa device control implementation.
     
-    Core implementation for device control.
-    Forwards control directives to Home Assistant.
+    LWA Migration: Accepts and uses oauth_token parameter.
     
     Args:
         event: Alexa control event
+        oauth_token: OAuth token from directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Control response
-        
-    REF: INT-HA-01
     """
     correlation_id = generate_correlation_id()
     
     increment_counter('alexa_control_request')
     
-    result = _forward_to_ha_alexa(event, correlation_id)
+    result = _forward_to_ha_alexa(event, oauth_token, correlation_id)
     return result
 
 
-def handle_power_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """
-    Handle Alexa power control implementation.
-    
-    Core implementation for power control (on/off).
-    
-    Args:
-        event: Alexa power control event
-        **kwargs: Additional options
-        
-    Returns:
-        Power control response
-        
-    REF: INT-HA-01
-    """
+def handle_power_control_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
+    """Handle Alexa power control implementation."""
     increment_counter('alexa_power_control')
-    return handle_control_impl(event, **kwargs)
+    return handle_control_impl(event, oauth_token=oauth_token, **kwargs)
 
 
-def handle_brightness_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """
-    Handle Alexa brightness control implementation.
-    
-    Core implementation for brightness adjustment.
-    
-    Args:
-        event: Alexa brightness event
-        **kwargs: Additional options
-        
-    Returns:
-        Brightness control response
-        
-    REF: INT-HA-01
-    """
+def handle_brightness_control_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
+    """Handle Alexa brightness control implementation."""
     increment_counter('alexa_brightness_control')
-    return handle_control_impl(event, **kwargs)
+    return handle_control_impl(event, oauth_token=oauth_token, **kwargs)
 
 
-def handle_thermostat_control_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """
-    Handle Alexa thermostat control implementation.
-    
-    Core implementation for thermostat operations.
-    
-    Args:
-        event: Alexa thermostat event
-        **kwargs: Additional options
-        
-    Returns:
-        Thermostat control response
-        
-    REF: INT-HA-01
-    """
+def handle_thermostat_control_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
+    """Handle Alexa thermostat control implementation."""
     increment_counter('alexa_thermostat_control')
-    return handle_control_impl(event, **kwargs)
+    return handle_control_impl(event, oauth_token=oauth_token, **kwargs)
 
 
-def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def handle_accept_grant_impl(event: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Handle Alexa AcceptGrant directive implementation.
     
-    Core implementation for authorization grant.
-    Simple acknowledgment response per Alexa Smart Home API.
-    
-    MODIFIED: Uses template rendering
+    LWA Migration: OAuth flow managed by Alexa/HA, Lambda just acknowledges.
     
     Args:
         event: Alexa AcceptGrant event
+        oauth_token: OAuth token from directive (LWA)
         **kwargs: Additional options
         
     Returns:
         AcceptGrant response
-        
-    REF: INT-HA-01
     """
     correlation_id = generate_correlation_id()
     directive = event.get('directive', {})
@@ -242,7 +194,6 @@ def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     log_info(f"[{correlation_id}] AcceptGrant received")
     increment_counter('alexa_accept_grant')
     
-    # MODIFIED: Use template rendering
     return render_template(
         ALEXA_ACCEPT_GRANT_RESPONSE,
         correlation_token=header.get('correlationToken')
@@ -251,14 +202,15 @@ def handle_accept_grant_impl(event: Dict[str, Any], **kwargs) -> Dict[str, Any]:
 
 # ===== HELPER FUNCTIONS =====
 
-def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
+def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id: str) -> Dict[str, Any]:
     """
     Forward directive to Home Assistant's native Alexa endpoint.
     
-    Helper function to forward directives to HA.
+    LWA Migration: Accepts and uses oauth_token parameter.
     
     Args:
         event: Alexa directive event
+        oauth_token: OAuth token from directive (LWA)
         correlation_id: Correlation ID for logging
         
     Returns:
@@ -268,10 +220,12 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         import home_assistant.ha_interconnect as ha_interconnect
         
+        # LWA Migration: Pass oauth_token to API call
         result = ha_interconnect.devices_call_ha_api(
             '/api/alexa/smart_home',
             method='POST',
-            data=event
+            data=event,
+            oauth_token=oauth_token  # LWA token
         )
         
         if not result.get('success'):
@@ -297,20 +251,9 @@ def _forward_to_ha_alexa(event: Dict[str, Any], correlation_id: str) -> Dict[str
         return _create_error_response({}, 'BRIDGE_UNREACHABLE', f'Connection error: {str(e)}')
 
 
-# MODIFIED: Use template rendering
 def _create_error_response(header: Dict[str, Any], error_type: str,
                           error_message: str) -> Dict[str, Any]:
-    """
-    Create Alexa error response using template.
-    
-    Args:
-        header: Alexa directive header
-        error_type: Error type code
-        error_message: Error message
-        
-    Returns:
-        Alexa-formatted error response
-    """
+    """Create Alexa error response using template."""
     return render_template(
         ALEXA_ERROR_RESPONSE,
         correlation_token=header.get('correlationToken', ''),
@@ -319,20 +262,8 @@ def _create_error_response(header: Dict[str, Any], error_type: str,
     )
 
 
-# FIXED: Added capability filtering functions
 def _filter_discovery_response(response: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
-    """
-    Filter discovery response to remove invalid capability combinations.
-    
-    FIXED: Prevents ContactSensor on devices with PowerController
-    
-    Args:
-        response: Raw discovery response from HA
-        correlation_id: Correlation ID for logging
-        
-    Returns:
-        Filtered response
-    """
+    """Filter discovery response to remove invalid capability combinations."""
     try:
         endpoints = response.get('event', {}).get('payload', {}).get('endpoints', [])
         
@@ -366,22 +297,11 @@ def _filter_discovery_response(response: Dict[str, Any], correlation_id: str) ->
     except Exception as e:
         log_error(f"[{correlation_id}] Filtering error: {e}")
         increment_counter('alexa_discovery_filter_error')
-        return response  # Return original if filtering fails
+        return response
 
 
 def _filter_endpoint_capabilities(endpoint: Dict[str, Any], correlation_id: str) -> Dict[str, Any]:
-    """
-    Filter invalid capability combinations for single endpoint.
-    
-    FIXED: Removes ContactSensor from devices with PowerController
-    
-    Args:
-        endpoint: Alexa endpoint definition
-        correlation_id: Correlation ID for logging
-        
-    Returns:
-        Filtered endpoint
-    """
+    """Filter invalid capability combinations for single endpoint."""
     try:
         capabilities = endpoint.get('capabilities', [])
         
@@ -399,7 +319,7 @@ def _filter_endpoint_capabilities(endpoint: Dict[str, Any], correlation_id: str)
             for cap in capabilities
         )
         
-        # FIXED: Remove ContactSensor from power devices
+        # Remove ContactSensor from power devices
         if has_power_controller and has_contact_sensor:
             friendly_name = endpoint.get('friendlyName', 'Unknown')
             log_warning(
@@ -419,7 +339,7 @@ def _filter_endpoint_capabilities(endpoint: Dict[str, Any], correlation_id: str)
         
     except Exception as e:
         log_error(f"[{correlation_id}] Endpoint filtering error: {e}")
-        return endpoint  # Return original if filtering fails
+        return endpoint
 
 
 __all__ = [
