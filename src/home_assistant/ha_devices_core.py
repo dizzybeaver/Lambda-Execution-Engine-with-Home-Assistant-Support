@@ -1,9 +1,14 @@
 # ha_devices_core.py
 """
 ha_devices_core.py - Core Device Operations (INT-HA-02)
-Version: 3.0.0
-Date: 2025-11-05
+Version: 3.0.1
+Date: 2025-12-05
 Purpose: Core implementation for Home Assistant device operations
+
+MODIFIED (3.0.1 - LWA MIGRATION):
+- ADDED: oauth_token parameter to all 7 core functions
+- ADDED: Explicit oauth_token passing to call_ha_api_impl calls
+- Pattern: oauth_token passed through **kwargs to nested calls
 
 Architecture:
 ha_interconnect.py → ha_interface_devices.py → ha_devices_core.py (THIS FILE)
@@ -30,7 +35,7 @@ from difflib import SequenceMatcher
 
 # Import gateway services
 from gateway import (
-    log_info, log_error, log_debug,
+    log_info, log_error, log_debug, log_warning,
     cache_get, cache_set, cache_delete,
     increment_counter, record_metric,
     create_success_response, create_error_response,
@@ -48,31 +53,24 @@ from home_assistant.ha_devices_helpers import (
     HA_CACHE_TTL_FUZZY_MATCH
 )
 
-# Import cache functions (lazy import to avoid circular)
-# Imported inside warm_cache_impl when needed
-
 
 # ===== CORE DEVICE OPERATIONS (7 FUNCTIONS) =====
 
-def get_states_impl(entity_ids: Optional[List[str]] = None, 
-                   use_cache: bool = True, **kwargs) -> Dict[str, Any]:
+def get_states_impl(entity_ids: Optional[List[str]] = None, use_cache: bool = True,
+                   oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Get Home Assistant entity states implementation.
     
-    Core implementation for retrieving device states.
+    LWA Migration: Accepts oauth_token and passes to call_ha_api_impl.
     
     Args:
         entity_ids: Optional list of specific entity IDs
         use_cache: Whether to use cached states
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         States response dictionary with entity list
-        
-    Example:
-        states = get_states_impl(['light.living_room'])
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     
@@ -103,7 +101,7 @@ def get_states_impl(entity_ids: Optional[List[str]] = None,
                     cache_delete(cache_key)
             
             _trace_step(correlation_id, "Fetching states from API")
-            result = call_ha_api_impl('/api/states')
+            result = call_ha_api_impl('/api/states', oauth_token=oauth_token)
             
             if not isinstance(result, dict):
                 log_error(f"[{correlation_id}] call_ha_api_impl returned {type(result)}, not dict")
@@ -141,27 +139,25 @@ def get_states_impl(entity_ids: Optional[List[str]] = None,
         return create_error_response(str(e), 'GET_STATES_FAILED')
 
 
-def get_by_id_impl(entity_id: str, **kwargs) -> Dict[str, Any]:
+def get_by_id_impl(entity_id: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Get specific device by entity ID implementation.
     
-    Core implementation for single device retrieval.
+    LWA Migration: Accepts oauth_token and passes through kwargs.
     
     Args:
         entity_id: Entity ID to retrieve
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Device state dictionary
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     log_info(f"[{correlation_id}] Getting device by ID: {entity_id}")
     
     try:
-        # Use get_states_impl with filtering
-        result = get_states_impl(entity_ids=[entity_id], **kwargs)
+        result = get_states_impl(entity_ids=[entity_id], oauth_token=oauth_token, **kwargs)
         
         if result.get('success'):
             entities = result.get('data', [])
@@ -180,27 +176,26 @@ def get_by_id_impl(entity_id: str, **kwargs) -> Dict[str, Any]:
         return create_error_response(str(e), 'GET_BY_ID_FAILED')
 
 
-def find_fuzzy_impl(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
+def find_fuzzy_impl(search_name: str, threshold: float = 0.6, 
+                   oauth_token: str = None, **kwargs) -> Optional[str]:
     """
     Find device using fuzzy name matching implementation.
     
-    Core implementation for fuzzy device search.
+    LWA Migration: Accepts oauth_token and passes through kwargs.
     
     Args:
         search_name: Name to search for
         threshold: Matching threshold (0.0-1.0)
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Best matching entity ID or None
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     
     try:
-        # Get all entity states
-        states_result = get_states_impl(use_cache=True)
+        states_result = get_states_impl(use_cache=True, oauth_token=oauth_token, **kwargs)
         
         if not states_result.get('success'):
             log_error(f"[{correlation_id}] Failed to get states for fuzzy match")
@@ -209,7 +204,6 @@ def find_fuzzy_impl(search_name: str, threshold: float = 0.6, **kwargs) -> Optio
         entities = states_result.get('data', [])
         names = [e.get('entity_id', '') for e in entities if isinstance(e, dict)]
         
-        # Cache fuzzy match results (entity names rarely change)
         names_hash = hashlib.md5('|'.join(sorted(names)).encode()).hexdigest()[:8]
         cache_key = f"fuzzy_match_{search_name}_{names_hash}"
         
@@ -250,30 +244,25 @@ def find_fuzzy_impl(search_name: str, threshold: float = 0.6, **kwargs) -> Optio
         return None
 
 
-def call_service_impl(domain: str, service: str, 
-                     entity_id: Optional[str] = None,
-                     service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def call_service_impl(domain: str, service: str, entity_id: Optional[str] = None,
+                     service_data: Optional[Dict] = None, oauth_token: str = None, 
+                     **kwargs) -> Dict[str, Any]:
     """
     Call Home Assistant service implementation.
     
-    Core implementation for service calls.
+    LWA Migration: Accepts oauth_token and passes to call_ha_api_impl.
     
     Args:
         domain: Service domain (e.g., 'light', 'switch')
         service: Service name (e.g., 'turn_on', 'turn_off')
         entity_id: Optional target entity ID
         service_data: Optional service data
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Service call response
-        
-    Example:
-        result = call_service_impl('light', 'turn_on', 'light.living_room')
-        
-    REF: INT-HA-02
     """
-    # Lazy import to avoid circular dependency
     from home_assistant.ha_devices_cache import invalidate_entity_cache_impl
     
     correlation_id = generate_correlation_id()
@@ -296,10 +285,9 @@ def call_service_impl(domain: str, service: str,
             
             _trace_step(correlation_id, "Calling service", service=f"{domain}.{service}")
             
-            result = call_ha_api_impl(endpoint, method='POST', data=data)
+            result = call_ha_api_impl(endpoint, method='POST', data=data, oauth_token=oauth_token)
             
             if result.get('success'):
-                # Smart cache invalidation
                 if entity_id:
                     invalidate_entity_cache_impl(entity_id)
                 
@@ -322,42 +310,39 @@ def call_service_impl(domain: str, service: str,
         return create_error_response(str(e), 'SERVICE_CALL_FAILED')
 
 
-def update_state_impl(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def update_state_impl(entity_id: str, state_data: Dict[str, Any], 
+                     oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Update device state implementation.
     
-    Core implementation for state updates. Uses call_service_impl
-    to apply state changes via HA services.
+    LWA Migration: Accepts oauth_token and passes through kwargs.
     
     Args:
         entity_id: Entity ID to update
         state_data: New state data (e.g., {'state': 'on', 'brightness': 255})
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Update response
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     log_info(f"[{correlation_id}] Updating state for {entity_id}")
     
     try:
-        # Extract domain from entity_id (e.g., 'light' from 'light.living_room')
         if '.' not in entity_id:
             return create_error_response('Invalid entity_id format', 'INVALID_ENTITY_ID')
         
         domain = entity_id.split('.')[0]
         
-        # Determine service based on state_data
         state = state_data.get('state', '').lower()
         service = 'turn_on' if state == 'on' else 'turn_off' if state == 'off' else None
         
         if not service:
             return create_error_response('Unable to determine service from state_data', 'INVALID_STATE')
         
-        # Call service with state data
-        result = call_service_impl(domain, service, entity_id, state_data)
+        result = call_service_impl(domain, service, entity_id, state_data, 
+                                  oauth_token=oauth_token, **kwargs)
         
         if result.get('success'):
             increment_counter('ha_devices_update_state_success')
@@ -372,31 +357,28 @@ def update_state_impl(entity_id: str, state_data: Dict[str, Any], **kwargs) -> D
         return create_error_response(str(e), 'UPDATE_STATE_FAILED')
 
 
-def list_by_domain_impl(domain: str, **kwargs) -> Dict[str, Any]:
+def list_by_domain_impl(domain: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     List all devices in a domain implementation.
     
-    Core implementation for domain filtering.
+    LWA Migration: Accepts oauth_token and passes through kwargs.
     
     Args:
         domain: Domain to filter (e.g., 'light', 'switch', 'sensor')
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         List of devices in domain
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     log_info(f"[{correlation_id}] Listing devices in domain: {domain}")
     
     try:
-        # Get all states
-        result = get_states_impl(use_cache=True)
+        result = get_states_impl(use_cache=True, oauth_token=oauth_token, **kwargs)
         
         if result.get('success'):
             entities = result.get('data', [])
-            # Filter by domain
             filtered = [e for e in entities 
                        if isinstance(e, dict) and 
                        e.get('entity_id', '').startswith(f"{domain}.")]
@@ -416,25 +398,24 @@ def list_by_domain_impl(domain: str, **kwargs) -> Dict[str, Any]:
         return create_error_response(str(e), 'LIST_BY_DOMAIN_FAILED')
 
 
-def check_status_impl(**kwargs) -> Dict[str, Any]:
+def check_status_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Check Home Assistant connection status implementation.
     
-    Core implementation for status checks.
+    LWA Migration: Accepts oauth_token and passes to call_ha_api_impl.
     
     Args:
+        oauth_token: OAuth token from Alexa directive (LWA)
         **kwargs: Additional options
         
     Returns:
         Connection status dictionary
-        
-    REF: INT-HA-02
     """
     correlation_id = generate_correlation_id()
     
     try:
         with DebugContext("check_status_impl", correlation_id):
-            result = call_ha_api_impl('/api/')
+            result = call_ha_api_impl('/api/', oauth_token=oauth_token)
             
             if result.get('success'):
                 record_metric('ha_status_check_success', 1.0)
@@ -455,7 +436,6 @@ def check_status_impl(**kwargs) -> Dict[str, Any]:
 
 
 __all__ = [
-    # Core device operations (7)
     'get_states_impl',
     'get_by_id_impl',
     'find_fuzzy_impl',
