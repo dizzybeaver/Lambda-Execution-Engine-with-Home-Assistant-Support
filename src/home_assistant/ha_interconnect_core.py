@@ -1,12 +1,8 @@
 """
 ha_interconnect_core.py - HA Interconnect Core Registry
-Version: 6.0.0
-Date: 2025-12-05
+Version: 6.1.0
+Date: 2025-12-06
 Description: Central registry for HA operations (CR-1 pattern)
-
-CHANGES (6.0.0 - LWA MIGRATION):
-- MODIFIED: execute_ha_operation passes oauth_token to implementations
-- All HA operations now support oauth_token parameter
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -41,6 +37,7 @@ _INTERFACE_ROUTERS = {
         'handle_accept_grant': 'handle_accept_grant_impl',
     }),
     HAInterface.DEVICES: ('home_assistant.ha_devices_core', {
+        # Core operations (7)
         'get_states': 'get_states_impl',
         'get_by_id': 'get_by_id_impl',
         'find_fuzzy': 'find_fuzzy_impl',
@@ -48,6 +45,14 @@ _INTERFACE_ROUTERS = {
         'call_service': 'call_service_impl',
         'list_by_domain': 'list_by_domain_impl',
         'check_status': 'check_status_impl',
+        # FIXED: Added missing operations (7)
+        'call_ha_api': 'call_ha_api_impl',
+        'get_ha_config': 'get_ha_config_impl',
+        'warm_cache': 'warm_cache_impl',
+        'invalidate_entity_cache': 'invalidate_entity_cache_impl',
+        'invalidate_domain_cache': 'invalidate_domain_cache_impl',
+        'get_performance_report': 'get_performance_report_impl',
+        'get_diagnostic_info': 'get_diagnostic_info_impl',
     }),
     HAInterface.ASSIST: ('home_assistant.ha_assist_core', {
         'send_message': 'send_message_impl',
