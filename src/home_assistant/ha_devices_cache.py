@@ -1,9 +1,13 @@
 # ha_devices_cache.py
 """
 ha_devices_cache.py - Cache Management Functions
-Version: 3.0.0
-Date: 2025-11-05
+Version: 3.0.1
+Date: 2025-12-05
 Purpose: Cache management and performance reporting for HA devices
+
+MODIFIED (3.0.1 - LWA MIGRATION):
+- ADDED: oauth_token parameter to warm_cache_impl
+- ADDED: oauth_token passing to get_ha_config_impl and get_states_impl
 
 Architecture:
 - Uses ha_devices_helpers for shared utilities
@@ -47,19 +51,21 @@ from home_assistant.ha_devices_helpers import (
 
 # ===== CACHE MANAGEMENT =====
 
-def warm_cache_impl(**kwargs) -> Dict[str, Any]:
+def warm_cache_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """
     Pre-warm cache on cold start.
+    
+    LWA Migration: Accepts oauth_token and passes to HA API calls.
     
     Loads frequently accessed data into cache during Lambda initialization
     to eliminate first-request penalties.
     
-    Uses existing INT-01 (CACHE) interface - no duplication.
+    Args:
+        oauth_token: OAuth token from Alexa directive (LWA)
+        **kwargs: Additional options
     
     Returns:
         Dict with warming status and statistics
-        
-    REF: INT-HA-02
     """
     if not HA_CACHE_WARMING_ENABLED:
         log_debug("Cache warming disabled (HA_CACHE_WARMING_ENABLED=false)")
@@ -75,11 +81,9 @@ def warm_cache_impl(**kwargs) -> Dict[str, Any]:
         
         # 1. Warm HA configuration (most frequently accessed)
         try:
-            # Import get_states_impl lazily to avoid circular import
             from home_assistant.ha_devices_core import get_states_impl
             
-            config = get_ha_config_impl()
-            # Uses existing cache_set() from INT-01
+            config = get_ha_config_impl(oauth_token=oauth_token)
             cache_set('ha_config', config, ttl=HA_CACHE_TTL_CONFIG)
             warmed_count += 1
             log_debug(f"[{correlation_id}] Warmed: ha_config")
@@ -90,20 +94,17 @@ def warm_cache_impl(**kwargs) -> Dict[str, Any]:
         # 2. Pre-fetch HA states if enabled and configured
         try:
             if config and config.get('enabled'):
-                # Import inside try block to avoid circular import
                 from home_assistant.ha_devices_core import get_states_impl
                 
-                # Predictive pre-loading: States are accessed in 80% of requests
-                states_result = get_states_impl(use_cache=False)
+                states_result = get_states_impl(use_cache=False, oauth_token=oauth_token)
                 if states_result.get('success'):
-                    # Already cached by get_states_impl() using cache_set()
                     warmed_count += 1
                     log_debug(f"[{correlation_id}] Warmed: ha_all_states")
         except Exception as e:
             errors.append(f"States warming failed: {str(e)}")
             log_error(f"[{correlation_id}] States warming error: {e}")
         
-        # 3. Record warming metrics using existing INT-04
+        # 3. Record warming metrics
         duration_ms = (time.perf_counter() - start_time) * 1000
         record_metric('ha_cache_warming_duration_ms', duration_ms)
         record_metric('ha_cache_warming_items', float(warmed_count))
@@ -136,15 +137,10 @@ def invalidate_entity_cache_impl(entity_id: str, **kwargs) -> bool:
         
     Returns:
         True if invalidated, False otherwise
-        
-    REF: INT-HA-02
     """
     try:
-        # Invalidate specific entity state
         result = cache_delete(f"ha_state_{entity_id}")
         
-        # Also invalidate fuzzy match cache entries that might contain this entity
-        # (More targeted than clearing all states)
         increment_counter('ha_cache_smart_invalidation')
         record_metric('ha_cache_invalidation_targeted', 1.0)
         
@@ -169,15 +165,11 @@ def invalidate_domain_cache_impl(domain: str, **kwargs) -> int:
         
     Returns:
         Number of cache entries invalidated
-        
-    REF: INT-HA-02
     """
     try:
-        # Get all cache keys using existing INT-01 cache_stats()
         stats = cache_stats()
         keys = stats.get('keys', [])
         
-        # Filter for domain-specific keys
         invalidated = 0
         for key in keys:
             if key.startswith(f"ha_state_{domain}."):
@@ -206,21 +198,14 @@ def get_performance_report_impl(**kwargs) -> Dict[str, Any]:
     
     Returns:
         Performance report with timing analysis, cache efficiency, bottlenecks
-        
-    REF: INT-HA-02
     """
     try:
-        # Get raw metrics from existing INT-04 interface
         raw_metrics = get_metrics_stats()
-        
-        # Get cache statistics from existing INT-01 interface
         cache_info = cache_stats()
         
-        # Analyze HA-specific operations
         ha_operations = {}
         slow_operations_list = []
         
-        # Extract HA operation metrics (those starting with 'ha_')
         for metric_name, values in raw_metrics.get('metrics', {}).items():
             if metric_name.startswith('ha_') and '_duration_ms' in metric_name:
                 operation = metric_name.replace('_duration_ms', '')
@@ -239,7 +224,6 @@ def get_performance_report_impl(**kwargs) -> Dict[str, Any]:
                         'sample_count': len(values)
                     }
                     
-                    # Identify slow operations
                     if percentiles['p95'] > HA_SLOW_OPERATION_THRESHOLD_MS:
                         slow_operations_list.append({
                             'operation': operation,
@@ -247,7 +231,6 @@ def get_performance_report_impl(**kwargs) -> Dict[str, Any]:
                             'max_ms': max(values)
                         })
         
-        # Calculate cache efficiency
         cache_efficiency = {}
         if cache_info.get('hits', 0) + cache_info.get('misses', 0) > 0:
             total_requests = cache_info['hits'] + cache_info['misses']
@@ -260,15 +243,14 @@ def get_performance_report_impl(**kwargs) -> Dict[str, Any]:
                                   'needs_improvement'
             }
         
-        # Build comprehensive report
         report = {
             'timestamp': get_timestamp(),
-            'ha_core_version': '3.0.0-FILE-SPLIT',
+            'ha_core_version': '3.0.1-LWA-MIGRATION',
             'operations': ha_operations,
             'cache_efficiency': cache_efficiency,
             'slow_operations': sorted(slow_operations_list, 
                                      key=lambda x: x['p95_ms'], 
-                                     reverse=True)[:5],  # Top 5 slowest
+                                     reverse=True)[:5],
             'slow_operation_count': len(_SLOW_OPERATIONS),
             'cache_stats': cache_info,
             'recommendations': _generate_performance_recommendations(
@@ -293,8 +275,6 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
     
     Returns:
         Diagnostic information dictionary
-        
-    REF: INT-HA-02
     """
     from home_assistant.ha_devices_helpers import (
         HA_CACHE_TTL_ENTITIES,
@@ -305,7 +285,7 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
     )
     
     return {
-        'ha_devices_cache_version': '3.0.0-FILE-SPLIT',
+        'ha_devices_cache_version': '3.0.1-LWA-MIGRATION',
         'migration_source': 'ha_devices_core.py v2.0.0',
         'cache_ttl_entities': HA_CACHE_TTL_ENTITIES,
         'cache_ttl_state': HA_CACHE_TTL_STATE,
@@ -316,6 +296,11 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
         'cache_warming_enabled': HA_CACHE_WARMING_ENABLED,
         'slow_operation_threshold_ms': HA_SLOW_OPERATION_THRESHOLD_MS,
         'slow_operations_detected': len(_SLOW_OPERATIONS),
+        'lwa_migration': {
+            'complete': True,
+            'oauth_token_support': True,
+            'warm_cache_supports_oauth': True
+        },
         'file_split': {
             'complete': True,
             'from_file': 'ha_devices_core.py',
@@ -330,17 +315,16 @@ def get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
             'cache_warming': HA_CACHE_WARMING_ENABLED,
             'smart_invalidation': True,
             'performance_profiling': True,
-            'predictive_preloading': True
+            'predictive_preloading': True,
+            'lwa_oauth_support': True
         }
     }
 
 
 __all__ = [
-    # Cache management
     'warm_cache_impl',
     'invalidate_entity_cache_impl',
     'invalidate_domain_cache_impl',
-    # Performance
     'get_performance_report_impl',
     'get_diagnostic_info_impl',
 ]
