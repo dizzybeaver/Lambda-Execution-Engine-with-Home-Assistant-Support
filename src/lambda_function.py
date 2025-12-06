@@ -1,25 +1,22 @@
 # lambda_function.py
 """
 lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
-Version: 2025.12.05.1
+Version: 2025.12.06.1
 Description: Production code with lambda_preload + HA-SUGA subdirectory + LWA OAuth
 
-CHANGES (2025.12.05.1 - LWA MIGRATION):
-- ADDED: OAuth token extraction from Alexa directives
-- ADDED: Token passing to HA handlers
-- KEPT: All mode routing, timing, sys.path fix, lambda_preload
+CHANGES (2025.12.06.1 - DEBUG EVENT STRUCTURE):
+- ADDED: Full event structure logging for OAuth debugging
+- ADDED: Multiple token location checks
+- FIXED: Comprehensive token extraction logic
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 # ===== CRITICAL: sys.path fix for subdirectory imports =====
-# This MUST be first, before any imports
 import sys
 import os
 
-# Ensure lambda_function.py's directory is in sys.path
-# This allows subdirectory imports like: from home_assistant import ha_interconnect
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -30,9 +27,7 @@ import time
 from typing import Dict, Any
 
 # ===== CRITICAL: Import lambda_preload FIRST! =====
-# This triggers all preloading during Lambda INIT (happens in background)
-# Module-level imports load BEFORE first request, user doesn't wait!
-import lambda_preload  # Preloads: typing, enum, urllib3 (selective), boto3 SSM (selective)
+import lambda_preload
 
 # ===== TIMING HELPER =====
 
@@ -83,13 +78,13 @@ else:
     _print_timing("HOME_ASSISTANT_ENABLE=false, HA-SUGA not loaded")
 
 
-# ===== LWA OAUTH TOKEN EXTRACTION =====
+# ===== LWA OAUTH TOKEN EXTRACTION (ENHANCED) =====
 
 def _extract_oauth_token(event: Dict[str, Any]) -> str:
     """
     Extract OAuth token from Alexa directive.
     
-    LWA Migration: Token from directive, not config.
+    ENHANCED: Checks all possible token locations and logs event structure.
     
     Args:
         event: Alexa Smart Home event
@@ -101,26 +96,62 @@ def _extract_oauth_token(event: Dict[str, Any]) -> str:
         ValueError: If no token found
     """
     directive = event.get('directive', {})
+    header = directive.get('header', {})
     
-    # Try endpoint.scope.token (control directives)
+    # ADDED: Log full event structure for debugging
+    log_info(f"[TOKEN_DEBUG] Checking event for OAuth token")
+    log_info(f"[TOKEN_DEBUG] Namespace: {header.get('namespace')}, Name: {header.get('name')}")
+    
+    # ADDED: Log directive keys to see structure
+    log_info(f"[TOKEN_DEBUG] Directive keys: {list(directive.keys())}")
+    
+    # Check 1: directive.endpoint.scope.token (control directives)
     endpoint = directive.get('endpoint', {})
-    scope = endpoint.get('scope', {})
-    token = scope.get('token')
+    if endpoint:
+        log_info(f"[TOKEN_DEBUG] Endpoint keys: {list(endpoint.keys())}")
+        scope = endpoint.get('scope', {})
+        if scope:
+            log_info(f"[TOKEN_DEBUG] Endpoint.scope keys: {list(scope.keys())}")
+            token = scope.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.endpoint.scope (length={len(token)})')
+                return token
     
-    if token:
-        log_debug('OAuth token extracted from directive.endpoint.scope')
-        return token
-    
-    # Try payload.scope.token (discovery/grant)
+    # Check 2: directive.payload.scope.token (discovery/grant)
     payload = directive.get('payload', {})
-    scope = payload.get('scope', {})
-    token = scope.get('token')
+    if payload:
+        log_info(f"[TOKEN_DEBUG] Payload keys: {list(payload.keys())}")
+        scope = payload.get('scope', {})
+        if scope:
+            log_info(f"[TOKEN_DEBUG] Payload.scope keys: {list(scope.keys())}")
+            token = scope.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.payload.scope (length={len(token)})')
+                return token
     
-    if token:
-        log_debug('OAuth token extracted from directive.payload.scope')
-        return token
+    # Check 3: directive.payload.grantee.token (AcceptGrant)
+    if payload:
+        grantee = payload.get('grantee', {})
+        if grantee:
+            log_info(f"[TOKEN_DEBUG] Payload.grantee keys: {list(grantee.keys())}")
+            token = grantee.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.payload.grantee (length={len(token)})')
+                return token
     
-    log_error('No OAuth token in Alexa directive')
+    # Check 4: directive.payload.grant.code (authorization code grant)
+    if payload:
+        grant = payload.get('grant', {})
+        if grant:
+            log_info(f"[TOKEN_DEBUG] Payload.grant keys: {list(grant.keys())}")
+            code = grant.get('code')
+            if code:
+                log_info(f'[TOKEN_DEBUG] Found authorization code in directive.payload.grant (not a token)')
+    
+    # ADDED: Dump full event structure if no token found
+    log_error('[TOKEN_DEBUG] ✗ No token found in any location')
+    log_error(f'[TOKEN_DEBUG] Full event structure: {json.dumps(event, indent=2, default=str)}')
+    
     raise ValueError('No OAuth token in directive')
 
 
@@ -288,7 +319,7 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # LWA Migration: Extract OAuth token
         try:
             oauth_token = _extract_oauth_token(event)
-            log_debug(f'OAuth token extracted (length={len(oauth_token)})')
+            log_info(f'OAuth token extracted successfully (length={len(oauth_token)})')
             # Add token to event for HA processing
             event['oauth_token'] = oauth_token
         except ValueError as e:
