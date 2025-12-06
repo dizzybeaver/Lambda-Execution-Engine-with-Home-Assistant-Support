@@ -234,6 +234,12 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
         directive = event.get('directive', {})
         endpoint = directive.get('endpoint', {})
         entity_id = endpoint.get('endpointId')
+        
+        # FIXED: Normalize entity_id format (Alexa uses # but HA needs .)
+        if entity_id and '#' in entity_id:
+            entity_id = entity_id.replace('#', '.')
+            log_debug(f"[{correlation_id}] Normalized entity_id: {entity_id}")
+        
         header = directive.get('header', {})
         namespace = header.get('namespace', '')
         
