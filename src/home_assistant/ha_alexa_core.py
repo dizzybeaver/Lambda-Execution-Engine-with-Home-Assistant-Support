@@ -1,8 +1,14 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 4.0.0
-Date: 2025-12-05
+Version: 4.1.0
+Date: 2025-12-06
 Description: Core implementation for Alexa Smart Home integration
+
+CHANGES (4.1.0 - STATE SYNC FIX):
+- FIXED: Cache invalidation after control actions
+- ADDED: Extract entity_id from directive endpoint
+- ADDED: Invalidate cache after successful control
+- Result: Fresh state on next query
 
 CHANGES (4.0.0 - LWA MIGRATION):
 - MODIFIED: All functions accept oauth_token parameter
@@ -207,6 +213,7 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
     Forward directive to Home Assistant's native Alexa endpoint.
     
     LWA Migration: Accepts and uses oauth_token parameter.
+    State Sync Fix: Invalidates cache after successful control.
     
     Args:
         event: Alexa directive event
@@ -219,6 +226,11 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
     try:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         import home_assistant.ha_interconnect as ha_interconnect
+        
+        # ADDED: Extract entity_id for cache invalidation
+        directive = event.get('directive', {})
+        endpoint = directive.get('endpoint', {})
+        entity_id = endpoint.get('endpointId')  # This is the HA entity_id
         
         # LWA Migration: Pass oauth_token to API call
         result = ha_interconnect.devices_call_ha_api(
@@ -241,6 +253,17 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
             log_error(f"[{correlation_id}] HA returned success but no data")
             increment_counter('alexa_forward_no_data')
             return _create_error_response({}, 'INTERNAL_ERROR', 'No response data from HA')
+        
+        # FIXED: Invalidate cache for controlled entity
+        # This ensures next state query fetches fresh data from HA
+        if entity_id:
+            try:
+                ha_interconnect.devices_invalidate_entity_cache(entity_id)
+                log_debug(f"[{correlation_id}] Invalidated cache for {entity_id}")
+                increment_counter('alexa_cache_invalidated_after_control')
+            except Exception as cache_error:
+                log_warning(f"[{correlation_id}] Cache invalidation failed for {entity_id}: {cache_error}")
+                # Non-fatal - continue with response
         
         increment_counter('alexa_forward_success')
         return response_data
