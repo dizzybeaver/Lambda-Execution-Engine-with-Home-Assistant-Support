@@ -1,26 +1,30 @@
 """
 ha_alexa_core.py - Alexa Core Implementation (INT-HA-01)
-Version: 4.1.0
+Version: 4.2.0
 Date: 2025-12-06
 Description: Core implementation for Alexa Smart Home integration
 
+CHANGES (4.2.0 - STATE ENRICHMENT FIX):
+- FIXED: Enrich response with fresh state in context.properties
+- ADDED: Fetch entity state after successful control
+- ADDED: Build Alexa-compliant context.properties
+- ADDED: Response logging for debugging
+- Result: Alexa UI updates immediately with correct state
+
 CHANGES (4.1.0 - STATE SYNC FIX):
 - FIXED: Cache invalidation after control actions
-- ADDED: Extract entity_id from directive endpoint
-- ADDED: Invalidate cache after successful control
-- Result: Fresh state on next query
 
 CHANGES (4.0.0 - LWA MIGRATION):
 - MODIFIED: All functions accept oauth_token parameter
 - MODIFIED: Pass oauth_token to devices_call_ha_api
 - REMOVED: Token loading from config
-- Token flows: directive -> handler -> core -> HA API
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 from typing import Dict, Any
+from datetime import datetime, timezone
 
 # Import LEE services via gateway (ONLY way to access LEE)
 from gateway import (
@@ -212,8 +216,7 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
     """
     Forward directive to Home Assistant's native Alexa endpoint.
     
-    LWA Migration: Accepts and uses oauth_token parameter.
-    State Sync Fix: Invalidates cache after successful control.
+    Enhanced to fetch fresh state and enrich response with context.properties.
     
     Args:
         event: Alexa directive event
@@ -221,23 +224,27 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
         correlation_id: Correlation ID for logging
         
     Returns:
-        HA response or error response
+        Enriched HA response with fresh state
     """
     try:
         # LAZY IMPORT: Only load ha_interconnect when actually needed
         import home_assistant.ha_interconnect as ha_interconnect
         
-        # ADDED: Extract entity_id for cache invalidation
+        # Extract entity_id and directive info
         directive = event.get('directive', {})
         endpoint = directive.get('endpoint', {})
-        entity_id = endpoint.get('endpointId')  # This is the HA entity_id
+        entity_id = endpoint.get('endpointId')
+        header = directive.get('header', {})
+        namespace = header.get('namespace', '')
         
-        # LWA Migration: Pass oauth_token to API call
+        log_debug(f"[{correlation_id}] Control directive: {namespace} for {entity_id}")
+        
+        # Forward to HA
         result = ha_interconnect.devices_call_ha_api(
             '/api/alexa/smart_home',
             method='POST',
             data=event,
-            oauth_token=oauth_token  # LWA token
+            oauth_token=oauth_token
         )
         
         if not result.get('success'):
@@ -255,15 +262,34 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
             return _create_error_response({}, 'INTERNAL_ERROR', 'No response data from HA')
         
         # FIXED: Invalidate cache for controlled entity
-        # This ensures next state query fetches fresh data from HA
         if entity_id:
             try:
                 ha_interconnect.devices_invalidate_entity_cache(entity_id)
                 log_debug(f"[{correlation_id}] Invalidated cache for {entity_id}")
-                increment_counter('alexa_cache_invalidated_after_control')
             except Exception as cache_error:
-                log_warning(f"[{correlation_id}] Cache invalidation failed for {entity_id}: {cache_error}")
-                # Non-fatal - continue with response
+                log_warning(f"[{correlation_id}] Cache invalidation failed: {cache_error}")
+        
+        # ADDED: Enrich response with fresh state
+        if entity_id and namespace != 'Alexa.Discovery':
+            try:
+                enriched_response = _enrich_response_with_state(
+                    response_data, 
+                    entity_id, 
+                    oauth_token, 
+                    correlation_id,
+                    ha_interconnect
+                )
+                
+                # Log response structure for debugging
+                log_info(f"[{correlation_id}] Response enriched with fresh state for {entity_id}")
+                increment_counter('alexa_response_enriched')
+                
+                return enriched_response
+                
+            except Exception as enrich_error:
+                log_warning(f"[{correlation_id}] State enrichment failed: {enrich_error}")
+                # Fall back to original response
+                increment_counter('alexa_enrichment_failed')
         
         increment_counter('alexa_forward_success')
         return response_data
@@ -272,6 +298,158 @@ def _forward_to_ha_alexa(event: Dict[str, Any], oauth_token: str, correlation_id
         log_error(f"[{correlation_id}] Failed to forward to HA: {str(e)}")
         increment_counter('alexa_forward_error')
         return _create_error_response({}, 'BRIDGE_UNREACHABLE', f'Connection error: {str(e)}')
+
+
+def _enrich_response_with_state(response: Dict[str, Any], entity_id: str, 
+                                oauth_token: str, correlation_id: str,
+                                ha_interconnect) -> Dict[str, Any]:
+    """
+    Enrich Alexa response with fresh device state in context.properties.
+    
+    Args:
+        response: Original HA response
+        entity_id: Entity ID to fetch state for
+        oauth_token: OAuth token for HA API
+        correlation_id: Correlation ID for logging
+        ha_interconnect: HA interconnect module
+        
+    Returns:
+        Response enriched with fresh state
+    """
+    try:
+        # Fetch fresh state from HA
+        state_result = ha_interconnect.devices_get_by_id(entity_id, oauth_token=oauth_token)
+        
+        if not state_result.get('success'):
+            log_warning(f"[{correlation_id}] Could not fetch fresh state for {entity_id}")
+            return response
+        
+        entity_state = state_result.get('data', {})
+        
+        # Build context.properties from fresh state
+        properties = _build_context_properties(entity_id, entity_state, correlation_id)
+        
+        if not properties:
+            log_debug(f"[{correlation_id}] No properties built for {entity_id}")
+            return response
+        
+        # Ensure response has context structure
+        if 'context' not in response:
+            response['context'] = {}
+        
+        # Replace/add properties with fresh state
+        response['context']['properties'] = properties
+        
+        log_debug(f"[{correlation_id}] Added {len(properties)} properties to context")
+        
+        return response
+        
+    except Exception as e:
+        log_error(f"[{correlation_id}] State enrichment error: {str(e)}")
+        return response
+
+
+def _build_context_properties(entity_id: str, entity_state: Dict[str, Any], 
+                              correlation_id: str) -> list:
+    """
+    Build Alexa context.properties from HA entity state.
+    
+    Args:
+        entity_id: Entity ID
+        entity_state: HA entity state
+        correlation_id: Correlation ID for logging
+        
+    Returns:
+        List of Alexa property objects
+    """
+    properties = []
+    
+    try:
+        state = entity_state.get('state', '').lower()
+        attributes = entity_state.get('attributes', {})
+        domain = entity_id.split('.')[0] if '.' in entity_id else 'unknown'
+        
+        # Current timestamp
+        now = datetime.now(timezone.utc).isoformat()
+        
+        # Power state (for lights, switches, etc.)
+        if domain in ['light', 'switch', 'fan']:
+            power_value = 'ON' if state == 'on' else 'OFF'
+            properties.append({
+                'namespace': 'Alexa.PowerController',
+                'name': 'powerState',
+                'value': power_value,
+                'timeOfSample': now,
+                'uncertaintyInMilliseconds': 500
+            })
+        
+        # Brightness (for dimmable lights)
+        if domain == 'light' and 'brightness' in attributes:
+            # HA brightness: 0-255, Alexa: 0-100
+            brightness_255 = attributes.get('brightness', 0)
+            brightness_100 = int((brightness_255 / 255) * 100)
+            
+            properties.append({
+                'namespace': 'Alexa.BrightnessController',
+                'name': 'brightness',
+                'value': brightness_100,
+                'timeOfSample': now,
+                'uncertaintyInMilliseconds': 500
+            })
+        
+        # Color temperature (for lights)
+        if domain == 'light' and 'color_temp' in attributes:
+            properties.append({
+                'namespace': 'Alexa.ColorTemperatureController',
+                'name': 'colorTemperatureInKelvin',
+                'value': attributes.get('color_temp', 2700),
+                'timeOfSample': now,
+                'uncertaintyInMilliseconds': 500
+            })
+        
+        # Contact sensor
+        if domain == 'binary_sensor' and attributes.get('device_class') == 'door':
+            contact_value = 'DETECTED' if state == 'on' else 'NOT_DETECTED'
+            properties.append({
+                'namespace': 'Alexa.ContactSensor',
+                'name': 'detectionState',
+                'value': contact_value,
+                'timeOfSample': now,
+                'uncertaintyInMilliseconds': 500
+            })
+        
+        # Temperature
+        if domain == 'climate':
+            if 'current_temperature' in attributes:
+                properties.append({
+                    'namespace': 'Alexa.TemperatureSensor',
+                    'name': 'temperature',
+                    'value': {
+                        'value': attributes.get('current_temperature'),
+                        'scale': 'FAHRENHEIT'  # or CELSIUS based on HA config
+                    },
+                    'timeOfSample': now,
+                    'uncertaintyInMilliseconds': 500
+                })
+            
+            if 'temperature' in attributes:
+                properties.append({
+                    'namespace': 'Alexa.ThermostatController',
+                    'name': 'targetSetpoint',
+                    'value': {
+                        'value': attributes.get('temperature'),
+                        'scale': 'FAHRENHEIT'
+                    },
+                    'timeOfSample': now,
+                    'uncertaintyInMilliseconds': 500
+                })
+        
+        log_debug(f"[{correlation_id}] Built {len(properties)} properties for {entity_id}")
+        
+    except Exception as e:
+        log_error(f"[{correlation_id}] Property building error: {str(e)}")
+    
+    return properties
 
 
 def _create_error_response(header: Dict[str, Any], error_type: str,
