@@ -1,13 +1,8 @@
 """
 ha_devices_helpers.py - Device Helper Functions and Utilities
-Version: 4.0.0
-Date: 2025-12-05
+Version: 4.1.0
+Date: 2025-12-06
 Purpose: Helper functions and utilities for HA device operations
-
-CHANGES (4.0.0 - LWA MIGRATION):
-- MODIFIED: call_ha_api_impl accepts oauth_token parameter
-- Token priority: oauth_token > config['access_token']
-- Token from config is optional (None OK for LWA mode)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -45,6 +40,74 @@ HA_RATE_LIMIT_BURST = int(os.getenv('HA_RATE_LIMIT_BURST', '20'))
 HA_RATE_LIMIT_WINDOW_SECONDS = 1.0
 
 _SLOW_OPERATIONS = defaultdict(int)
+
+# ===== DEBUG MODE =====
+# ADDED: Debug mode flag
+_DEBUG_MODE_ENABLED = os.getenv('DEBUG_MODE', 'false').lower() == 'true'
+
+
+# ===== DEBUG TRACING =====
+# ADDED: Debug trace helper
+
+def _trace_step(correlation_id: str, step: str, **details):
+    """
+    Debug trace helper for device operations.
+    
+    Args:
+        correlation_id: Correlation ID for request tracing
+        step: Step description
+        **details: Additional details to log
+    """
+    if _DEBUG_MODE_ENABLED:
+        detail_str = ', '.join(f"{k}={v}" for k, v in details.items()) if details else ''
+        log_info(f"[{correlation_id}] [DEVICES-TRACE] {step}" + (f" ({detail_str})" if detail_str else ""))
+
+
+# ADDED: Debug context manager
+class DebugContext:
+    """
+    Context manager for debug tracing with timing.
+    
+    Usage:
+        with DebugContext("operation_name", correlation_id, key=value):
+            # operation code
+    """
+    
+    def __init__(self, operation: str, correlation_id: str, **details):
+        """
+        Initialize debug context.
+        
+        Args:
+            operation: Operation name
+            correlation_id: Correlation ID
+            **details: Additional context details
+        """
+        self.operation = operation
+        self.correlation_id = correlation_id
+        self.details = details
+        self.start_time = None
+        
+    def __enter__(self):
+        """Enter context - trace start."""
+        if _DEBUG_MODE_ENABLED:
+            self.start_time = time.perf_counter()
+            _trace_step(self.correlation_id, f"{self.operation} START", **self.details)
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context - trace completion with timing."""
+        if _DEBUG_MODE_ENABLED and self.start_time:
+            duration_ms = (time.perf_counter() - self.start_time) * 1000
+            status = "FAILED" if exc_type else "SUCCESS"
+            _trace_step(
+                self.correlation_id, 
+                f"{self.operation} {status}", 
+                duration_ms=f"{duration_ms:.2f}"
+            )
+        return False  # Don't suppress exceptions
+
+
+# ===== RATE LIMITER =====
 
 class RateLimiter:
     """Token bucket rate limiter for HA API calls."""
@@ -324,6 +387,10 @@ __all__ = [
     '_extract_entity_list',
     '_calculate_percentiles',
     '_generate_performance_recommendations',
+    # ADDED: Debug tracing exports
+    '_trace_step',
+    'DebugContext',
+    # Constants
     'HA_CACHE_TTL_ENTITIES',
     'HA_CACHE_TTL_STATE',
     'HA_CACHE_TTL_CONFIG',
