@@ -123,6 +123,7 @@ def get_states_impl(entity_ids: Optional[List[str]] = None, use_cache: bool = Tr
                 if use_cache:
                     cache_set(cache_key, normalized_result, ttl=HA_CACHE_TTL_STATE)
                     _trace_step(correlation_id, "States cached")
+                    _trace_step(correlation_id, "States cached")
                 
                 if entity_ids and isinstance(entity_ids, list):
                     entity_set = set(entity_ids)
