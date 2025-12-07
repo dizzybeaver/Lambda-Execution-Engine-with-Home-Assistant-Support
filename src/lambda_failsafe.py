@@ -25,6 +25,7 @@ import os
 import uuid
 from typing import Any, Dict, Optional
 import time
+import requests
 
 # Gateway imports
 from gateway import (
@@ -153,8 +154,7 @@ def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) ->
     Returns:
         HA response or error response
     """
-    import requests
-    
+
     correlation_id = generate_correlation_id()
     start_time = time.perf_counter()
     
