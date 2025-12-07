@@ -1,20 +1,16 @@
 """
 lambda_failsafe.py
 
-Version: 2025.1205.01
-Date: 2025-12-05
-Purpose: Failsafe Alexa handler with LWA OAuth support
+Version: 2025.1207.01
+Date: 2025-12-07
+Purpose: Independent failsafe Alexa handler (NO LEE dependencies)
 
-CHANGES (2025.1205.01 - LWA MIGRATION):
-- REMOVED: fallback_token parameter from _extract_bearer_token()
-- REMOVED: SSM token fallback logic
-- MODIFIED: Token extraction to LWA-only (directive-based)
-- ADDED: Enhanced error handling for missing tokens
-- ADDED: Debug logging for token location tracking
-- UPDATED: lambda_failsafe_handler() for LWA OAuth flow
+CRITICAL: This file is COMPLETELY INDEPENDENT of LEE/gateway.
+If LEE breaks, this still works. DO NOT import from gateway or any LEE modules.
 
-LWA Migration: Token MUST come from Alexa directive (OAuth flow).
-No SSM fallback token support. Account linking required.
+LWA Migration:
+- PRIMARY: OAuth token from Alexa directive
+- FALLBACK: Long-lived token from FALLBACK_HA_TOKEN env var (if exists)
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
@@ -23,104 +19,174 @@ Licensed under the Apache License, Version 2.0
 import json
 import os
 import uuid
-from typing import Any, Dict, Optional
 import time
+from typing import Any, Dict, Optional
+from datetime import datetime, timedelta
+
+# CRITICAL: NO LEE IMPORTS - requests only (available in Lambda runtime)
 import requests
 
-# Gateway imports
-from gateway import (
-    log_info,
-    log_error,
-    log_warning,
-    log_debug,
-    increment_counter,
-    record_metric,
-    generate_correlation_id
-)
+
+# ===== SIMPLE LOGGING (NO GATEWAY) =====
+
+def _log(level: str, message: str, **kwargs) -> None:
+    """Simple logging - print to CloudWatch."""
+    timestamp = datetime.utcnow().isoformat()
+    log_data = {
+        'timestamp': timestamp,
+        'level': level,
+        'message': message,
+        **kwargs
+    }
+    print(json.dumps(log_data))
+
+
+def _log_info(message: str, **kwargs) -> None:
+    """Log info message."""
+    _log('INFO', message, **kwargs)
+
+
+def _log_error(message: str, **kwargs) -> None:
+    """Log error message."""
+    _log('ERROR', message, **kwargs)
+
+
+def _log_debug(message: str, **kwargs) -> None:
+    """Log debug message."""
+    if os.environ.get('DEBUG', 'false').lower() == 'true':
+        _log('DEBUG', message, **kwargs)
+
+
+# ===== SIMPLE CACHE (NO LEE) =====
+
+_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _cache_get(key: str) -> Optional[Any]:
+    """Get from cache if not expired."""
+    if key in _CACHE:
+        entry = _CACHE[key]
+        if time.time() < entry['expires_at']:
+            _log_debug(f'Cache hit: {key}')
+            return entry['value']
+        else:
+            _log_debug(f'Cache expired: {key}')
+            del _CACHE[key]
+    return None
+
+
+def _cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:
+    """Set cache value with TTL."""
+    _CACHE[key] = {
+        'value': value,
+        'expires_at': time.time() + ttl_seconds
+    }
+    _log_debug(f'Cache set: {key} (TTL: {ttl_seconds}s)')
 
 
 # ===== CONFIGURATION =====
 
-def _load_failsafe_config() -> Dict[str, Any]:
+def _load_config() -> Dict[str, Any]:
     """
-    Load failsafe configuration from environment.
+    Load configuration from environment.
     
-    LWA Migration: No token in config.
-    Token comes from Alexa directive only.
+    Returns dict with:
+    - ha_url: Home Assistant URL
+    - fallback_token: Optional long-lived token (if set)
+    - timeout: Request timeout
+    - verify_ssl: SSL verification
     """
-    return {
+    config = {
         'ha_url': os.environ.get('HOME_ASSISTANT_URL', 'https://homeassistant.local:8123'),
         'timeout': int(os.environ.get('HOME_ASSISTANT_TIMEOUT', '30')),
         'verify_ssl': os.environ.get('VERIFY_SSL', 'true').lower() == 'true'
     }
+    
+    # Optional fallback token (long-lived)
+    fallback = os.environ.get('FALLBACK_HA_TOKEN')
+    if fallback:
+        config['fallback_token'] = fallback
+        _log_info('Fallback token configured')
+    
+    return config
 
 
-# ===== TOKEN EXTRACTION (LWA) =====
+# ===== TOKEN EXTRACTION =====
 
-def _extract_bearer_token(event: Dict[str, Any]) -> str:
+def _extract_oauth_token(event: Dict[str, Any]) -> Optional[str]:
     """
-    Extract bearer token from Alexa directive.
+    Extract OAuth token from Alexa directive.
     
-    LWA Migration: Removed fallback token support.
-    Token MUST come from Alexa directive (OAuth flow).
+    Locations (in priority order):
+    1. directive.endpoint.scope.token (control directives)
+    2. directive.payload.scope.token (discovery/grant)
     
-    Priority:
-        1. directive.endpoint.scope.token (standard location)
-        2. directive.payload.scope.token (discovery/grant)
-    
-    Args:
-        event: Alexa Smart Home event
-        
     Returns:
-        Bearer token string
-        
-    Raises:
-        ValueError: If no token found in directive
+        Token string or None if not found
     """
     directive = event.get('directive', {})
     
-    # Try endpoint scope (most common for control directives)
+    # Try endpoint scope
     endpoint = directive.get('endpoint', {})
     scope = endpoint.get('scope', {})
     token = scope.get('token')
     
     if token:
-        log_debug('Token found in directive.endpoint.scope')
-        increment_counter('alexa_token_extracted_endpoint')
+        _log_debug('OAuth token found in endpoint.scope')
         return token
     
-    # Try payload scope (discovery/grant directives)
+    # Try payload scope
     payload = directive.get('payload', {})
     scope = payload.get('scope', {})
     token = scope.get('token')
     
     if token:
-        log_debug('Token found in directive.payload.scope')
-        increment_counter('alexa_token_extracted_payload')
+        _log_debug('OAuth token found in payload.scope')
         return token
     
-    # LWA Migration: No fallback token
-    log_error('No token in Alexa directive - account linking may not be configured')
-    increment_counter('alexa_token_missing')
-    
-    raise ValueError('No Bearer token in Alexa directive (LWA account linking required)')
+    return None
 
 
-# ===== ERROR RESPONSE =====
-
-def _create_error_response(error_type: str, message: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
+def _get_token(event: Dict[str, Any], config: Dict[str, Any]) -> str:
     """
-    Create Alexa error response.
+    Get authentication token.
+    
+    Priority:
+    1. OAuth token from directive (PRIMARY)
+    2. Fallback token from environment (SECONDARY)
     
     Args:
-        error_type: Alexa error type
-        message: Error message
-        correlation_id: Optional correlation ID
+        event: Alexa event
+        config: Configuration dict
         
     Returns:
-        Alexa ErrorResponse
+        Token string
+        
+    Raises:
+        ValueError: If no token available
     """
-    response = {
+    # Try OAuth token first (PRIMARY)
+    oauth_token = _extract_oauth_token(event)
+    if oauth_token:
+        _log_info('Using OAuth token from directive')
+        return oauth_token
+    
+    # Try fallback token (SECONDARY)
+    fallback = config.get('fallback_token')
+    if fallback:
+        _log_info('Using fallback long-lived token')
+        return fallback
+    
+    # No token available
+    _log_error('No token available (OAuth or fallback)')
+    raise ValueError('No authentication token available')
+
+
+# ===== ERROR RESPONSES =====
+
+def _error_response(error_type: str, message: str) -> Dict[str, Any]:
+    """Create Alexa error response."""
+    return {
         'event': {
             'header': {
                 'namespace': 'Alexa',
@@ -134,29 +200,23 @@ def _create_error_response(error_type: str, message: str, correlation_id: Option
             }
         }
     }
-    
-    if correlation_id:
-        response['event']['header']['correlationToken'] = correlation_id
-    
-    return response
 
 
 # ===== HA FORWARDING =====
 
-def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def _forward_to_ha(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Forward Alexa directive to Home Assistant.
+    Forward directive to Home Assistant.
     
     Args:
         event: Alexa directive
-        config: Configuration including token
+        config: Configuration (must include 'token')
         
     Returns:
         HA response or error response
     """
-
-    correlation_id = generate_correlation_id()
-    start_time = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    start = time.perf_counter()
     
     try:
         # Extract directive info
@@ -165,22 +225,22 @@ def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) ->
         namespace = header.get('namespace', 'Unknown')
         name = header.get('name', 'Unknown')
         
-        log_info(
-            f'Forwarding to HA: {namespace}.{name}',
-            correlation_id=correlation_id
+        _log_info(
+            f'Forwarding: {namespace}.{name}',
+            request_id=request_id
         )
         
-        # Build HA API endpoint
+        # Build endpoint
         ha_url = config['ha_url'].rstrip('/')
         endpoint = f'{ha_url}/api/alexa/smart_home'
         
-        # Headers with OAuth token
+        # Headers
         headers = {
             'Authorization': f"Bearer {config['token']}",
             'Content-Type': 'application/json'
         }
         
-        # Forward directive
+        # Forward
         response = requests.post(
             endpoint,
             json=event,
@@ -189,163 +249,94 @@ def _forward_to_home_assistant(event: Dict[str, Any], config: Dict[str, Any]) ->
             verify=config.get('verify_ssl', True)
         )
         
-        duration_ms = (time.perf_counter() - start_time) * 1000
+        duration = (time.perf_counter() - start) * 1000
         
-        # Check response
         if response.status_code == 200:
-            log_info(
-                f'HA response success: {namespace}.{name}',
-                correlation_id=correlation_id,
-                duration_ms=duration_ms
+            _log_info(
+                f'HA success: {namespace}.{name}',
+                request_id=request_id,
+                duration_ms=duration
             )
-            increment_counter('ha_forward_success')
-            record_metric('ha_forward_duration_ms', duration_ms)
-            
             return response.json()
         else:
-            log_error(
-                f'HA response error: {response.status_code}',
-                correlation_id=correlation_id,
-                status_code=response.status_code,
-                response_text=response.text[:200]
+            _log_error(
+                f'HA error: {response.status_code}',
+                request_id=request_id,
+                status=response.status_code,
+                text=response.text[:200]
             )
-            increment_counter('ha_forward_error')
-            
-            return _create_error_response(
+            return _error_response(
                 'ENDPOINT_UNREACHABLE',
-                f'Home Assistant returned {response.status_code}',
-                correlation_id
+                f'Home Assistant returned {response.status_code}'
             )
             
     except requests.exceptions.Timeout:
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        log_error(
-            'HA request timeout',
-            correlation_id=correlation_id,
-            duration_ms=duration_ms
-        )
-        increment_counter('ha_forward_timeout')
-        
-        return _create_error_response(
-            'ENDPOINT_UNREACHABLE',
-            'Home Assistant request timeout',
-            correlation_id
-        )
+        duration = (time.perf_counter() - start) * 1000
+        _log_error('HA timeout', request_id=request_id, duration_ms=duration)
+        return _error_response('ENDPOINT_UNREACHABLE', 'Home Assistant timeout')
         
     except requests.exceptions.RequestException as e:
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        log_error(
-            f'HA request failed: {str(e)}',
-            correlation_id=correlation_id,
-            duration_ms=duration_ms
-        )
-        increment_counter('ha_forward_network_error')
-        
-        return _create_error_response(
-            'ENDPOINT_UNREACHABLE',
-            f'Home Assistant connection failed: {str(e)}',
-            correlation_id
-        )
+        duration = (time.perf_counter() - start) * 1000
+        _log_error(f'HA request failed: {e}', request_id=request_id, duration_ms=duration)
+        return _error_response('ENDPOINT_UNREACHABLE', f'Connection failed: {e}')
         
     except Exception as e:
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        log_error(
-            f'HA forward unexpected error: {str(e)}',
-            correlation_id=correlation_id,
-            duration_ms=duration_ms
-        )
-        increment_counter('ha_forward_unexpected_error')
-        
-        return _create_error_response(
-            'INTERNAL_ERROR',
-            'Failed to process request',
-            correlation_id
-        )
+        duration = (time.perf_counter() - start) * 1000
+        _log_error(f'Unexpected error: {e}', request_id=request_id, duration_ms=duration)
+        return _error_response('INTERNAL_ERROR', 'Failed to process request')
 
 
 # ===== HANDLER =====
 
 def lambda_failsafe_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Failsafe Alexa handler (LWA-enabled).
+    Independent failsafe handler.
     
-    LWA Migration: Token MUST come from Alexa directive.
-    No fallback token support. Account linking required.
+    CRITICAL: NO LEE/gateway dependencies.
+    
+    Token priority:
+    1. OAuth from directive (PRIMARY)
+    2. FALLBACK_HA_TOKEN env var (SECONDARY)
     
     Args:
         event: Alexa Smart Home event
         context: Lambda context
         
     Returns:
-        Alexa response or error response
+        Alexa response
     """
-    correlation_id = generate_correlation_id()
-    start_time = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    start = time.perf_counter()
     
     try:
-        log_info('Failsafe handler invoked', correlation_id=correlation_id)
-        increment_counter('failsafe_handler_invoked')
+        _log_info('Failsafe handler invoked', request_id=request_id)
         
-        # Load configuration (no token in config)
-        config = _load_failsafe_config()
+        # Load config
+        config = _load_config()
         
-        # Extract token from directive (NO FALLBACK)
+        # Get token (OAuth or fallback)
         try:
-            token = _extract_bearer_token(event)
+            token = _get_token(event, config)
+            config['token'] = token
         except ValueError as e:
-            # Token missing - account linking not configured
-            log_error(
-                f'Token extraction failed: {str(e)}',
-                correlation_id=correlation_id
+            _log_error(f'Token error: {e}', request_id=request_id)
+            return _error_response(
+                'INVALID_AUTHORIZATION_CREDENTIAL',
+                'Account linking required or fallback token not configured'
             )
-            increment_counter('failsafe_token_missing')
-            
-            return {
-                'event': {
-                    'header': {
-                        'namespace': 'Alexa',
-                        'name': 'ErrorResponse',
-                        'messageId': str(uuid.uuid4()),
-                        'payloadVersion': '3'
-                    },
-                    'payload': {
-                        'type': 'INVALID_AUTHORIZATION_CREDENTIAL',
-                        'message': 'Account linking required. Please link your account in the Alexa app.'
-                    }
-                }
-            }
         
-        # Add token to config for forwarding
-        config['token'] = token
+        # Forward to HA
+        response = _forward_to_ha(event, config)
         
-        # Forward to HA with directive token
-        response = _forward_to_home_assistant(event, config)
-        
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        log_info(
-            'Failsafe handler complete',
-            correlation_id=correlation_id,
-            duration_ms=duration_ms
-        )
-        record_metric('failsafe_handler_duration_ms', duration_ms)
-        increment_counter('failsafe_handler_success')
+        duration = (time.perf_counter() - start) * 1000
+        _log_info('Failsafe complete', request_id=request_id, duration_ms=duration)
         
         return response
         
     except Exception as e:
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        log_error(
-            f'Failsafe handler error: {str(e)}',
-            correlation_id=correlation_id,
-            duration_ms=duration_ms
-        )
-        increment_counter('failsafe_handler_error')
-        
-        return _create_error_response(
-            'INTERNAL_ERROR',
-            'An unexpected error occurred',
-            correlation_id
-        )
+        duration = (time.perf_counter() - start) * 1000
+        _log_error(f'Handler error: {e}', request_id=request_id, duration_ms=duration)
+        return _error_response('INTERNAL_ERROR', 'Unexpected error occurred')
 
 
 # EOF
