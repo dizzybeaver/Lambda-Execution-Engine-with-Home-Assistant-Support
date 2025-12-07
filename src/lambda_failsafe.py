@@ -1,7 +1,7 @@
 """
 lambda_failsafe.py
 
-Version: 2025.1207.01
+Version: 2025.1207.02
 Date: 2025-12-07
 Purpose: Independent failsafe Alexa handler (NO LEE dependencies)
 
@@ -12,6 +12,8 @@ LWA Migration:
 - PRIMARY: OAuth token from Alexa directive
 - FALLBACK: Long-lived token from FALLBACK_HA_TOKEN env var (if exists)
 
+FIXED: Use urllib (built-in) instead of requests (not in Lambda runtime)
+
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
@@ -21,10 +23,10 @@ import os
 import uuid
 import time
 from typing import Any, Dict, Optional
-from datetime import datetime, timedelta
-
-# CRITICAL: NO LEE IMPORTS - requests only (available in Lambda runtime)
-import requests
+from datetime import datetime
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+import urllib.parse
 
 
 # ===== SIMPLE LOGGING (NO GATEWAY) =====
@@ -206,7 +208,7 @@ def _error_response(error_type: str, message: str) -> Dict[str, Any]:
 
 def _forward_to_ha(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Forward directive to Home Assistant.
+    Forward directive to Home Assistant using urllib (built-in).
     
     Args:
         event: Alexa directive
@@ -234,51 +236,66 @@ def _forward_to_ha(event: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, A
         ha_url = config['ha_url'].rstrip('/')
         endpoint = f'{ha_url}/api/alexa/smart_home'
         
-        # Headers
-        headers = {
-            'Authorization': f"Bearer {config['token']}",
-            'Content-Type': 'application/json'
-        }
+        # Prepare request data
+        json_data = json.dumps(event).encode('utf-8')
         
-        # Forward
-        response = requests.post(
-            endpoint,
-            json=event,
-            headers=headers,
-            timeout=config.get('timeout', 30),
-            verify=config.get('verify_ssl', True)
+        # Create request with headers
+        req = Request(endpoint, data=json_data)
+        req.add_header('Authorization', f"Bearer {config['token']}")
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('Content-Length', str(len(json_data)))
+        
+        # Make request
+        with urlopen(req, timeout=config.get('timeout', 30)) as response:
+            duration = (time.perf_counter() - start) * 1000
+            
+            if response.status == 200:
+                _log_info(
+                    f'HA success: {namespace}.{name}',
+                    request_id=request_id,
+                    duration_ms=duration
+                )
+                response_data = response.read().decode('utf-8')
+                return json.loads(response_data)
+            else:
+                _log_error(
+                    f'HA error: {response.status}',
+                    request_id=request_id,
+                    status=response.status
+                )
+                return _error_response(
+                    'ENDPOINT_UNREACHABLE',
+                    f'Home Assistant returned {response.status}'
+                )
+    
+    except HTTPError as e:
+        duration = (time.perf_counter() - start) * 1000
+        _log_error(
+            f'HA HTTP error: {e.code}',
+            request_id=request_id,
+            status=e.code,
+            duration_ms=duration
+        )
+        return _error_response(
+            'ENDPOINT_UNREACHABLE',
+            f'Home Assistant returned {e.code}'
         )
         
+    except URLError as e:
         duration = (time.perf_counter() - start) * 1000
-        
-        if response.status_code == 200:
-            _log_info(
-                f'HA success: {namespace}.{name}',
+        if hasattr(e, 'reason') and 'timed out' in str(e.reason).lower():
+            _log_error('HA timeout', request_id=request_id, duration_ms=duration)
+            return _error_response('ENDPOINT_UNREACHABLE', 'Home Assistant timeout')
+        else:
+            _log_error(
+                f'HA connection failed: {e.reason}',
                 request_id=request_id,
                 duration_ms=duration
             )
-            return response.json()
-        else:
-            _log_error(
-                f'HA error: {response.status_code}',
-                request_id=request_id,
-                status=response.status_code,
-                text=response.text[:200]
-            )
             return _error_response(
                 'ENDPOINT_UNREACHABLE',
-                f'Home Assistant returned {response.status_code}'
+                f'Connection failed: {e.reason}'
             )
-            
-    except requests.exceptions.Timeout:
-        duration = (time.perf_counter() - start) * 1000
-        _log_error('HA timeout', request_id=request_id, duration_ms=duration)
-        return _error_response('ENDPOINT_UNREACHABLE', 'Home Assistant timeout')
-        
-    except requests.exceptions.RequestException as e:
-        duration = (time.perf_counter() - start) * 1000
-        _log_error(f'HA request failed: {e}', request_id=request_id, duration_ms=duration)
-        return _error_response('ENDPOINT_UNREACHABLE', f'Connection failed: {e}')
         
     except Exception as e:
         duration = (time.perf_counter() - start) * 1000
@@ -293,6 +310,7 @@ def lambda_failsafe_handler(event: Dict[str, Any], context: Any) -> Dict[str, An
     Independent failsafe handler.
     
     CRITICAL: NO LEE/gateway dependencies.
+    Uses only built-in Python modules (urllib, json, etc.)
     
     Token priority:
     1. OAuth from directive (PRIMARY)
