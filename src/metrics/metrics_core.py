@@ -4,13 +4,6 @@ metrics_core.py - Core metrics implementation with public API
 Version: 2025.11.29.REFACTOR_01
 Description: PHASE 1 - Add public API functions for SUGA compliance
 
-CHANGELOG:
-- 2025.11.29.REFACTOR_01: Add public API layer
-  - ADDED: 18 public wrapper functions (no underscores)
-  - PATTERN: Public functions delegate to _MANAGER
-  - PURPOSE: Enable interface layer to call public API instead of private _MANAGER
-  - NEXT: Phase 2 will rewrite interface_metrics.py to use these
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
