@@ -4,8 +4,6 @@ Version: 3.1.0
 Date: 2025-12-02
 Description: Interface layer for utility operations
 
-ADDED: render_template and config_get to DISPATCH
-
 Architecture:
 gateway.py → interface_utility.py → utility_core.py
 
