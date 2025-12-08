@@ -3,8 +3,6 @@ utility_types.py - Utility Types and Constants (Internal)
 Version: 2025.10.16.04
 Description: Core types, enums, and constants for utility interface
 
-SUGA-ISP: Internal module - only accessed via interface_utility.py
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
