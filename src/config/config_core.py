@@ -3,25 +3,6 @@ config_core.py - Core Configuration Management
 Version: 2025.10.22.01
 Description: Phase 1 Optimization - Remove threading lock, add SINGLETON + rate limiting
 
-CHANGELOG:
-- 2025.10.22.01: PHASE 1 OPTIMIZATION
-  - REMOVED: threading.Lock (AP-08, DEC-04, LESS-17)
-  - ADDED: SINGLETON pattern with get_config_manager()
-  - ADDED: Rate limiting (1000 ops/sec)
-  - ADDED: reset() operation for lifecycle management
-  - UPDATED: All implementation wrappers use get_config_manager()
-  - PERFORMANCE: Removed 50ns overhead per operation
-  - COMPLIANCE: Fixed AP-08 violation (no threading primitives)
-  
-- 2025.10.19.07: CRITICAL FIX - Corrected get_parameter() priority sequence
-  - NOW: SSM Parameter Store FIRST, environment variable FALLBACK
-  - BEFORE: Environment variable first, SSM second (WRONG!)
-  - Added comprehensive logging for each lookup step
-  - Maintains cache validation to prevent object() corruption
-  - Performance: Skips SSM completely when USE_PARAMETER_STORE=false
-  - Fixes "<object object>" bug caused by wrong priority
-  - Resolves issue where env vars override SSM parameters
-
 DESIGN DECISION: Rate Limiting Over Threading Locks
 Reason: Lambda is single-threaded. Rate limiting prevents abuse without locks.
 Impact: 50ns faster per operation, no false thread safety, proper DoS protection.
