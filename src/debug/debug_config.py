@@ -1,5 +1,5 @@
 """
-debug_config.py
+debug/debug_config.py
 Version: 2025-12-08_1
 Purpose: Debug configuration and hierarchical control
 License: Apache 2.0
