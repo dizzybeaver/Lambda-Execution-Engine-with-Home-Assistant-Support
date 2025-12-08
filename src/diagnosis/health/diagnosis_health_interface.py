@@ -1,5 +1,5 @@
 """
-diagnosis_health_interface.py
+diagnosis/health/diagnosis_health_interface.py
 Version: 2025-12-08_1
 Purpose: Interface-specific health checks (INITIALIZATION, UTILITY, SINGLETON)
 License: Apache 2.0
