@@ -1,20 +1,22 @@
 # lambda_function.py
 """
 lambda_function.py - AWS Lambda Entry Point (SELECTIVE IMPORTS + LUGS + HA-SUGA)
-Version: 2025.11.04.1
-Description: Production code with lambda_preload + HA-SUGA subdirectory
+Version: 2025.12.06.1
+Description: Production code with lambda_preload + HA-SUGA subdirectory + LWA OAuth
+
+CHANGES (2025.12.06.1 - DEBUG EVENT STRUCTURE):
+- ADDED: Full event structure logging for OAuth debugging
+- ADDED: Multiple token location checks
+- FIXED: Comprehensive token extraction logic
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 # ===== CRITICAL: sys.path fix for subdirectory imports =====
-# This MUST be first, before any imports
 import sys
 import os
 
-# Ensure lambda_function.py's directory is in sys.path
-# This allows subdirectory imports like: from home_assistant import ha_interconnect
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -25,9 +27,7 @@ import time
 from typing import Dict, Any
 
 # ===== CRITICAL: Import lambda_preload FIRST! =====
-# This triggers all preloading during Lambda INIT (happens in background)
-# Module-level imports load BEFORE first request, user doesn't wait!
-import lambda_preload  # Preloads: typing, enum, urllib3 (selective), boto3 SSM (selective)
+import lambda_preload
 
 # ===== TIMING HELPER =====
 
@@ -78,6 +78,83 @@ else:
     _print_timing("HOME_ASSISTANT_ENABLE=false, HA-SUGA not loaded")
 
 
+# ===== LWA OAUTH TOKEN EXTRACTION (ENHANCED) =====
+
+def _extract_oauth_token(event: Dict[str, Any]) -> str:
+    """
+    Extract OAuth token from Alexa directive.
+    
+    ENHANCED: Checks all possible token locations and logs event structure.
+    
+    Args:
+        event: Alexa Smart Home event
+        
+    Returns:
+        OAuth token string
+        
+    Raises:
+        ValueError: If no token found
+    """
+    directive = event.get('directive', {})
+    header = directive.get('header', {})
+    
+    # ADDED: Log full event structure for debugging
+    log_info(f"[TOKEN_DEBUG] Checking event for OAuth token")
+    log_info(f"[TOKEN_DEBUG] Namespace: {header.get('namespace')}, Name: {header.get('name')}")
+    
+    # ADDED: Log directive keys to see structure
+    log_info(f"[TOKEN_DEBUG] Directive keys: {list(directive.keys())}")
+    
+    # Check 1: directive.endpoint.scope.token (control directives)
+    endpoint = directive.get('endpoint', {})
+    if endpoint:
+        log_info(f"[TOKEN_DEBUG] Endpoint keys: {list(endpoint.keys())}")
+        scope = endpoint.get('scope', {})
+        if scope:
+            log_info(f"[TOKEN_DEBUG] Endpoint.scope keys: {list(scope.keys())}")
+            token = scope.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.endpoint.scope (length={len(token)})')
+                return token
+    
+    # Check 2: directive.payload.scope.token (discovery/grant)
+    payload = directive.get('payload', {})
+    if payload:
+        log_info(f"[TOKEN_DEBUG] Payload keys: {list(payload.keys())}")
+        scope = payload.get('scope', {})
+        if scope:
+            log_info(f"[TOKEN_DEBUG] Payload.scope keys: {list(scope.keys())}")
+            token = scope.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.payload.scope (length={len(token)})')
+                return token
+    
+    # Check 3: directive.payload.grantee.token (AcceptGrant)
+    if payload:
+        grantee = payload.get('grantee', {})
+        if grantee:
+            log_info(f"[TOKEN_DEBUG] Payload.grantee keys: {list(grantee.keys())}")
+            token = grantee.get('token')
+            if token:
+                log_info(f'[TOKEN_DEBUG] ✓ Token found in directive.payload.grantee (length={len(token)})')
+                return token
+    
+    # Check 4: directive.payload.grant.code (authorization code grant)
+    if payload:
+        grant = payload.get('grant', {})
+        if grant:
+            log_info(f"[TOKEN_DEBUG] Payload.grant keys: {list(grant.keys())}")
+            code = grant.get('code')
+            if code:
+                log_info(f'[TOKEN_DEBUG] Found authorization code in directive.payload.grant (not a token)')
+    
+    # ADDED: Dump full event structure if no token found
+    log_error('[TOKEN_DEBUG] ✗ No token found in any location')
+    log_error(f'[TOKEN_DEBUG] Full event structure: {json.dumps(event, indent=2, default=str)}')
+    
+    raise ValueError('No OAuth token in directive')
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """AWS Lambda entry point with mode selection."""
     
@@ -98,7 +175,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             import lambda_failsafe
             import_ms = (time.perf_counter() - import_start) * 1000
             _print_timing(f"lambda_failsafe imported: {import_ms:.2f}ms")
-            return lambda_failsafe.lambda_handler(event, context)
+            return lambda_failsafe.lambda_failsafe_handler(event, context)
         except ImportError:
             lambda_mode = 'normal'
             _print_timing("lambda_failsafe not found, using normal")
@@ -199,31 +276,11 @@ def determine_request_type(event: Dict[str, Any]) -> str:
         return 'unknown'
 
 
-def _is_ha_event(event: Dict[str, Any]) -> bool:
-    """
-    Determine if event is HA-related.
-    
-    PHASE 6: Helper function for HA event detection.
-    """
-    # Check for Alexa Smart Home directive
-    if 'directive' in event:
-        directive = event.get('directive', {})
-        header = directive.get('header', {})
-        namespace = header.get('namespace', '')
-        if namespace.startswith('Alexa'):
-            return True
-    
-    # Check for HA-specific event types
-    event_type = event.get('type', '')
-    if event_type in ['ha_devices', 'ha_assist', 'ha_alexa']:
-        return True
-    
-    return False
-
-
 def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Handle Alexa Smart Home requests.
+    
+    LWA Migration: Extracts OAuth token and passes to HA.
     """
     
     alexa_start = time.perf_counter()
@@ -255,6 +312,31 @@ def handle_alexa_request(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'payload': {
                         'type': 'BRIDGE_UNREACHABLE',
                         'message': 'Home Assistant extension not enabled. Set HOME_ASSISTANT_ENABLE=true'
+                    }
+                }
+            }
+        
+        # LWA Migration: Extract OAuth token
+        try:
+            oauth_token = _extract_oauth_token(event)
+            log_info(f'OAuth token extracted successfully (length={len(oauth_token)})')
+            # Add token to event for HA processing
+            event['oauth_token'] = oauth_token
+        except ValueError as e:
+            log_error(f'OAuth token extraction failed: {str(e)}')
+            increment_counter('oauth_token_missing')
+            return {
+                'event': {
+                    'header': {
+                        'namespace': 'Alexa',
+                        'name': 'ErrorResponse',
+                        'messageId': 'error',
+                        'correlationToken': header.get('correlationToken'),
+                        'payloadVersion': '3'
+                    },
+                    'payload': {
+                        'type': 'INVALID_AUTHORIZATION_CREDENTIAL',
+                        'message': 'Account linking required. Please link your account in the Alexa app.'
                     }
                 }
             }

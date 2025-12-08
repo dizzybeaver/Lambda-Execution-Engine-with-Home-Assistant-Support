@@ -11,6 +11,7 @@ only loads when explicitly enabled.
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
+"""
 
 import os
 
@@ -18,7 +19,7 @@ import os
 HA_ENABLED = os.getenv('HOME_ASSISTANT_ENABLE', 'false').lower() == 'true'
 
 if HA_ENABLED:
-    from . import ha_interconnect
+    import home_assistant.ha_interconnect as ha_interconnect
     
     __all__ = ['ha_interconnect', 'HA_ENABLED']
 else:
@@ -28,5 +29,5 @@ else:
 # Version info
 __version__ = '1.0.0'
 __ha_suga_version__ = 'COMPLETE'
-"""
+
 # EOF

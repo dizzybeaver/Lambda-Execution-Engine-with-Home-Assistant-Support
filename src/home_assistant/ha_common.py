@@ -1,8 +1,13 @@
 # ha_common.py
 """
 ha_common.py
-Version: 3.0.0
+Version: 3.1.0
 Description: Home Assistant common utilities with debug tracing
+
+MODIFIED (3.1.0 - LWA MIGRATION):
+- ADDED: oauth_token parameter to call_ha_api and all wrapper functions
+- MODIFIED: Prefer oauth_token over config['access_token']
+- MODIFIED: Pass oauth_token through all function call chains
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -106,7 +111,7 @@ def get_ha_config() -> Dict[str, Any]:
     Returns:
         Dict containing:
         - base_url: Home Assistant URL
-        - access_token: Long-lived access token
+        - access_token: Long-lived access token (or None in LWA mode)
         - timeout: Request timeout
         - verify_ssl: SSL verification flag
     """
@@ -118,9 +123,24 @@ def call_ha_api(
     endpoint: str,
     ha_config: Optional[Dict[str, Any]] = None,
     method: str = 'GET',
-    data: Optional[Dict] = None
+    data: Optional[Dict] = None,
+    oauth_token: str = None  # ADDED: LWA OAuth token
 ) -> Dict[str, Any]:
-    """Call Home Assistant API with circuit breaker protection."""
+    """
+    Call Home Assistant API with circuit breaker protection.
+    
+    LWA Migration: Accepts oauth_token and prefers it over config token.
+    
+    Args:
+        endpoint: API endpoint (e.g., '/api/states')
+        ha_config: Optional HA config (loaded if not provided)
+        method: HTTP method (GET, POST)
+        data: Optional request data
+        oauth_token: OAuth token from Alexa directive (LWA) - PREFERRED
+        
+    Returns:
+        API response dictionary
+    """
     from gateway import (
         make_request, make_get_request, make_post_request, 
         execute_with_circuit_breaker, generate_correlation_id,
@@ -134,7 +154,8 @@ def call_ha_api(
     correlation_id = generate_correlation_id()
     start_time = time.perf_counter()
     
-    _debug_trace(correlation_id, "call_ha_api START", endpoint=endpoint, method=method)
+    _debug_trace(correlation_id, "call_ha_api START", endpoint=endpoint, method=method, 
+                has_oauth_token=bool(oauth_token))
     
     context = create_operation_context('ha_common', 'api_call', endpoint=endpoint, method=method)
     
@@ -142,12 +163,26 @@ def call_ha_api(
         config = ha_config or get_ha_config()
         url = f"{config['base_url']}{endpoint}"
         
+        # MODIFIED: Prefer oauth_token over config token
+        token = oauth_token or config.get('access_token')
+        
+        if not token:
+            _debug_trace(correlation_id, "call_ha_api FAILED - No token available")
+            increment_counter('ha_common_api_call_no_token')
+            close_operation_context(context, success=False)
+            return {
+                'success': False,
+                'error': 'No authentication token available',
+                'error_code': 'NO_TOKEN'
+            }
+        
         headers = {
-            "Authorization": f"Bearer {config['access_token']}",
+            "Authorization": f"Bearer {token}",  # FIXED: Use token (oauth or config)
             "Content-Type": "application/json"
         }
         
-        _debug_trace(correlation_id, "Making HA API request", url=url[:50])
+        _debug_trace(correlation_id, "Making HA API request", url=url[:50], 
+                    token_source="oauth" if oauth_token else "config")
         
         def _make_ha_request():
             if method.upper() == 'GET':
@@ -195,9 +230,24 @@ def batch_get_states(
     entity_ids: Optional[List[str]] = None,
     ha_config: Optional[Dict[str, Any]] = None,
     use_cache: bool = True,
-    cache_ttl: int = HA_CACHE_TTL_STATE
+    cache_ttl: int = HA_CACHE_TTL_STATE,
+    oauth_token: str = None  # ADDED: LWA OAuth token
 ) -> Dict[str, Any]:
-    """Batch retrieve entity states with circuit breaker."""
+    """
+    Batch retrieve entity states with circuit breaker.
+    
+    LWA Migration: Accepts and passes oauth_token to call_ha_api.
+    
+    Args:
+        entity_ids: Optional list of entity IDs to filter
+        ha_config: Optional HA config
+        use_cache: Whether to use caching
+        cache_ttl: Cache TTL in seconds
+        oauth_token: OAuth token from Alexa directive (LWA)
+        
+    Returns:
+        States response dictionary
+    """
     from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import (
         create_operation_context, close_operation_context, 
@@ -217,12 +267,12 @@ def batch_get_states(
         if use_cache:
             result = cache_operation_result(
                 operation_name="batch_get_states",
-                func=lambda: call_ha_api("/api/states", ha_config),
+                func=lambda: call_ha_api("/api/states", ha_config, oauth_token=oauth_token),
                 ttl=cache_ttl,
                 cache_key_prefix="ha_batch_states"
             )
         else:
-            result = call_ha_api("/api/states", ha_config)
+            result = call_ha_api("/api/states", ha_config, oauth_token=oauth_token)
         
         if not result.get('success'):
             close_operation_context(context, success=False)
@@ -267,9 +317,25 @@ def call_ha_service(
     service: str,
     ha_config: Optional[Dict[str, Any]] = None,
     entity_id: Optional[str] = None,
-    service_data: Optional[Dict] = None
+    service_data: Optional[Dict] = None,
+    oauth_token: str = None  # ADDED: LWA OAuth token
 ) -> Dict[str, Any]:
-    """Call Home Assistant service with circuit breaker."""
+    """
+    Call Home Assistant service with circuit breaker.
+    
+    LWA Migration: Accepts and passes oauth_token to call_ha_api.
+    
+    Args:
+        domain: Service domain (e.g., 'light')
+        service: Service name (e.g., 'turn_on')
+        ha_config: Optional HA config
+        entity_id: Optional entity ID
+        service_data: Optional service data
+        oauth_token: OAuth token from Alexa directive (LWA)
+        
+    Returns:
+        Service call response
+    """
     from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
     
@@ -289,7 +355,7 @@ def call_ha_service(
         if entity_id:
             data['entity_id'] = entity_id
         
-        result = call_ha_api(endpoint, ha_config, method='POST', data=data)
+        result = call_ha_api(endpoint, ha_config, method='POST', data=data, oauth_token=oauth_token)
         
         if result.get('success'):
             if entity_id:
@@ -327,9 +393,22 @@ def call_ha_service(
 
 def batch_call_service(
     operations: List[Dict[str, Any]],
-    ha_config: Optional[Dict[str, Any]] = None
+    ha_config: Optional[Dict[str, Any]] = None,
+    oauth_token: str = None  # ADDED: LWA OAuth token
 ) -> List[Dict[str, Any]]:
-    """Batch call multiple services with circuit breaker."""
+    """
+    Batch call multiple services with circuit breaker.
+    
+    LWA Migration: Accepts and passes oauth_token to call_ha_service.
+    
+    Args:
+        operations: List of service operations
+        ha_config: Optional HA config
+        oauth_token: OAuth token from Alexa directive (LWA)
+        
+    Returns:
+        List of service call responses
+    """
     from gateway import generate_correlation_id, record_metric, increment_counter
     from shared_utilities import create_operation_context, close_operation_context, handle_operation_error
     
@@ -349,7 +428,8 @@ def batch_call_service(
                 service=op.get('service'),
                 ha_config=ha_config,
                 entity_id=op.get('entity_id'),
-                service_data=op.get('service_data')
+                service_data=op.get('service_data'),
+                oauth_token=oauth_token
             )
             results.append(result)
         
@@ -379,9 +459,23 @@ def batch_call_service(
 def get_entity_state(
     entity_id: str,
     ha_config: Optional[Dict[str, Any]] = None,
-    use_cache: bool = True
+    use_cache: bool = True,
+    oauth_token: str = None  # ADDED: LWA OAuth token
 ) -> Dict[str, Any]:
-    """Get entity state with circuit breaker and caching."""
+    """
+    Get entity state with circuit breaker and caching.
+    
+    LWA Migration: Accepts and passes oauth_token to call_ha_api.
+    
+    Args:
+        entity_id: Entity ID to retrieve
+        ha_config: Optional HA config
+        use_cache: Whether to use caching
+        oauth_token: OAuth token from Alexa directive (LWA)
+        
+    Returns:
+        Entity state dictionary
+    """
     from gateway import generate_correlation_id
     from shared_utilities import cache_operation_result
     
@@ -396,7 +490,7 @@ def get_entity_state(
             return cached_state.get("data", {})
     
     endpoint = f"/api/states/{entity_id}"
-    response = call_ha_api(endpoint, ha_config)
+    response = call_ha_api(endpoint, ha_config, oauth_token=oauth_token)
     
     if not response.get('success'):
         _debug_trace(correlation_id, "get_entity_state FAILED (API error)")
@@ -418,8 +512,20 @@ def get_entity_state(
     return entity_data
 
 
-def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
-    """Check if Home Assistant is available using circuit breaker."""
+def is_ha_available(ha_config: Optional[Dict[str, Any]] = None, 
+                   oauth_token: str = None) -> bool:
+    """
+    Check if Home Assistant is available using circuit breaker.
+    
+    LWA Migration: Accepts and passes oauth_token to call_ha_api.
+    
+    Args:
+        ha_config: Optional HA config
+        oauth_token: OAuth token from Alexa directive (LWA)
+        
+    Returns:
+        True if HA is available, False otherwise
+    """
     from gateway import generate_correlation_id
     from shared_utilities import create_operation_context, close_operation_context
     
@@ -429,7 +535,7 @@ def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
     context = create_operation_context('ha_common', 'availability_check')
     
     try:
-        result = call_ha_api("/api/", ha_config)
+        result = call_ha_api("/api/", ha_config, oauth_token=oauth_token)
         is_available = result.get('success', False) and result.get('status_code') == 200
         
         _debug_trace(correlation_id, "is_ha_available COMPLETE", available=is_available)
@@ -442,7 +548,7 @@ def is_ha_available(ha_config: Optional[Dict[str, Any]] = None) -> bool:
         return False
 
 
-# ===== UTILITY FUNCTIONS (No debug tracing - simple utilities) =====
+# ===== UTILITY FUNCTIONS (No changes - no HA API calls) =====
 
 def fuzzy_match_name(search: str, options: List[str], threshold: float = 0.6) -> Optional[str]:
     """Fuzzy match name against options."""

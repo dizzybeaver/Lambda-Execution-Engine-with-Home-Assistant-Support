@@ -1,16 +1,12 @@
 """
 ha_interface_devices.py - Devices Interface Layer (INT-HA-02)
-Version: 2.0.0
-Date: 2025-12-02
+Version: 3.0.0
+Date: 2025-12-05
 Description: Interface layer for Home Assistant device operations
 
-MODIFIED: Removed custom cache (~80 lines) - now uses gateway.cache_*()
-MODIFIED: Removed custom debug code (~50 lines) - now uses gateway.log_*()
-ADDED: DISPATCH dictionary for CR-1 pattern
-ADDED: execute_devices_operation() router function
-
-Architecture:
-ha_interconnect.py → ha_interface_devices.py → ha_devices_*.py
+CHANGES (3.0.0 - LWA MIGRATION):
+- ADDED: oauth_token parameter support throughout
+- KEPT: All DISPATCH entries, impl functions, backward compatibility
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -19,53 +15,53 @@ Licensed under Apache 2.0 (see LICENSE).
 from typing import Dict, Any, Optional, List
 
 
-def _get_states_impl(entity_ids: Optional[List[str]] = None, use_cache: bool = True, **kwargs) -> Dict[str, Any]:
+def _get_states_impl(entity_ids: Optional[List[str]] = None, use_cache: bool = True, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get entity states."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.get_states_impl(entity_ids, use_cache, **kwargs)
+    return ha_devices_core.get_states_impl(entity_ids, use_cache, oauth_token=oauth_token, **kwargs)
 
 
-def _get_by_id_impl(entity_id: str, **kwargs) -> Dict[str, Any]:
+def _get_by_id_impl(entity_id: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get device by ID."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.get_by_id_impl(entity_id, **kwargs)
+    return ha_devices_core.get_by_id_impl(entity_id, oauth_token=oauth_token, **kwargs)
 
 
-def _find_fuzzy_impl(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
+def _find_fuzzy_impl(search_name: str, threshold: float = 0.6, oauth_token: str = None, **kwargs) -> Optional[str]:
     """Find device via fuzzy matching."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.find_fuzzy_impl(search_name, threshold, **kwargs)
+    return ha_devices_core.find_fuzzy_impl(search_name, threshold, oauth_token=oauth_token, **kwargs)
 
 
-def _update_state_impl(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def _update_state_impl(entity_id: str, state_data: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Update device state."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.update_state_impl(entity_id, state_data, **kwargs)
+    return ha_devices_core.update_state_impl(entity_id, state_data, oauth_token=oauth_token, **kwargs)
 
 
 def _call_service_impl(domain: str, service: str, entity_id: Optional[str] = None, 
-                       service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+                       service_data: Optional[Dict] = None, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Call HA service."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.call_service_impl(domain, service, entity_id, service_data, **kwargs)
+    return ha_devices_core.call_service_impl(domain, service, entity_id, service_data, oauth_token=oauth_token, **kwargs)
 
 
-def _list_by_domain_impl(domain: str, **kwargs) -> Dict[str, Any]:
+def _list_by_domain_impl(domain: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """List devices by domain."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.list_by_domain_impl(domain, **kwargs)
+    return ha_devices_core.list_by_domain_impl(domain, oauth_token=oauth_token, **kwargs)
 
 
-def _check_status_impl(**kwargs) -> Dict[str, Any]:
+def _check_status_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Check HA connection status."""
     import home_assistant.ha_devices_core as ha_devices_core
-    return ha_devices_core.check_status_impl(**kwargs)
+    return ha_devices_core.check_status_impl(oauth_token=oauth_token, **kwargs)
 
 
-def _call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+def _call_ha_api_impl(endpoint: str, method: str = 'GET', data: Optional[Dict] = None, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Call HA API directly."""
     import home_assistant.ha_devices_helpers as ha_devices_helpers
-    return ha_devices_helpers.call_ha_api_impl(endpoint, method, data, **kwargs)
+    return ha_devices_helpers.call_ha_api_impl(endpoint, method, data, oauth_token=oauth_token, **kwargs)
 
 
 def _get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
@@ -74,10 +70,10 @@ def _get_ha_config_impl(force_reload: bool = False, **kwargs) -> Dict[str, Any]:
     return ha_devices_helpers.get_ha_config_impl(force_reload, **kwargs)
 
 
-def _warm_cache_impl(**kwargs) -> Dict[str, Any]:
+def _warm_cache_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Pre-warm cache."""
     import home_assistant.ha_devices_cache as ha_devices_cache
-    return ha_devices_cache.warm_cache_impl(**kwargs)
+    return ha_devices_cache.warm_cache_impl(oauth_token=oauth_token, **kwargs)
 
 
 def _invalidate_entity_cache_impl(entity_id: str, **kwargs) -> bool:
@@ -92,19 +88,19 @@ def _invalidate_domain_cache_impl(domain: str, **kwargs) -> int:
     return ha_devices_cache.invalidate_domain_cache_impl(domain, **kwargs)
 
 
-def _get_performance_report_impl(**kwargs) -> Dict[str, Any]:
+def _get_performance_report_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get performance report."""
     import home_assistant.ha_devices_cache as ha_devices_cache
-    return ha_devices_cache.get_performance_report_impl(**kwargs)
+    return ha_devices_cache.get_performance_report_impl(oauth_token=oauth_token, **kwargs)
 
 
-def _get_diagnostic_info_impl(**kwargs) -> Dict[str, Any]:
+def _get_diagnostic_info_impl(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get diagnostic info."""
     import home_assistant.ha_devices_cache as ha_devices_cache
-    return ha_devices_cache.get_diagnostic_info_impl(**kwargs)
+    return ha_devices_cache.get_diagnostic_info_impl(oauth_token=oauth_token, **kwargs)
 
 
-# ADDED: DISPATCH dictionary (CR-1 pattern)
+# DISPATCH dictionary (CR-1 pattern)
 DISPATCH = {
     'get_states': _get_states_impl,
     'get_by_id': _get_by_id_impl,
@@ -123,7 +119,7 @@ DISPATCH = {
 }
 
 
-# ADDED: Execute operation router (CR-1 pattern)
+# Execute operation router (CR-1 pattern)
 def execute_devices_operation(operation: str, **kwargs):
     """Execute devices operation via dispatch."""
     if operation not in DISPATCH:

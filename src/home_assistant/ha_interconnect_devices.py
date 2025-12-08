@@ -1,14 +1,12 @@
 """
 ha_interconnect_devices.py - Devices Interface Gateway
-Version: 2.0.0
-Date: 2025-12-02
+Version: 3.0.0
+Date: 2025-12-05
 Description: Gateway wrapper for Home Assistant device operations
 
-MODIFIED: Use execute_ha_operation() for CR-1 pattern routing (all 14 functions)
-KEPT: Input validation
-
-Architecture:
-ha_interconnect_devices.py → ha_interconnect_core → ha_interface_devices.py
+CHANGES (3.0.0 - LWA MIGRATION):
+- ADDED: oauth_token parameter support to all functions
+- KEPT: All validation and 14 device functions
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
@@ -35,7 +33,7 @@ def _validate_domain(domain: str) -> bool:
 
 
 def devices_get_states(entity_ids: Optional[List[str]] = None, 
-                      use_cache: bool = True, **kwargs) -> Dict[str, Any]:
+                      use_cache: bool = True, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get device states."""
     if entity_ids is not None:
         if not isinstance(entity_ids, list):
@@ -50,11 +48,12 @@ def devices_get_states(entity_ids: Optional[List[str]] = None,
         'get_states',
         entity_ids=entity_ids,
         use_cache=use_cache,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
+def devices_get_by_id(entity_id: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get device by entity ID."""
     if not _validate_entity_id(entity_id):
         return create_error_response(f'Invalid entity_id: {entity_id}', 'INVALID_INPUT')
@@ -64,11 +63,12 @@ def devices_get_by_id(entity_id: str, **kwargs) -> Dict[str, Any]:
         HAInterface.DEVICES,
         'get_by_id',
         entity_id=entity_id,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Optional[str]:
+def devices_find_fuzzy(search_name: str, threshold: float = 0.6, oauth_token: str = None, **kwargs) -> Optional[str]:
     """Find device using fuzzy matching."""
     if not isinstance(search_name, str) or not search_name:
         return None
@@ -81,11 +81,12 @@ def devices_find_fuzzy(search_name: str, threshold: float = 0.6, **kwargs) -> Op
         'find_fuzzy',
         search_name=search_name,
         threshold=threshold,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+def devices_update_state(entity_id: str, state_data: Dict[str, Any], oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Update device state."""
     if not _validate_entity_id(entity_id):
         return create_error_response(f'Invalid entity_id: {entity_id}', 'INVALID_INPUT')
@@ -98,13 +99,14 @@ def devices_update_state(entity_id: str, state_data: Dict[str, Any], **kwargs) -
         'update_state',
         entity_id=entity_id,
         state_data=state_data,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
 def devices_call_service(domain: str, service: str, 
                         entity_id: Optional[str] = None,
-                        service_data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+                        service_data: Optional[Dict] = None, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Call Home Assistant service."""
     if not _validate_domain(domain):
         return create_error_response(f'Invalid domain: {domain}', 'INVALID_INPUT')
@@ -123,11 +125,12 @@ def devices_call_service(domain: str, service: str,
         service=service,
         entity_id=entity_id,
         service_data=service_data,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
+def devices_list_by_domain(domain: str, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """List all devices in a domain."""
     if not _validate_domain(domain):
         return create_error_response(f'Invalid domain: {domain}', 'INVALID_INPUT')
@@ -137,22 +140,24 @@ def devices_list_by_domain(domain: str, **kwargs) -> Dict[str, Any]:
         HAInterface.DEVICES,
         'list_by_domain',
         domain=domain,
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_check_status(**kwargs) -> Dict[str, Any]:
+def devices_check_status(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Check Home Assistant connection status."""
     from home_assistant.ha_interconnect_core import execute_ha_operation, HAInterface
     return execute_ha_operation(
         HAInterface.DEVICES,
         'check_status',
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
 def devices_call_ha_api(endpoint: str, method: str = 'GET', 
-                       data: Optional[Dict] = None, **kwargs) -> Dict[str, Any]:
+                       data: Optional[Dict] = None, oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Call Home Assistant API directly."""
     if not isinstance(endpoint, str) or not endpoint.startswith('/'):
         return create_error_response(f'Invalid endpoint: {endpoint}', 'INVALID_INPUT')
@@ -168,6 +173,7 @@ def devices_call_ha_api(endpoint: str, method: str = 'GET',
         endpoint=endpoint,
         method=method,
         data=data,
+        oauth_token=oauth_token,
         **kwargs
     )
 
@@ -186,12 +192,13 @@ def devices_get_ha_config(force_reload: bool = False, **kwargs) -> Dict[str, Any
     )
 
 
-def devices_warm_cache(**kwargs) -> Dict[str, Any]:
+def devices_warm_cache(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Pre-warm cache on cold start."""
     from home_assistant.ha_interconnect_core import execute_ha_operation, HAInterface
     return execute_ha_operation(
         HAInterface.DEVICES,
         'warm_cache',
+        oauth_token=oauth_token,
         **kwargs
     )
 
@@ -224,22 +231,24 @@ def devices_invalidate_domain_cache(domain: str, **kwargs) -> int:
     )
 
 
-def devices_get_performance_report(**kwargs) -> Dict[str, Any]:
+def devices_get_performance_report(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get comprehensive performance report."""
     from home_assistant.ha_interconnect_core import execute_ha_operation, HAInterface
     return execute_ha_operation(
         HAInterface.DEVICES,
         'get_performance_report',
+        oauth_token=oauth_token,
         **kwargs
     )
 
 
-def devices_get_diagnostic_info(**kwargs) -> Dict[str, Any]:
+def devices_get_diagnostic_info(oauth_token: str = None, **kwargs) -> Dict[str, Any]:
     """Get HA diagnostic information."""
     from home_assistant.ha_interconnect_core import execute_ha_operation, HAInterface
     return execute_ha_operation(
         HAInterface.DEVICES,
         'get_diagnostic_info',
+        oauth_token=oauth_token,
         **kwargs
     )
 

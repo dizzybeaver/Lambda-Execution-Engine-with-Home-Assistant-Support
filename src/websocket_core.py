@@ -1,64 +1,8 @@
 """
 websocket_core.py - WebSocket CLIENT Core Implementation
-Version: 2025.10.22.01 (OPTIMIZED - Phase 1 + SINGLETON + Rate Limiting)
+Version: 2025.10.22.01 
 Description: WebSocket CLIENT operations implementation with manager pattern.
              Internal module - accessed via interface_websocket.py router.
-
-PHASE 1 OPTIMIZATIONS APPLIED:
-==============================
-✅ NO THREADING LOCKS (AP-08, DEC-04) - Was already compliant
-✅ SINGLETON pattern via get_websocket_manager() (LESS-18)
-✅ Rate limiting: 300 ops/sec (LESS-21) - Lower for WebSocket persistent connections
-✅ Reset operation for lifecycle management (LESS-18)
-✅ Class-based manager for state management
-
-FREE TIER COMPLIANCE NOTICE:
-============================
-This implementation provides WebSocket CLIENT functionality ONLY.
-Lambda acts as a WebSocket client connecting TO external WebSocket servers.
-
-ARCHITECTURE:
-- Lambda initiates OUTBOUND connections to external WebSocket servers
-- Lambda sends messages TO external servers
-- Lambda receives responses FROM external servers
-- Lambda closes connections when done
-- NO persistent connections maintained between Lambda invocations
-- NO inbound connections accepted (Lambda cannot act as WebSocket server)
-
-✅ FREE TIER COMPLIANT:
-   All operations incur only standard Lambda costs (execution time, invocations, data transfer).
-   No AWS API Gateway required.
-   No additional AWS service costs.
-   Free tier compliance maintained indefinitely.
-
-❌ NOT IMPLEMENTED - WebSocket SERVER:
-   To act as a WebSocket server (accept inbound connections), Lambda would require:
-   - AWS API Gateway WebSocket APIs
-   - Free tier: 1M messages + 750K connection-minutes for FIRST 12 MONTHS ONLY
-   - After 12 months: PAID SERVICE ($1.00/million messages + connection charges)
-   
-   This is deliberately NOT implemented to maintain permanent free tier compliance.
-
-FIXES APPLIED (2025.10.16):
-- BUG #2: Added automatic correlation_id generation when missing
-- BUG #4: Made url parameter required (not optional) to match wrapper contract
-- BUG #6: Added validation for missing connection parameter
-- BUG #7: Fixed error handling logic in websocket_request (check before close)
-- EDGE CASE #1: Added message validation before serialization
-
-OPTIMIZATIONS (2025.10.22):
-- Converted to class-based manager pattern
-- Added SINGLETON pattern for lifecycle management
-- Added rate limiting (300 ops/sec) for DoS protection
-- Added reset() operation
-- Removed unnecessary threading locks (was already compliant)
-
-REF-IDs:
-- AP-08: No threading locks (Lambda single-threaded)
-- DEC-04: Lambda single-threaded model
-- LESS-17: Threading locks unnecessary in Lambda
-- LESS-18: SINGLETON pattern for lifecycle management
-- LESS-21: Rate limiting essential for DoS protection
 
 Copyright 2025 Joseph Hersey
 

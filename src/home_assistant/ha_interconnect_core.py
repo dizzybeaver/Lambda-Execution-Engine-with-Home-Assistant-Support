@@ -1,114 +1,146 @@
 """
-ha_interconnect_core.py - HA Interconnect Core Registry (CR-1 Pattern)
-Version: 1.0.0
-Date: 2025-12-02
-Description: Cache Registry pattern for HA interface routing
-
-Provides fast path caching and centralized dispatch.
+ha_interconnect_core.py - HA Interconnect Core Registry
+Version: 6.1.0
+Date: 2025-12-06
+Description: Central registry for HA operations (CR-1 pattern)
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
 
 from enum import Enum
+from typing import Dict, Any, Callable
 import importlib
-from typing import Any, Dict, Tuple
 
+from gateway import log_error
+
+
+# ===== HA INTERFACE REGISTRY =====
 
 class HAInterface(Enum):
-    """HA functional area enumeration."""
-    VALIDATION = "validation"
+    """HA interface enumeration."""
     ALEXA = "alexa"
     DEVICES = "devices"
     ASSIST = "assist"
 
 
-_HA_INTERFACE_ROUTERS: Dict[HAInterface, Tuple[str, str]] = {
-    HAInterface.VALIDATION: (
-        'home_assistant.ha_interface_validation',
-        'execute_validation_operation'
-    ),
-    HAInterface.ALEXA: (
-        'home_assistant.ha_interface_alexa',
-        'execute_alexa_operation'
-    ),
-    HAInterface.DEVICES: (
-        'home_assistant.ha_interface_devices',
-        'execute_devices_operation'
-    ),
-    HAInterface.ASSIST: (
-        'home_assistant.ha_interface_assist',
-        'execute_assist_operation'
-    ),
+# ===== INTERFACE ROUTERS =====
+
+_INTERFACE_ROUTERS = {
+    HAInterface.ALEXA: ('home_assistant.ha_alexa_core', {
+        'process_directive': 'process_directive_impl',
+        'handle_discovery': 'handle_discovery_impl',
+        'handle_control': 'handle_control_impl',
+        'handle_power_control': 'handle_power_control_impl',
+        'handle_brightness_control': 'handle_brightness_control_impl',
+        'handle_thermostat_control': 'handle_thermostat_control_impl',
+        'handle_accept_grant': 'handle_accept_grant_impl',
+    }),
+    HAInterface.DEVICES: ('home_assistant.ha_devices_core', {
+        # Core operations (7)
+        'get_states': 'get_states_impl',
+        'get_by_id': 'get_by_id_impl',
+        'find_fuzzy': 'find_fuzzy_impl',
+        'update_state': 'update_state_impl',
+        'call_service': 'call_service_impl',
+        'list_by_domain': 'list_by_domain_impl',
+        'check_status': 'check_status_impl',
+        # FIXED: Added missing operations (7)
+        'call_ha_api': 'call_ha_api_impl',
+        'get_ha_config': 'get_ha_config_impl',
+        'warm_cache': 'warm_cache_impl',
+        'invalidate_entity_cache': 'invalidate_entity_cache_impl',
+        'invalidate_domain_cache': 'invalidate_domain_cache_impl',
+        'get_performance_report': 'get_performance_report_impl',
+        'get_diagnostic_info': 'get_diagnostic_info_impl',
+    }),
+    HAInterface.ASSIST: ('home_assistant.ha_assist_core', {
+        'send_message': 'send_message_impl',
+        'get_response': 'get_response_impl',
+        'process_conversation': 'process_conversation_impl',
+        'handle_pipeline': 'handle_pipeline_impl',
+    }),
 }
 
-_HA_ROUTER_CACHE: Dict[Tuple[HAInterface, str], Any] = {}
 
+# ===== FAST PATH CACHE =====
+
+_fast_path_cache: Dict[tuple, Callable] = {}
+_fast_path_enabled = True
+
+
+# ===== OPERATION EXECUTOR =====
 
 def execute_ha_operation(interface: HAInterface, operation: str, **kwargs) -> Any:
     """
     Execute HA operation through interface router.
     
-    Pattern-based routing with fast path caching.
-    First call: ~2ms (import + lookup)
-    Subsequent: ~0.05ms (cached router)
+    LWA Migration: Passes oauth_token through to implementations.
     
     Args:
         interface: HA interface enum
         operation: Operation name
-        **kwargs: Operation parameters
+        **kwargs: Operation parameters (including oauth_token)
         
     Returns:
         Operation result
-        
-    Raises:
-        ValueError: Unknown interface or operation
     """
     # Fast path check
     cache_key = (interface, operation)
-    if cache_key in _HA_ROUTER_CACHE:
-        router = _HA_ROUTER_CACHE[cache_key]
-        return router(operation, **kwargs)
+    if _fast_path_enabled and cache_key in _fast_path_cache:
+        func = _fast_path_cache[cache_key]
+        return func(**kwargs)
     
-    # Slow path: Import and cache
-    if interface not in _HA_INTERFACE_ROUTERS:
+    # Slow path: Lookup and cache
+    if interface not in _INTERFACE_ROUTERS:
         raise ValueError(f"Unknown HA interface: {interface.value}")
     
-    module_name, func_name = _HA_INTERFACE_ROUTERS[interface]
-    module = importlib.import_module(module_name)
-    router = getattr(module, func_name)
+    module_name, operations = _INTERFACE_ROUTERS[interface]
     
-    # Cache for next call
-    _HA_ROUTER_CACHE[cache_key] = router
+    if operation not in operations:
+        raise ValueError(f"Unknown operation '{operation}' for interface {interface.value}")
     
-    return router(operation, **kwargs)
+    impl_name = operations[operation]
+    
+    # Lazy import
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as e:
+        raise RuntimeError(f"Failed to import {module_name}: {str(e)}") from e
+    
+    try:
+        func = getattr(module, impl_name)
+    except AttributeError as e:
+        raise RuntimeError(f"Function '{impl_name}' not found in {module_name}: {str(e)}") from e
+    
+    # Cache for fast path
+    if _fast_path_enabled:
+        _fast_path_cache[cache_key] = func
+    
+    # Execute operation (oauth_token passed through kwargs)
+    return func(**kwargs)
 
+
+# ===== REGISTRY STATS =====
 
 def get_ha_registry_stats() -> Dict[str, Any]:
-    """
-    Get HA registry statistics.
-    
-    Returns:
-        Registry stats including cache hit rate
-    """
+    """Get HA registry statistics."""
     return {
-        'total_interfaces': len(_HA_INTERFACE_ROUTERS),
-        'cached_routers': len(_HA_ROUTER_CACHE),
-        'interfaces': [i.value for i in HAInterface],
-        'cache_hit_potential': f"{(len(_HA_ROUTER_CACHE) / max(len(_HA_INTERFACE_ROUTERS), 1)) * 100:.1f}%"
+        'total_interfaces': len(_INTERFACE_ROUTERS),
+        'fast_path_entries': len(_fast_path_cache),
+        'fast_path_enabled': _fast_path_enabled,
     }
 
 
-def clear_ha_cache() -> int:
-    """
-    Clear fast path cache.
-    
-    Returns:
-        Number of cached entries cleared
-    """
-    count = len(_HA_ROUTER_CACHE)
-    _HA_ROUTER_CACHE.clear()
-    return count
+def clear_ha_cache() -> Dict[str, Any]:
+    """Clear HA fast path cache."""
+    global _fast_path_cache
+    count = len(_fast_path_cache)
+    _fast_path_cache.clear()
+    return {
+        'cleared': count,
+        'success': True
+    }
 
 
 __all__ = [
@@ -117,3 +149,5 @@ __all__ = [
     'get_ha_registry_stats',
     'clear_ha_cache',
 ]
+
+# EOF
