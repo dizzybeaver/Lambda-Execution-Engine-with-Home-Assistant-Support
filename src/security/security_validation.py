@@ -3,12 +3,6 @@ security_validation.py - Security Validation Functions
 Version: 2025.10.22.01
 Description: COMPLETE FILE - All validators including SecurityValidator class
 
-CHANGELOG:
-- 2025.10.22.01: CRITICAL FIX - Added missing SecurityValidator class
-  - Resolves ImportError: cannot import name 'SecurityValidator'
-  - Class was missing from deployed file
-- 2025.10.21.01: Added metrics security validations
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
