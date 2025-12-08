@@ -3,9 +3,6 @@ diagnosis_imports.py
 Version: 2025-12-08_1
 Purpose: Import testing and diagnostics
 License: Apache 2.0
-
-# MIGRATED FROM: lambda_diagnostic.py
-# PRESERVES: Import testing logic, timing, response structures
 """
 
 import time
@@ -13,23 +10,7 @@ from typing import Dict, Any, List, Callable
 
 
 def test_module_import(module_name: str, import_func: Callable = None) -> Dict[str, Any]:
-    """
-    Test importing a single module.
-    
-    PRESERVED FROM: lambda_diagnostic.py::test_import()
-    
-    Args:
-        module_name: Module name to test (e.g., 'gateway_core')
-        import_func: Optional callable that performs the import
-        
-    Returns:
-        {
-            'test': module_name,
-            'success': bool,
-            'duration_ms': float,
-            'error': str (if failed)
-        }
-    """
+    """Test importing a single module."""
     start = time.time()
     
     try:
@@ -56,17 +37,7 @@ def test_module_import(module_name: str, import_func: Callable = None) -> Dict[s
 
 
 def test_import_sequence(modules: List[str]) -> Dict[str, Any]:
-    """
-    Test importing modules sequentially.
-    
-    PRESERVED FROM: lambda_diagnostic.py::lambda_handler()
-    
-    Args:
-        modules: List of module names to test in order
-        
-    Returns:
-        Diagnostic response with all test results
-    """
+    """Test importing modules sequentially."""
     results = []
     
     for module_name in modules:
@@ -82,21 +53,7 @@ def test_import_sequence(modules: List[str]) -> Dict[str, Any]:
 
 
 def format_diagnostic_response(results: List[Dict[str, Any]], message: str) -> Dict[str, Any]:
-    """
-    Format diagnostic test results into response structure.
-    
-    PRESERVED FROM: lambda_diagnostic.py::_create_response()
-    
-    Args:
-        results: List of test result dictionaries
-        message: Summary message
-        
-    Returns:
-        {
-            'statusCode': 200,
-            'body': JSON string with results
-        }
-    """
+    """Format diagnostic test results into response structure."""
     import json
     
     passed = sum(1 for r in results if r.get('success'))
@@ -118,15 +75,7 @@ def format_diagnostic_response(results: List[Dict[str, Any]], message: str) -> D
 
 
 def diagnose_import_failure(module_name: str) -> Dict[str, Any]:
-    """
-    Diagnose why a module import failed.
-    
-    Args:
-        module_name: Module that failed to import
-        
-    Returns:
-        Diagnostic information about the failure
-    """
+    """Diagnose why a module import failed."""
     import sys
     import os
     
