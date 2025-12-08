@@ -3,27 +3,6 @@ gateway_core.py - Core Gateway Implementation (SUGA-ISP)
 Version: 2025.10.17.20
 Description: Pattern-based registry with simplified routing
 
-CHANGELOG:
-- 2025.12.03: FIXED: Moved GatewayInterface to gateway_enums.py
-  - Breaks circular import between gateway_core and gateway_wrappers
-  - Gateway wrappers can now import enum without triggering circular dependency
-  - No API changes, just import source moved
-- 2025.12.03: FIXED: Added missing reset_gateway_state function
-  - Function was imported by gateway.py but not implemented
-  - Resets operation call counts and fast path cache
-  - Maintains consistency with get_gateway_stats
-- 2025.10.17.18: MODERNIZED with pattern-based registry
-  - Replaced 100+ operation registry with 12 interface mappings
-  - Reduced registry from ~100 lines to 12 lines (~90% reduction)
-  - Leverages dispatch dictionaries in interface routers
-  - Zero breaking changes to external API
-  - Easier maintenance (add operation = 1 place, not 2)
-  - Consistent with interface modernization pattern
-- 2025.10.17.12: Added comprehensive error handling
-  - Wraps execution in try/except for robustness
-  - Clear error context with interface.operation
-  - Exception chaining for debugging
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
