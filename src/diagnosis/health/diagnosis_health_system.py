@@ -1,5 +1,5 @@
 """
-diagnosis_health_system.py
+diagnosis/health/diagnosis_health_system.py
 Version: 2025-12-08_1
 Purpose: System-wide health check for all 12 interfaces
 License: Apache 2.0
@@ -11,7 +11,7 @@ from typing import Dict, Any
 
 def check_system_health(**kwargs) -> Dict[str, Any]:
     """Comprehensive system-wide health check for all 12 interfaces."""
-    from diagnosis_health_interface import (
+    from diagnosis.health import (
         check_initialization_health,
         check_utility_health,
         check_singleton_health
