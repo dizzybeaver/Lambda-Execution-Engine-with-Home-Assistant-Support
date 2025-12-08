@@ -1,5 +1,5 @@
 """
-test_core.py
+test/test_core.py
 Version: 2025-12-08_1
 Purpose: Core test execution logic
 License: Apache 2.0
@@ -100,7 +100,7 @@ def run_component_tests(component: str, **kwargs) -> Dict[str, Any]:
         results['total_tests'] += 1
         
         try:
-            from test_scenarios import test_invalid_operation, test_missing_parameters
+            from test import test_invalid_operation, test_missing_parameters
             
             if operation == 'invalid_operation':
                 test_result = test_invalid_operation(component, **kwargs)
@@ -168,11 +168,11 @@ def test_component_operation(component: str, operation: str,
             }
     
     elif scenario == 'invalid_op':
-        from test_scenarios import test_invalid_operation
+        from test import test_invalid_operation
         return test_invalid_operation(component)
     
     elif scenario == 'missing_params':
-        from test_scenarios import test_missing_parameters
+        from test import test_missing_parameters
         return test_missing_parameters(component)
     
     else:
@@ -189,7 +189,7 @@ def test_component_operation(component: str, operation: str,
 def _run_config_unit_suite(**kwargs) -> Dict[str, Any]:
     """Run config unit test suite."""
     try:
-        from test_config_unit import run_config_unit_tests
+        from test import run_config_unit_tests
         return run_config_unit_tests()
     except ImportError:
         return {'success': False, 'error': 'test_config_unit not available'}
@@ -198,7 +198,7 @@ def _run_config_unit_suite(**kwargs) -> Dict[str, Any]:
 def _run_config_integration_suite(**kwargs) -> Dict[str, Any]:
     """Run config integration test suite."""
     try:
-        from test_config_integration import run_config_integration_tests
+        from test import run_config_integration_tests
         return run_config_integration_tests()
     except ImportError:
         return {'success': False, 'error': 'test_config_integration not available'}
@@ -207,7 +207,7 @@ def _run_config_integration_suite(**kwargs) -> Dict[str, Any]:
 def _run_config_performance_suite(**kwargs) -> Dict[str, Any]:
     """Run config performance test suite."""
     try:
-        from test_config_performance import run_config_performance_tests
+        from test import run_config_performance_tests
         return run_config_performance_tests()
     except ImportError:
         return {'success': False, 'error': 'test_config_performance not available'}
@@ -216,7 +216,7 @@ def _run_config_performance_suite(**kwargs) -> Dict[str, Any]:
 def _run_config_gateway_suite(**kwargs) -> Dict[str, Any]:
     """Run config gateway test suite."""
     try:
-        from test_config_gateway import run_config_gateway_tests
+        from test import run_config_gateway_tests
         return run_config_gateway_tests()
     except ImportError:
         return {'success': False, 'error': 'test_config_gateway not available'}
@@ -225,7 +225,7 @@ def _run_config_gateway_suite(**kwargs) -> Dict[str, Any]:
 def _run_error_scenario_suite(**kwargs) -> Dict[str, Any]:
     """Run error scenario test suite."""
     try:
-        from test_error_scenarios import run_error_scenario_tests
+        from test import run_error_scenario_tests
         return run_error_scenario_tests(**kwargs)
     except ImportError:
         return {'success': False, 'error': 'test_error_scenarios not available'}
@@ -234,7 +234,7 @@ def _run_error_scenario_suite(**kwargs) -> Dict[str, Any]:
 def _run_debug_pattern_suite(**kwargs) -> Dict[str, Any]:
     """Run debug pattern test suite."""
     try:
-        from test_debug_patterns import run_debug_pattern_tests
+        from test import run_debug_pattern_tests
         return run_debug_pattern_tests(**kwargs)
     except ImportError:
         return {'success': False, 'error': 'test_debug_patterns not available'}
