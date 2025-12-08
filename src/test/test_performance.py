@@ -1,5 +1,5 @@
 """
-test_performance.py
+test/test_performance.py
 Version: 2025-12-08_1
 Purpose: Performance testing (migrated from test_config_performance.py)
 License: Apache 2.0
@@ -114,7 +114,7 @@ def benchmark_operation(func: Callable, **kwargs) -> Dict[str, Any]:
 
 def run_performance_tests(**kwargs) -> Dict[str, Any]:
     """Run all performance tests."""
-    from test_config_performance import run_config_performance_tests
+    from test import run_config_performance_tests
     
     try:
         return run_config_performance_tests()
