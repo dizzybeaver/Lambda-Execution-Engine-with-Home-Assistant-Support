@@ -1,5 +1,5 @@
 """
-diagnosis_health_checks.py
+diagnosis/health/diagnosis_health_checks.py
 Version: 2025-12-08_1
 Purpose: Basic component and gateway health checks
 License: Apache 2.0
@@ -33,8 +33,8 @@ def check_gateway_health(**kwargs) -> Dict[str, Any]:
 
 def generate_health_report(**kwargs) -> Dict[str, Any]:
     """Generate comprehensive health report with dispatcher metrics."""
-    from diagnosis_performance import diagnose_system_health
-    from diagnosis_core import (
+    from diagnosis import diagnose_system_health
+    from diagnosis import (
         validate_system_architecture,
         validate_imports,
         validate_gateway_routing
