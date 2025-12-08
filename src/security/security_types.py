@@ -3,13 +3,6 @@ security_types.py - Security type definitions and enums
 Version: 2025.10.20.01
 Description: Security operation types and validation patterns
 
-CHANGELOG:
-- 2025.10.20.01: Added 4 new cache security operations
-  - VALIDATE_CACHE_KEY
-  - VALIDATE_TTL  
-  - VALIDATE_MODULE_NAME
-  - VALIDATE_NUMBER_RANGE
-
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
