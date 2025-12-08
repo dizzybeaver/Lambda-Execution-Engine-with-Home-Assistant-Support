@@ -3,18 +3,6 @@ singleton_core.py
 Version: 2025.10.22.01
 Description: Singleton management with SINGLETON pattern, rate limiting, NO threading locks
 
-CHANGELOG:
-- 2025.10.22.01: Phase 1 + 3 optimizations (Session 6)
-  - REMOVED threading locks (CRITICAL FIX - was violating AP-08, DEC-04)
-  - ADDED SINGLETON pattern with get_singleton_manager()
-  - ADDED rate limiting (1000 ops/sec)
-  - ADDED reset() operation for lifecycle management
-  - ADDED get_stats() operation
-  - REPLACED Lock with rate limiting (DoS protection)
-  - Compliance: AP-08, DEC-04, LESS-17, LESS-18, LESS-21
-- 2025.10.17.10: Added purpose documentation (Issue #41 fix)
-- 2025.10.16.01: Fixed thread safety, error handling, parameter validation
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
