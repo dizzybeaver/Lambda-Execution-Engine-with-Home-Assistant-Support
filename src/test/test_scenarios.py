@@ -1,5 +1,5 @@
 """
-test_scenarios.py
+test/test_scenarios.py
 Version: 2025-12-08_1
 Purpose: Error scenario testing (migrated from test_error_scenarios.py)
 License: Apache 2.0
