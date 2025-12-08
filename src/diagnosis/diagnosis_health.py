@@ -3,10 +3,6 @@ diagnosis_health.py
 Version: 2025-12-08_1
 Purpose: Component health checks and system health reporting
 License: Apache 2.0
-
-# MIGRATED FROM: debug_health.py
-# PRESERVES: All 19 health check functions, compliance checks, status logic
-# FIXED: Removed circular import (lazy imports for diagnosis_* modules)
 """
 
 import time
@@ -14,11 +10,7 @@ from typing import Dict, Any
 
 
 def check_component_health(**kwargs) -> Dict[str, Any]:
-    """
-    Check component health.
-    
-    PRESERVED FROM: debug_health.py::_check_component_health()
-    """
+    """Check component health."""
     try:
         from gateway import check_all_components
         return check_all_components()
@@ -81,20 +73,7 @@ def generate_health_report(**kwargs) -> Dict[str, Any]:
 
 
 def check_initialization_health(**kwargs) -> Dict[str, Any]:
-    """
-    Check INITIALIZATION interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21).
-    
-    PRESERVED FROM: debug_health.py::_check_initialization_health()
-    
-    Verifies:
-    - SINGLETON manager registration
-    - Rate limiting enabled (1000 ops/sec)
-    - NO threading locks (CRITICAL - AP-08, DEC-04)
-    - Reset operation available
-    
-    Returns:
-        Health check results with compliance status
-    """
+    """Check INITIALIZATION interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
     try:
         import initialization_core
         from gateway import singleton_get
@@ -187,11 +166,7 @@ def check_initialization_health(**kwargs) -> Dict[str, Any]:
 
 
 def check_utility_health(**kwargs) -> Dict[str, Any]:
-    """
-    Check UTILITY interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21).
-    
-    PRESERVED FROM: debug_health.py::_check_utility_health()
-    """
+    """Check UTILITY interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
     try:
         import utility_core
         from gateway import singleton_get
@@ -284,11 +259,7 @@ def check_utility_health(**kwargs) -> Dict[str, Any]:
 
 
 def check_singleton_health(**kwargs) -> Dict[str, Any]:
-    """
-    Check SINGLETON interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21).
-    
-    PRESERVED FROM: debug_health.py::_check_singleton_health()
-    """
+    """Check SINGLETON interface health (AP-08, DEC-04, LESS-17, LESS-18, LESS-21)."""
     try:
         import singleton_core
         from gateway import singleton_get
@@ -381,11 +352,7 @@ def check_singleton_health(**kwargs) -> Dict[str, Any]:
 
 
 def check_system_health(**kwargs) -> Dict[str, Any]:
-    """
-    Comprehensive system-wide health check for all 12 interfaces.
-    
-    PRESERVED FROM: debug_health.py::_check_system_health()
-    """
+    """Comprehensive system-wide health check for all 12 interfaces."""
     try:
         system_health = {
             'timestamp': time.time(),
