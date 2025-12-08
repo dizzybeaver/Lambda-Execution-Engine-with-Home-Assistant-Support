@@ -1,10 +1,8 @@
 """
-gateway_wrappers_cache.py - CACHE Interface Wrappers
-Version: 2025.10.22.02
-Description: Convenience wrappers for CACHE interface operations
-
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+gateway_wrappers_cache.py
+Version: 2025-12-08_1
+Purpose: CACHE interface gateway wrappers
+License: Apache 2.0
 """
 
 from typing import Any, Dict, Optional
@@ -49,3 +47,5 @@ __all__ = [
     'cache_clear',
     'cache_stats',
 ]
+
+# EOF
