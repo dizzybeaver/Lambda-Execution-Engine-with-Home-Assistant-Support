@@ -7,7 +7,7 @@ License: Apache 2.0
 
 from typing import Any, Dict, Optional, Set
 
-from cache import _get_cache_instance
+from cache.cache_core import _get_cache_instance
 from cache import DEFAULT_CACHE_TTL
 
 
