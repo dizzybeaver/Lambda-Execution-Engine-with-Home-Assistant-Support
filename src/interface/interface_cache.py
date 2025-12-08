@@ -1,24 +1,20 @@
 """
-interface_cache.py - Cache Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.21.01
-Description: Router for Cache interface with SENTINEL SANITIZATION on GET
-
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+interface_cache.py
+Version: 2025-12-08_1
+Purpose: Cache interface router with sentinel sanitization
+License: Apache 2.0
 """
 
 from typing import Any, Callable, Dict
 
-# ===== IMPORT PROTECTION =====
-
 try:
-    from cache_core import (
+    from cache.cache_operations import (
         _execute_get_implementation,
         _execute_set_implementation,
         _execute_exists_implementation,
         _execute_delete_implementation,
         _execute_clear_implementation,
-        _execute_reset_implementation,  # Phase 1 addition
+        _execute_reset_implementation,
         _execute_cleanup_expired_implementation,
         _execute_get_stats_implementation,
         _execute_get_metadata_implementation
@@ -33,13 +29,11 @@ except ImportError as e:
     _execute_exists_implementation = None
     _execute_delete_implementation = None
     _execute_clear_implementation = None
-    _execute_reset_implementation = None  # Phase 1 addition
+    _execute_reset_implementation = None
     _execute_cleanup_expired_implementation = None
     _execute_get_stats_implementation = None
     _execute_get_metadata_implementation = None
 
-
-# ===== SENTINEL DETECTION & SANITIZATION =====
 
 def _is_sentinel_object(value: Any) -> bool:
     """Detect if value is object() sentinel."""
@@ -51,8 +45,7 @@ def _is_sentinel_object(value: Any) -> bool:
 
 
 def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
-    """Recursively remove sentinel objects from any data structure."""
-    # Detect sentinel at current level
+    """Recursively remove sentinel objects from data structure."""
     if _is_sentinel_object(value):
         try:
             from gateway import log_warning
@@ -61,7 +54,6 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
             pass
         return None
     
-    # Recursively sanitize nested dict
     if isinstance(value, dict):
         return {
             k: _sanitize_value_deep(v, f"{path}.{k}")
@@ -69,7 +61,6 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
             if not _is_sentinel_object(v)
         }
     
-    # Recursively sanitize list/tuple
     if isinstance(value, (list, tuple)):
         sanitized = [
             _sanitize_value_deep(item, f"{path}[{i}]")
@@ -78,7 +69,6 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
         ]
         return type(value)(sanitized)
     
-    # Recursively sanitize set
     if isinstance(value, set):
         return {
             _sanitize_value_deep(item, f"{path}.item")
@@ -86,11 +76,8 @@ def _sanitize_value_deep(value: Any, path: str = "root") -> Any:
             if not _is_sentinel_object(item)
         }
     
-    # Scalar values - pass through
     return value
 
-
-# ===== VALIDATION HELPERS =====
 
 def _validate_key_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate key parameter exists and is string."""
@@ -103,20 +90,15 @@ def _validate_key_param(kwargs: Dict[str, Any], operation: str) -> None:
 
 
 def _validate_set_params(kwargs: Dict[str, Any]) -> None:
-    """Validate and SANITIZE set operation parameters."""
+    """Validate and sanitize set operation parameters."""
     _validate_key_param(kwargs, 'set')
     if 'value' not in kwargs:
         raise ValueError("cache.set requires 'value' parameter")
     
-    # CRITICAL FIX: Sanitize value before allowing cache_set
     original_value = kwargs['value']
     sanitized_value = _sanitize_value_deep(original_value, f"cache[{kwargs['key']}]")
-    
-    # Replace value with sanitized version
     kwargs['value'] = sanitized_value
 
-
-# ===== OPERATION DISPATCH =====
 
 def _build_dispatch_dict() -> Dict[str, Callable]:
     """Build dispatch dictionary for cache operations."""
@@ -150,58 +132,30 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         )[1],
         
         'clear': _execute_clear_implementation,
-        'reset': _execute_reset_implementation,  # Phase 1 addition
-        'reset_cache': _execute_reset_implementation,  # Alias
+        'reset': _execute_reset_implementation,
+        'reset_cache': _execute_reset_implementation,
         'cleanup_expired': _execute_cleanup_expired_implementation,
         'get_stats': _execute_get_stats_implementation,
     }
 
+
 _OPERATION_DISPATCH = _build_dispatch_dict() if _CACHE_AVAILABLE else {}
 
 
-# ===== MAIN ROUTER FUNCTION =====
-
 def execute_cache_operation(operation: str, **kwargs) -> Any:
-    """
-    Route cache operation requests using dispatch dictionary pattern.
-    
-    Operations:
-    - get: Get cached value by key
-    - set: Set cached value with optional TTL
-    - exists: Check if key exists
-    - delete: Delete cached value
-    - get_metadata: Get metadata for cache entry
-    - clear: Clear all cache entries
-    - reset: Reset cache to initial state (Phase 1 addition)
-    - cleanup_expired: Remove expired entries
-    - get_stats: Get cache statistics
-    
-    Args:
-        operation: Operation name to execute
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Operation result (type varies by operation)
-        
-    Raises:
-        RuntimeError: If cache interface unavailable
-        ValueError: If operation unknown or parameters invalid
-    """
-    # Check cache availability
+    """Route cache operation requests using dispatch dictionary pattern."""
     if not _CACHE_AVAILABLE:
         raise RuntimeError(
             f"Cache interface unavailable: {_CACHE_IMPORT_ERROR}. "
             "This may indicate missing cache_core module or circular import."
         )
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown cache operation: '{operation}'. "
             f"Valid operations: {', '.join(sorted(_OPERATION_DISPATCH.keys()))}"
         )
     
-    # Dispatch using dictionary lookup (O(1))
     return _OPERATION_DISPATCH[operation](**kwargs)
 
 
