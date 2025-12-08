@@ -3,25 +3,6 @@ gateway_wrappers.py - Gateway Convenience Wrapper Functions (Main Module)
 Version: 2025.11.20.01
 Description: Main module that imports and re-exports all interface wrappers
 
-CHANGELOG:
-- 2025.11.20.01: CRITICAL FIX - Added singleton_register to exports
-  - FIXED: Import error "cannot import name 'singleton_register' from 'gateway'"
-  - ADDED: 'singleton_register' to SINGLETON wrappers section (13 functions now)
-  - Routes to gateway_wrappers_singleton.py implementation
-  - Resolves logging_manager.py and singleton_core.py import failures
-
-- 2025.10.26.01: PHASE 5 EXTRACTION - Added performance reporting export
-  - ADDED: 'get_performance_report' to METRICS wrappers section
-  - Routes to gateway_wrappers_metrics.py implementation
-  - Makes performance reporting available system-wide
-
-- 2025.10.22.02: REFACTORED - Split into interface-specific modules
-  - Split monolithic file into 12 interface-specific modules
-  - Each module contains wrappers for one interface
-  - Main file imports and re-exports everything
-  - Easier maintenance and navigation
-  - Reduced file size from ~800 lines to ~100 lines per module
-
 STRUCTURE:
 - gateway_wrappers_cache.py - CACHE interface (6 functions)
 - gateway_wrappers_logging.py - LOGGING interface (7 functions)
