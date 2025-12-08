@@ -1,5 +1,5 @@
 """
-test_lambda_modes.py
+test/test_lambda_modes.py
 Version: 2025-12-08_1
 Purpose: Lambda mode testing (migrated from lambda_function.py mode logic)
 License: Apache 2.0
