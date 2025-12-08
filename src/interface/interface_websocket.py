@@ -2,39 +2,6 @@
 interface_websocket.py - WebSocket CLIENT Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.22.02
 Description: Firewall router for WebSocket CLIENT interface with free tier compliance.
-             Gateway calls only this file. Internal implementations in websocket_core.
-
-FREE TIER COMPLIANCE NOTICE:
-============================
-This WebSocket interface provides CLIENT functionality ONLY.
-Lambda acts as a WebSocket client connecting TO external WebSocket servers (e.g., Home Assistant).
-
-✅ FREE TIER COMPLIANT - Client operations incur only standard Lambda costs:
-   - Lambda execution time (400,000 GB-seconds/month free)
-   - Lambda invocations (1 million/month free)
-   - Data transfer OUT (1GB/month free, then $0.09/GB)
-
-❌ NOT IMPLEMENTED - WebSocket SERVER functionality (would require AWS API Gateway):
-   - Accepting inbound WebSocket connections from external clients
-   - Maintaining persistent connections between Lambda invocations
-   - Acting as WebSocket endpoint/server
-
-COST WARNING:
-=============
-If WebSocket SERVER functionality is ever needed:
-   - Requires AWS API Gateway WebSocket APIs
-   - Free tier: 1M messages + 750K connection-minutes for FIRST 12 MONTHS ONLY
-   - After 12 months: PAID SERVICE ($1.00/million messages + connection-minute charges)
-   - Violates "free tier only" constraint after initial 12-month period
-
-To maintain permanent free tier compliance, this implementation is CLIENT-ONLY.
-
-CHANGELOG:
-- 2025.10.22.02: Added get_stats and reset operations
-- 2025.10.18.01: Added free tier compliance documentation
-- 2025.10.17.14: FIXED Issue #20 - Added import error protection
-- 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
-- 2025.10.15.01: Initial SUGA-ISP router implementation
 
 Copyright 2025 Joseph Hersey
 
