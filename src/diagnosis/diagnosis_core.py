@@ -37,12 +37,8 @@ def validate_system_architecture(**kwargs) -> Dict[str, Any]:
 
 
 def validate_imports(**kwargs) -> Dict[str, Any]:
-    """
-    Validate no direct imports between modules.
+    """Validate no direct imports between modules."""
     
-    Returns:
-        Import validation results
-    """
     try:
         from import_fixer import validate_imports
         return validate_imports('.')
@@ -51,12 +47,8 @@ def validate_imports(**kwargs) -> Dict[str, Any]:
 
 
 def validate_gateway_routing(**kwargs) -> Dict[str, Any]:
-    """
-    Validate all gateway routing works.
-    
-    Returns:
-        Gateway routing validation results
-    """
+    """Validate all gateway routing works."""
+
     try:
         from gateway import execute_operation, GatewayInterface
         
@@ -90,16 +82,10 @@ def validate_gateway_routing(**kwargs) -> Dict[str, Any]:
 
 
 def run_diagnostic_suite(**kwargs) -> Dict[str, Any]:
-    """
-    Run comprehensive diagnostic suite.
-    
-    Combines all diagnostic operations into a single report.
-    
-    Returns:
-        Complete diagnostic report
-    """
-    from diagnosis.health.diagnosis_health_checks import generate_health_report
-    from diagnosis.diagnosis_performance import diagnose_system_health
+    """Run comprehensive diagnostic suite."""
+
+    from diagnosis import generate_health_report
+    from diagnosis import diagnose_system_health
     
     report = {
         'timestamp': '2025-12-08',
