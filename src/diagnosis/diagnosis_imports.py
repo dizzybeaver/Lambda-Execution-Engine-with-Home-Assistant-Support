@@ -1,5 +1,5 @@
 """
-diagnosis_imports.py
+diagnosis/diagnosis_imports.py
 Version: 2025-12-08_1
 Purpose: Import testing and diagnostics
 License: Apache 2.0
