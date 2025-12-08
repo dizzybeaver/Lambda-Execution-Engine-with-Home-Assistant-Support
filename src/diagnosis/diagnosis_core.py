@@ -1,5 +1,5 @@
 """
-diagnosis_core.py
+diagnosis/diagnosis_core.py
 Version: 2025-12-08_1
 Purpose: Core diagnosis operations and validation
 License: Apache 2.0
@@ -40,8 +40,6 @@ def validate_imports(**kwargs) -> Dict[str, Any]:
     """
     Validate no direct imports between modules.
     
-    PRESERVED FROM: debug_validation.py::_validate_imports()
-    
     Returns:
         Import validation results
     """
@@ -55,8 +53,6 @@ def validate_imports(**kwargs) -> Dict[str, Any]:
 def validate_gateway_routing(**kwargs) -> Dict[str, Any]:
     """
     Validate all gateway routing works.
-    
-    PRESERVED FROM: debug_validation.py::_validate_gateway_routing()
     
     Returns:
         Gateway routing validation results
@@ -102,8 +98,8 @@ def run_diagnostic_suite(**kwargs) -> Dict[str, Any]:
     Returns:
         Complete diagnostic report
     """
-    from diagnosis_health import generate_health_report
-    from diagnosis_performance import diagnose_system_health
+    from diagnosis.health.diagnosis_health_checks import generate_health_report
+    from diagnosis.diagnosis_performance import diagnose_system_health
     
     report = {
         'timestamp': '2025-12-08',
