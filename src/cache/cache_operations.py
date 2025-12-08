@@ -1,5 +1,5 @@
 """
-cache_operations.py
+cache/cache_operations.py
 Version: 2025-12-08_1
 Purpose: Module-level cache operations and interface wrappers
 License: Apache 2.0
