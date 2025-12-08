@@ -3,11 +3,6 @@ utility_cross_interface.py - Cross-Interface Utilities (Internal)
 Version: 2025.10.16.04
 Description: Shared utilities that integrate with other interfaces via gateway
 
-SUGA-ISP: Internal module - only accessed via interface_utility.py
-
-IMPORTANT: All gateway imports are lazy (inside functions) to avoid circular dependencies.
-All cross-interface operations include comprehensive error handling.
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
