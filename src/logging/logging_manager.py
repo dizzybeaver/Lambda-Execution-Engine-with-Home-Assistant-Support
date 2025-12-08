@@ -4,18 +4,6 @@ logging_manager.py - Core logging manager (SECURITY HARDENED)
 Version: 2025.10.22.01
 Description: LoggingCore class with rate limiting, validation, and reset
 
-CHANGES (2025.10.22.01):
-- Added reset() method for Phase 1 compliance
-- SINGLETON pattern: Try gateway first, fallback to module-level
-- Reset clears templates, error log, counters, and rate limiter
-
-SECURITY ENHANCEMENTS (2025.10.21.03):
-- Fixed ErrorEntry dataclass usage
-- Rate limiting: MAX_LOGS_PER_INVOCATION to prevent log flooding
-- LOG_LEVEL validation: Prevents misconfiguration
-- Invocation tracking: Reset log count per Lambda invocation
-- Enhanced error tracking with limits
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
