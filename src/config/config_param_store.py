@@ -3,31 +3,6 @@ config_param_store.py - AWS Systems Manager Parameter Store Client (OPTIMIZED)
 Version: 2025.10.21.PERFORMANCE_FIX
 Description: Retrieve ONLY the Home Assistant long-lived token from SSM
 
-PERFORMANCE FIX (2025.10.21):
-- Use preloaded SSM client from lambda_preload.py (10ms vs 2000ms)
-- Fallback to optimized botocore.session if preload unavailable
-- Never use full boto3 import (loads 200+ services unnecessarily)
-- Expected improvement: ~2000ms → ~250-400ms for cold start SSM retrieval
-
-BREAKING CHANGE:
-- SSM now retrieves ONLY /home_assistant/token
-- ALL other configuration must be in Lambda environment variables
-- Simplifies architecture, reduces SSM calls, improves performance
-
-CHANGELOG:
-- 2025.10.21.PERFORMANCE_FIX: Use preloaded SSM client
-  - Try lambda_preload._BOTO3_SSM_CLIENT first (10ms)
-  - Fallback to botocore.session (300ms vs boto3's 2000ms)
-  - Eliminates full boto3 initialization overhead
-  - Reduces SSM cold start from ~2500ms to ~400ms
-
-- 2025.10.20.TOKEN_ONLY: SIMPLIFIED - Only token from SSM
-  - Removed support for all other parameters
-  - Single-purpose: retrieve HA token securely
-  - Everything else must be environment variables
-  - Reduces cold start overhead
-  - Eliminates unnecessary SSM API calls
-
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
 """
