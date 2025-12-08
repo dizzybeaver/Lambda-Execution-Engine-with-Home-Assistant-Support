@@ -4,8 +4,6 @@ Version: 2025.10.18.01
 Description: Decorators and factory validators for complex validation scenarios
             FIXED: Added safe_validate and validate_all re-exports
 
-SUGA-ISP: Internal module - only accessed via interface_utility.py
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
