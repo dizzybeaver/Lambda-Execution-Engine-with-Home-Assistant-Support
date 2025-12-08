@@ -5,14 +5,14 @@ Purpose: DIAGNOSIS interface package exports
 License: Apache 2.0
 """
 
-from diagnosis_imports import (
+from diagnosis.diagnosis_imports import (
     test_module_import,
     test_import_sequence,
     format_diagnostic_response,
     diagnose_import_failure
 )
 
-from diagnosis_performance import (
+from diagnosis.diagnosis_performance import (
     diagnose_system_health,
     diagnose_component_performance,
     diagnose_memory_usage,
@@ -21,26 +21,26 @@ from diagnosis_performance import (
     diagnose_singleton_performance
 )
 
-from diagnosis_core import (
+from diagnosis.diagnosis_core import (
     validate_system_architecture,
     validate_imports,
     validate_gateway_routing,
     run_diagnostic_suite
 )
 
-from diagnosis_health_checks import (
+from diagnosis.health.diagnosis_health_checks import (
     check_component_health,
     check_gateway_health,
     generate_health_report
 )
 
-from diagnosis_health_interface import (
+from diagnosis.health.diagnosis_health_interface import (
     check_initialization_health,
     check_utility_health,
     check_singleton_health
 )
 
-from diagnosis_health_system import check_system_health
+from diagnosis.health.diagnosis_health_system import check_system_health
 
 
 __all__ = [
