@@ -3,16 +3,6 @@ interface_circuit_breaker.py - Circuit Breaker Interface Router
 Version: 2025.10.22.02
 Description: Router/Firewall for circuit breaker interface with import protection
 
-CHANGELOG:
-- 2025.10.22.02: Added get_stats and reset operations
-- 2025.10.17.15: FIXED Issue #20 - Added import error protection
-  - Added try/except wrapper for circuit_breaker_core imports
-  - Sets _CIRCUIT_BREAKER_AVAILABLE flag on success/failure
-  - Stores import error message for debugging
-  - Provides clear error when Circuit Breaker unavailable
-- 2025.10.17.06: Added parameter validation for all operations (Issue #18 fix)
-- 2025.10.17.02: Initial creation with SUGA-ISP router pattern
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
