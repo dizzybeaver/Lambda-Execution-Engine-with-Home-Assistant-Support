@@ -1,38 +1,7 @@
 """
 metrics_helper.py - Metrics utility functions
 Version: 2025.10.21.06
-Description: Added get_percentile_stats() for comprehensive percentile calculations (Phase 2 Task 2.8)
-
-CHANGELOG:
-- 2025.10.21.06: PHASE 2 TASK 2.8 - Expand percentile usage
-  - Added: get_percentile_stats() helper function
-  - Purpose: Provide comprehensive percentile statistics (p50, p95, p99)
-  - Pattern: Rich stats with min, max, avg, and percentiles
-
-- 2025.10.21.05: PHASE 2 TASK 2.5 - Genericize stats aggregation
-  - Added: aggregate_stats() helper function
-  - Purpose: Eliminate 20 LOC duplication across 4 stats functions
-  - Pattern: Build standard stats with success rate calculation
-
-- 2025.10.21.04: PHASE 2 TASK 2.4 - Genericize validation pattern
-  - Added: validate_required_param() helper function
-  - Purpose: Eliminate 70 LOC duplication across 7 validation functions
-  - Pattern: Generic parameter validation with optional custom checks
-
-- 2025.10.21.03: PHASE 2 TASK 2.3 - Genericize metric recording pattern
-  - Added: record_metric_with_duration() helper function
-  - Purpose: Eliminate 60 LOC duplication across 8 functions
-  - Pattern: Record base metric + optional duration metric
-
-- 2025.10.21.02: PHASE 2 TASK 2.2 - Genericize safe division
-  - Added: safe_divide() helper function
-  - Purpose: Eliminate 30 LOC duplication across 10+ division operations
-  - Pattern: Safe division with zero check, optional multiplier for percentages
-
-- 2025.10.21.01: PHASE 2 TASK 2.1 - Genericize dimension building
-  - Added: build_dimensions() helper function
-  - Purpose: Eliminate 40 LOC duplication across 6 functions
-  - Pattern: Build dimensions with conditional fields (include only if value not None)
+Description: 
 
 Copyright 2025 Joseph Hersey
 
