@@ -1,5 +1,5 @@
 """
-interface_diagnosis.py
+interface/interface_diagnosis.py
 Version: 2025-12-08_1
 Purpose: DIAGNOSIS interface router (INT-13)
 License: Apache 2.0
