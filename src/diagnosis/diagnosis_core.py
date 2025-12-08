@@ -3,27 +3,13 @@ diagnosis_core.py
 Version: 2025-12-08_1
 Purpose: Core diagnosis operations and validation
 License: Apache 2.0
-
-# MIGRATED FROM: debug_validation.py (partial)
-# PRESERVES: System validation logic, architecture compliance checks
 """
 
 from typing import Dict, Any
 
 
 def validate_system_architecture(**kwargs) -> Dict[str, Any]:
-    """
-    Validate SUGA architecture compliance.
-    
-    PRESERVED FROM: debug_validation.py::_validate_system_architecture()
-    
-    Returns:
-        {
-            'success': bool,
-            'compliant': bool,
-            'issues': List[str]
-        }
-    """
+    """Validate SUGA architecture compliance."""
     issues = []
     
     try:
