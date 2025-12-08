@@ -4,9 +4,6 @@ Version: 3.1.0
 Date: 2025-12-02
 Description: SharedUtilityCore class with SINGLETON pattern, rate limiting
 
-ADDED: render_template_impl - Template {placeholder} substitution
-ADDED: config_get_impl - Typed config from environment
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
