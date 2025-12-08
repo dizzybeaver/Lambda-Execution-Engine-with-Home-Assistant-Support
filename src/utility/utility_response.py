@@ -3,8 +3,6 @@ utility_response.py - Response Formatting (Internal)
 Version: 2025.10.18.01 - RECURSION FIX
 Description: Response formatting methods for success/error responses and Lambda responses
 
-SUGA-ISP: Internal module - only accessed via interface_utility.py
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
