@@ -1,20 +1,7 @@
 """
-http_client_core.py - HTTP Client Core Implementation (SINGLETON + Rate Limiting)
-Version: 2025.10.22.SINGLETON_RATE_LIMIT
-Description: Phase 1 optimization - SINGLETON pattern, rate limiting, reset operation
-
-OPTIMIZATIONS (2025.10.22):
-- Added SINGLETON pattern with get_http_client_manager() (LESS-18)
-- Added rate limiting (500 ops/sec with deque) (LESS-21)
-- Added reset() operation for lifecycle management
-- Verified NO threading locks (AP-08, DEC-04 compliant)
-- Updated all implementation wrappers to use get_http_client_manager()
-
-PREVIOUS FIXES:
-- 2025.10.19.JSON_FIX: Fix json kwarg handling in _execute_request
-- 2025.10.19.SELECTIVE: Use preloaded urllib3 from lambda_preload
-- 2025.10.18.03: Encode JSON body to bytes (matches working Lambda)
-- 2025.10.18.02: Added SSL verification support (CRITICAL)
+http_client_core.py - HTTP Client Core Implementation 
+Version: 2025.10.22-1
+Description: HTTP Client Core
 
 Copyright 2025 Joseph Hersey
 Licensed under Apache 2.0 (see LICENSE).
