@@ -1,5 +1,5 @@
 """
-debug_core.py
+debug/debug_core.py
 Version: 2025-12-08_1
 Purpose: Core debug functionality with hierarchical control
 License: Apache 2.0
@@ -20,7 +20,7 @@ def debug_log(corr_id: str, scope: str, message: str, **context) -> None:
         message: Debug message
         **context: Additional context to log
     """
-    from debug_config import get_debug_config
+    from debug import get_debug_config
     
     # Lazy import gateway to avoid circular dependency
     def _log():
@@ -54,7 +54,7 @@ def debug_timing(corr_id: str, scope: str, operation: str, **context):
         operation: Operation name
         **context: Additional context
     """
-    from debug_config import get_debug_config
+    from debug import get_debug_config
     
     # Lazy import gateway
     def _log():
