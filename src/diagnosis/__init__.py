@@ -28,20 +28,15 @@ from diagnosis.diagnosis_core import (
     run_diagnostic_suite
 )
 
-from diagnosis.health.diagnosis_health_checks import (
+from diagnosis.health import (
     check_component_health,
     check_gateway_health,
-    generate_health_report
-)
-
-from diagnosis.health.diagnosis_health_interface import (
+    generate_health_report,
     check_initialization_health,
     check_utility_health,
-    check_singleton_health
+    check_singleton_health,
+    check_system_health
 )
-
-from diagnosis.health.diagnosis_health_system import check_system_health
-
 
 __all__ = [
     'test_module_import',
