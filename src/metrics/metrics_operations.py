@@ -3,18 +3,6 @@ metrics_operations.py - Gateway implementation functions for metrics
 Version: 2025.11.29.01
 Description: FIXED missing function export causing circular import failure
 
-CHANGELOG:
-- 2025.11.29.01: BUG FIX - Missing export in __all__
-  - FIXED: Added _execute_get_performance_report_implementation to __all__
-  - CAUSE: Function existed but wasn't exported, causing ImportError
-  - ERROR: "cannot import name '_execute_get_performance_report_implementation'"
-  - IMPACT: Metrics interface failed to initialize, breaking all metrics calls
-  
-- 2025.10.26.01: PHASE 5 EXTRACTION - Performance reporting moved from ha_core.py
-  - ADDED: _execute_get_performance_report_implementation()
-  - ADDED: _calculate_percentiles() - Statistical helper for performance analysis
-  - ADDED: _generate_performance_recommendations() - Intelligent recommendation engine
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
