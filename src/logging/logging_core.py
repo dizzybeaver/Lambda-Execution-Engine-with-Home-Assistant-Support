@@ -4,15 +4,6 @@ logging_core.py - Unified logging interface (SECURITY HARDENED)
 Version: 2025.10.22.01
 Description: Gateway compatibility layer with exception sanitization
 
-CHANGES (2025.10.22.01):
-- Added _execute_log_reset_implementation() for Phase 1 compliance
-
-SECURITY ENHANCEMENTS (2025.10.21.02):
-- CVE-LOG-004 FIX: Exception details sanitization
-- Sanitize stack traces to prevent information disclosure
-- Remove internal file paths from error messages
-- Limit exception detail exposure in production
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
