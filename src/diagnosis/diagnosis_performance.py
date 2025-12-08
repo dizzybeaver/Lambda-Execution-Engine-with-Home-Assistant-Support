@@ -12,8 +12,7 @@ from typing import Dict, Any
 
 def diagnose_system_health(**kwargs) -> Dict[str, Any]:
     """Comprehensive system health diagnosis."""
-    # Lazy import to avoid circular dependencies
-    from diagnosis_health import check_component_health, check_gateway_health
+    from diagnosis import check_component_health, check_gateway_health
     
     component_health = check_component_health()
     gateway_health = check_gateway_health()
