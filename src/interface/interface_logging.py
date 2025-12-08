@@ -4,13 +4,6 @@ interface_logging.py - Logging Router (SECURITY HARDENED)
 Version: 2025.10.22.01
 Description: Firewall router for LOGGING interface with security sanitization
 
-CHANGES (2025.10.22.01):
-- Added reset operation to dispatch table (Phase 1 compliance)
-
-CHANGELOG:
-- 2025.10.21.03: Removed LogTemplate validation from _validate_message_param
-- 2025.10.18.02: Enhanced security with CVE mitigations
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
