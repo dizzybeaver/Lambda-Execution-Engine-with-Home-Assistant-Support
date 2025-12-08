@@ -3,9 +3,6 @@ gateway_wrappers_websocket.py - WEBSOCKET Interface Wrappers
 Version: 2025.10.22.02
 Description: Convenience wrappers for WEBSOCKET interface operations
 
-CHANGELOG:
-- 2025.10.22.02: Added get_stats and reset wrapper functions
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
