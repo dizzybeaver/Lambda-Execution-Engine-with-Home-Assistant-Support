@@ -4,10 +4,6 @@ Version: 2025.10.16.02
 Description: State management, configuration, and statistics for HTTP client.
              Internal module - accessed via http_client.py interface.
 
-CHANGELOG:
-- 2025.10.16.02: Added missing functions configure_http_retry and get_connection_statistics
-                 Improved error handling and state management
-
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
