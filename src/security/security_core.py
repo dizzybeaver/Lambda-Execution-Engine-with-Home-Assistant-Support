@@ -2,16 +2,7 @@
 """
 security_core.py - Security core orchestrator with Phase 1 enhancements
 Version: 2025.10.22.01
-Description: COMPLETE - All original code + Phase 1 (SINGLETON, rate limiting, reset)
-
-CHANGES (2025.10.22.01): PHASE 1 ENHANCEMENTS
-- Added SINGLETON registration pattern (try gateway, fallback to module)
-- Added rate limiting (1000 ops/sec) with deque-based tracker
-- Added reset() operation to clear state
-- Updated get_stats() to include rate limiting metrics
-
-CHANGELOG:
-- 2025.10.20.01: SECURITY HARDENING - Added cache-specific validators
+Description: COMPLETE - All original code
 
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
