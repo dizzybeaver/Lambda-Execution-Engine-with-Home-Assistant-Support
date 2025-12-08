@@ -13,9 +13,15 @@ def validate_system_architecture(**kwargs) -> Dict[str, Any]:
     issues = []
     
     try:
-        from gateway import _OPERATION_REGISTRY
-        if not _OPERATION_REGISTRY:
-            issues.append("Empty operation registry")
+        # Check operation registry via public gateway function (to be added)
+        try:
+            from gateway import get_operation_registry
+            registry = get_operation_registry()
+            if not registry:
+                issues.append("Empty operation registry")
+        except (ImportError, AttributeError):
+            # Gateway function not yet implemented
+            issues.append("get_operation_registry() not available in gateway")
         
         import_check = validate_imports()
         if not import_check.get('compliant', False):
