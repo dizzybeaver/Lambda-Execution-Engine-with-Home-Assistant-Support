@@ -3,9 +3,6 @@ diagnosis_performance.py
 Version: 2025-12-08_1
 Purpose: Performance diagnostics for system and components
 License: Apache 2.0
-
-# MIGRATED FROM: debug_diagnostics.py
-# PRESERVES: Performance diagnosis logic, metrics collection, analysis patterns
 """
 
 import gc
@@ -14,19 +11,7 @@ from typing import Dict, Any
 
 
 def diagnose_system_health(**kwargs) -> Dict[str, Any]:
-    """
-    Comprehensive system health diagnosis.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_system_health()
-    
-    Returns:
-        {
-            'success': bool,
-            'component_health': Dict,
-            'gateway_health': Dict,
-            'memory': Dict
-        }
-    """
+    """Comprehensive system health diagnosis."""
     # Lazy import to avoid circular dependencies
     from diagnosis_health import check_component_health, check_gateway_health
     
@@ -43,18 +28,7 @@ def diagnose_system_health(**kwargs) -> Dict[str, Any]:
 
 
 def diagnose_component_performance(component: str = None, **kwargs) -> Dict[str, Any]:
-    """
-    Performance diagnosis for gateway or specific component.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_performance()
-    Genericized to support any component.
-    
-    Args:
-        component: Optional component name (default: gateway)
-        
-    Returns:
-        Performance metrics for component
-    """
+    """Performance diagnosis for gateway or specific component."""
     try:
         from gateway import get_gateway_stats
         gateway_stats = get_gateway_stats()
@@ -75,19 +49,7 @@ def diagnose_component_performance(component: str = None, **kwargs) -> Dict[str,
 
 
 def diagnose_memory_usage(**kwargs) -> Dict[str, Any]:
-    """
-    Memory usage diagnosis.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_memory()
-    
-    Returns:
-        {
-            'success': bool,
-            'objects': int,
-            'garbage': int,
-            'collections': tuple
-        }
-    """
+    """Memory usage diagnosis."""
     gc_stats = gc.get_stats() if hasattr(gc, 'get_stats') else []
     
     return {
@@ -99,20 +61,7 @@ def diagnose_memory_usage(**kwargs) -> Dict[str, Any]:
 
 
 def diagnose_initialization_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose INITIALIZATION interface performance patterns.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_initialization_performance()
-    
-    Analyzes:
-    - Initialization status and timing
-    - Flag usage patterns
-    - Configuration size
-    - Rate limiting effectiveness
-    
-    Returns:
-        Performance diagnostics
-    """
+    """Diagnose INITIALIZATION interface performance patterns."""
     try:
         from gateway import initialization_get_status
         
@@ -186,11 +135,7 @@ def diagnose_initialization_performance(**kwargs) -> Dict[str, Any]:
 
 
 def diagnose_utility_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose UTILITY interface performance patterns.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_utility_performance()
-    """
+    """Diagnose UTILITY interface performance patterns."""
     try:
         from gateway import utility_get_performance_stats
         
@@ -253,20 +198,7 @@ def diagnose_utility_performance(**kwargs) -> Dict[str, Any]:
 
 
 def diagnose_singleton_performance(**kwargs) -> Dict[str, Any]:
-    """
-    Diagnose SINGLETON interface performance patterns.
-    
-    PRESERVED FROM: debug_diagnostics.py::_diagnose_singleton_performance()
-    
-    Analyzes:
-    - Singleton count and types
-    - Access patterns
-    - Memory usage
-    - Rate limiting effectiveness
-    
-    Returns:
-        Performance diagnostics
-    """
+    """Diagnose SINGLETON interface performance patterns."""
     try:
         from gateway import singleton_get_stats
         
