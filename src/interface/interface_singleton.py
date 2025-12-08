@@ -1,29 +1,7 @@
 """
 interface_singleton.py - Singleton Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.22.03
-Description: Firewall router for Singleton interface with parameter validation and import protection
-
-CHANGELOG:
-- 2025.10.22.03: Added reset operation dispatch
-- 2025.10.18.01: FIXED Issue #26 - Parameter name standardization (CRITICAL FIX)
-  - Changed 'key' parameter to 'name' throughout validation functions
-  - Renamed _validate_key_param() to _validate_name_param()
-  - Updated all validation calls to use 'name' instead of 'key'
-  - Aligns with singleton_core.py which expects 'name' parameter
-  - Fixes http_client singleton access through circuit breaker
-  - Resolves "singleton.get requires 'key' parameter" error
-- 2025.10.17.14: FIXED Issue #20 - Added import error protection
-  - Added try/except wrapper for singleton_core imports
-  - Sets _SINGLETON_AVAILABLE flag on success/failure
-  - Stores import error message for debugging
-  - Provides clear error when Singleton unavailable
-- 2025.10.17.05: Added parameter validation for all operations (Issue #18 fix)
-  - Validates 'name' parameter for get/set/has/delete operations
-  - Validates 'value' parameter for set operation
-  - Type checking for name (must be string)
-  - Clear error messages for missing/invalid parameters
-- 2025.10.16.01: Added missing 'set' operation route, improved error handling
-- 2025.10.15.01: Initial SUGA-ISP router implementation
+Description: Singleton interface
 
 Copyright 2025 Joseph Hersey
 
