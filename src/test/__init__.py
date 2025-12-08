@@ -1,5 +1,5 @@
 """
-__init__.py - TEST Core Implementations Package
+test/__init__.py - TEST Core Implementations Package
 Version: 2025-12-08_1
 Purpose: Test implementation modules in /src/test/ subdirectory
 License: Apache 2.0
