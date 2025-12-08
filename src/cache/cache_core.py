@@ -1,5 +1,5 @@
 """
-cache_core.py
+cache/cache_core.py
 Version: 2025-12-08_1
 Purpose: LUGS-integrated cache with TTL, rate limiting, and metrics
 License: Apache 2.0
