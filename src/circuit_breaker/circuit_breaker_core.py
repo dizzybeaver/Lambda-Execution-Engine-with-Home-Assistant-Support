@@ -1,23 +1,7 @@
 """
 circuit_breaker_core.py - Circuit Breaker Pattern Implementation
-Version: 2025.10.22.01 (OPTIMIZED - Phase 1 + SINGLETON + Rate Limiting)
-Description: Circuit breaker with SIMA compliance and Phase 1 optimizations
-
-PHASE 1 OPTIMIZATIONS APPLIED:
-==============================
-✅ REMOVED THREADING LOCKS (AP-08, DEC-04) - CRITICAL FIX
-✅ SINGLETON pattern via get_circuit_breaker_manager() (LESS-18)
-✅ Rate limiting: 1000 ops/sec (LESS-21) - Higher for infrastructure
-✅ Reset operation enhanced (LESS-18)
-✅ Added get_stats operation
-
-CRITICAL CHANGES (2025.10.22):
-- REMOVED all threading.Lock() usage (was violating AP-08, DEC-04)
-- Lambda is single-threaded, locks are unnecessary and harmful
-- Added rate limiting (1000 ops/sec) for DoS protection
-- Added SINGLETON pattern for proper lifecycle management
-- Added statistics tracking
-- Previous "future-proofing" rationale was incorrect
+Version: 2025.10.22.01
+Description: Circuit breaker 
 
 DESIGN DECISIONS:
 
