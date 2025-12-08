@@ -10,7 +10,7 @@ import sys
 from collections import deque
 from typing import Any, Dict, Optional, Set
 
-from cache.cache_enums import (
+from cache import (
     CacheEntry,
     _CACHE_MISS,
     DEFAULT_CACHE_TTL,
