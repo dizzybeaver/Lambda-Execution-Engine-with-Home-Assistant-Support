@@ -3,12 +3,6 @@ interface_security.py - Security Interface Router (SUGA-ISP Architecture)
 Version: 2025.10.22.01
 Description: ENHANCED with cache validators and reset operation
 
-CHANGES (2025.10.22.01):
-- Added reset operation to dispatch table (Phase 1 compliance)
-
-CHANGELOG:
-- 2025.10.20.01: SECURITY HARDENING - Added cache validator operations
-
 Copyright 2025 Joseph Hersey
 Licensed under the Apache License, Version 2.0
 """
