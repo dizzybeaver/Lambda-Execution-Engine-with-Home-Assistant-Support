@@ -4,10 +4,6 @@ logging_types.py - Logging type definitions and enumerations
 Version: 2025.10.21.02
 Description: Type definitions for unified logging system
 
-CHANGELOG:
-- 2025.10.21.02: Fixed ErrorEntry dataclass for logging_manager compatibility
-- 2025.10.14.01: Initial comprehensive type definitions
-
 Copyright 2025 Joseph Hersey
 
    Licensed under the Apache License, Version 2.0 (the "License");
