@@ -1,5 +1,5 @@
 """
-diagnosis_performance.py
+diagnosis/diagnosis_performance.py
 Version: 2025-12-08_1
 Purpose: Performance diagnostics for system and components
 License: Apache 2.0
@@ -284,3 +284,5 @@ __all__ = [
     'diagnose_utility_performance',
     'diagnose_singleton_performance'
 ]
+
+# EOF
