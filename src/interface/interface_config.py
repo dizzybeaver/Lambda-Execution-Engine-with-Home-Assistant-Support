@@ -1,49 +1,51 @@
 """
-interface_config.py - Config Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.22.01
-Description: Router for Config interface with dispatch dictionary pattern
-
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+interfaces/interface_config.py
+Version: 2025-12-09_1
+Purpose: Config interface router with dispatch dictionary
+License: Apache 2.0
 """
 
 from typing import Any, Callable, Dict
 
-# ===== IMPORT PROTECTION =====
+_CONFIG_AVAILABLE = True
+_CONFIG_IMPORT_ERROR = None
 
 try:
-    from config_core import (
-        _initialize_implementation,
-        _get_parameter_implementation,
-        _set_parameter_implementation,
-        _get_category_implementation,
-        _reload_implementation,
-        _switch_preset_implementation,
-        _get_state_implementation,
-        _load_environment_implementation,
-        _load_file_implementation,
-        _validate_all_implementation,
-        _reset_config_implementation
+    from config.config_parameters import (
+        initialize_config,
+        get_parameter,
+        set_parameter,
+        get_category_config,
+        get_state
     )
-    _CONFIG_AVAILABLE = True
-    _CONFIG_IMPORT_ERROR = None
+    from config.config_loader import (
+        load_from_environment,
+        load_from_file,
+        reload_config
+    )
+    from config.config_presets import (
+        switch_preset
+    )
+    from config.config_validator import (
+        validate_all_sections
+    )
+    from config.config_core import (
+        get_config_manager
+    )
 except ImportError as e:
     _CONFIG_AVAILABLE = False
     _CONFIG_IMPORT_ERROR = str(e)
-    _initialize_implementation = None
-    _get_parameter_implementation = None
-    _set_parameter_implementation = None
-    _get_category_implementation = None
-    _reload_implementation = None
-    _switch_preset_implementation = None
-    _get_state_implementation = None
-    _load_environment_implementation = None
-    _load_file_implementation = None
-    _validate_all_implementation = None
-    _reset_config_implementation = None
+    initialize_config = None
+    get_parameter = None
+    set_parameter = None
+    get_category_config = None
+    get_state = None
+    load_from_environment = None
+    load_from_file = None
+    reload_config = None
+    switch_preset = None
+    validate_all_sections = None
 
-
-# ===== VALIDATION HELPERS =====
 
 def _validate_key_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate key parameter exists and is string."""
@@ -92,128 +94,78 @@ def _validate_filepath_param(kwargs: Dict[str, Any]) -> None:
         )
 
 
-# ===== IMPLEMENTATION WRAPPERS =====
-
-def _reset_implementation(**kwargs) -> bool:
-    """Reset configuration state implementation."""
-    try:
-        return _reset_config_implementation(**kwargs)
-    except Exception as e:
-        # Log error if logging available
-        try:
-            import gateway
-            gateway.log_error(f"Config reset failed: {str(e)}")
-        except:
-            pass
-        return False
-
-
-# ===== OPERATION DISPATCH =====
-
 def _build_dispatch_dict() -> Dict[str, Callable]:
-    """Build dispatch dictionary for config operations. Only called if config available."""
+    """Build dispatch dictionary for config operations."""
     return {
-        'initialize': _initialize_implementation,
-        
+        'initialize': lambda **kwargs: initialize_config(),
         'get': lambda **kwargs: (
             _validate_key_param(kwargs, 'get'),
-            _get_parameter_implementation(**kwargs)
+            get_parameter(kwargs['key'], kwargs.get('default'))
         )[1],
-        
-        # Alias: get_parameter → get (Issue #28)
         'get_parameter': lambda **kwargs: (
             _validate_key_param(kwargs, 'get_parameter'),
-            _get_parameter_implementation(**kwargs)
+            get_parameter(kwargs['key'], kwargs.get('default'))
         )[1],
-        
         'set': lambda **kwargs: (
             _validate_set_params(kwargs),
-            _set_parameter_implementation(**kwargs)
+            set_parameter(kwargs['key'], kwargs['value'])
         )[1],
-        
-        # Alias: set_parameter → set (Issue #28)
         'set_parameter': lambda **kwargs: (
             _validate_set_params(kwargs),
-            _set_parameter_implementation(**kwargs)
+            set_parameter(kwargs['key'], kwargs['value'])
         )[1],
-        
         'get_category': lambda **kwargs: (
             _validate_category_param(kwargs),
-            _get_category_implementation(**kwargs)
+            get_category_config(kwargs['category'])
         )[1],
-        
-        'reload': _reload_implementation,
-        
+        'get_state': lambda **kwargs: get_state(),
+        'reload': lambda **kwargs: reload_config(kwargs.get('validate', True)),
         'switch_preset': lambda **kwargs: (
             _validate_preset_param(kwargs),
-            _switch_preset_implementation(**kwargs)
+            switch_preset(kwargs['preset_name'])
         )[1],
-        
-        'get_state': _get_state_implementation,
-        'load_environment': _load_environment_implementation,
-        
+        'load_environment': lambda **kwargs: load_from_environment(),
         'load_file': lambda **kwargs: (
             _validate_filepath_param(kwargs),
-            _load_file_implementation(**kwargs)
+            load_from_file(kwargs['filepath'])
         )[1],
-        
-        'validate_all': _validate_all_implementation,
-        
-        # PHASE 1 ADDITION: Reset operation for lifecycle management
-        'reset': _reset_implementation,
+        'validate_all': lambda **kwargs: validate_all_sections(),
+        'reset': lambda **kwargs: get_config_manager().reset()
     }
+
 
 _OPERATION_DISPATCH = _build_dispatch_dict() if _CONFIG_AVAILABLE else {}
 
 
-# ===== MAIN ROUTER FUNCTION =====
-
 def execute_config_operation(operation: str, **kwargs) -> Any:
     """
-    Route config operation requests using dispatch dictionary pattern.
+    Route config operations to implementations.
     
     Operations:
-    - initialize: Initialize configuration system
-    - get/get_parameter: Get configuration parameter (aliases)
-    - set/set_parameter: Set configuration parameter (aliases)
-    - get_category: Get category configuration
-    - reload: Reload configuration from environment/Parameter Store
-    - switch_preset: Switch to predefined configuration preset
-    - get_state: Get current configuration state
-    - load_environment: Load configuration from environment variables
-    - load_file: Load configuration from file
-    - validate_all: Validate all configuration sections
-    - reset: Reset configuration state (PHASE 1 ADDITION)
-    
-    Args:
-        operation: Config operation to execute
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Operation result
-        
-    Raises:
-        RuntimeError: If Config interface unavailable
-        ValueError: If operation is unknown or required parameters missing
+        - initialize: Initialize configuration system
+        - get/get_parameter: Get configuration parameter
+        - set/set_parameter: Set configuration parameter
+        - get_category: Get category configuration
+        - reload: Reload configuration
+        - switch_preset: Switch to preset
+        - get_state: Get configuration state
+        - load_environment: Load from environment
+        - load_file: Load from file
+        - validate_all: Validate all sections
+        - reset: Reset configuration
     """
-    # Check Config availability
     if not _CONFIG_AVAILABLE:
         raise RuntimeError(
-            f"Config interface unavailable: {_CONFIG_IMPORT_ERROR}. "
-            "This may indicate missing config_core module or circular import."
+            f"Config interface unavailable: {_CONFIG_IMPORT_ERROR}"
         )
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown config operation: '{operation}'. "
             f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
         )
     
-    # Dispatch using dictionary lookup (O(1))
     return _OPERATION_DISPATCH[operation](**kwargs)
 
 
 __all__ = ['execute_config_operation']
-
-# EOF
