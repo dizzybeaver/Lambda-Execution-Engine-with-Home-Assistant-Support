@@ -1,18 +1,15 @@
 """
-interface_http.py - HTTP Interface Router (SUGA-ISP Architecture)
-Version: 2025.10.17.17
-Description: Router for HTTP interface with dispatch dictionary pattern
-
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+interfaces/interface_http.py
+Version: 2025-12-10_1
+Purpose: HTTP interface router
+License: Apache 2.0
 """
 
 from typing import Any, Callable, Dict
 
-# ===== IMPORT PROTECTION =====
-
+# Import protection
 try:
-    from http_client_core import (
+    from http_client.http_client_operations import (
         http_request_implementation,
         http_get_implementation,
         http_post_implementation,
@@ -37,8 +34,7 @@ except ImportError as e:
     reset_state_implementation = None
 
 
-# ===== VALIDATION HELPERS =====
-
+# Validation helpers
 def _validate_url_param(kwargs: Dict[str, Any], operation: str) -> None:
     """Validate url parameter exists and is string."""
     if 'url' not in kwargs:
@@ -66,19 +62,17 @@ def _validate_request_params(kwargs: Dict[str, Any]) -> None:
 
 
 def _not_implemented_operation(operation: str):
-    """Return function that raises NotImplementedError for unimplemented operations."""
+    """Return function that raises NotImplementedError."""
     def _raise_not_implemented(**kwargs):
         raise NotImplementedError(
-            f"HTTP operation '{operation}' is not yet implemented. "
-            "This operation will be added in a future version."
+            f"HTTP operation '{operation}' is not yet implemented"
         )
     return _raise_not_implemented
 
 
-# ===== OPERATION DISPATCH =====
-
+# Operation dispatch
 def _build_dispatch_dict() -> Dict[str, Callable]:
-    """Build dispatch dictionary for HTTP operations. Only called if HTTP available."""
+    """Build dispatch dictionary for HTTP operations."""
     return {
         'request': lambda **kwargs: (
             _validate_request_params(kwargs),
@@ -109,7 +103,7 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
         'get_state': get_state_implementation,
         'reset_state': reset_state_implementation,
         
-        # Not yet implemented operations (Issue #17 fix)
+        # Not yet implemented
         'configure_retry': _not_implemented_operation('configure_retry'),
         'get_statistics': _not_implemented_operation('get_statistics'),
     }
@@ -117,42 +111,19 @@ def _build_dispatch_dict() -> Dict[str, Callable]:
 _OPERATION_DISPATCH = _build_dispatch_dict() if _HTTP_AVAILABLE else {}
 
 
-# ===== MAIN ROUTER FUNCTION =====
-
+# Main router function
 def execute_http_operation(operation: str, **kwargs) -> Any:
-    """
-    Route HTTP operation requests using dispatch dictionary pattern.
-    
-    Args:
-        operation: HTTP operation to execute
-        **kwargs: Operation-specific parameters
-        
-    Returns:
-        Operation result
-        
-    Raises:
-        RuntimeError: If HTTP interface unavailable
-        ValueError: If operation is unknown or required parameters missing
-        NotImplementedError: If operation is not yet implemented
-    """
-    # Check HTTP availability
+    """Route HTTP operation requests."""
     if not _HTTP_AVAILABLE:
-        raise RuntimeError(
-            f"HTTP interface unavailable: {_HTTP_IMPORT_ERROR}. "
-            "This may indicate missing http_client_core module or circular import."
-        )
+        raise RuntimeError(f"HTTP interface unavailable: {_HTTP_IMPORT_ERROR}")
     
-    # Validate operation exists
     if operation not in _OPERATION_DISPATCH:
         raise ValueError(
             f"Unknown HTTP operation: '{operation}'. "
             f"Valid operations: {', '.join(_OPERATION_DISPATCH.keys())}"
         )
     
-    # Dispatch using dictionary lookup (O(1))
     return _OPERATION_DISPATCH[operation](**kwargs)
 
 
 __all__ = ['execute_http_operation']
-
-# EOF
