@@ -1,22 +1,8 @@
 """
-http_client_state.py - HTTP Client State Management
-Version: 2025.10.16.02
-Description: State management, configuration, and statistics for HTTP client.
-             Internal module - accessed via http_client.py interface.
-
-Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+http_client/http_client_state.py
+Version: 2025-12-10_1
+Purpose: HTTP client state management
+License: Apache 2.0
 """
 
 from typing import Dict, Any, Optional
@@ -27,10 +13,9 @@ def get_client_state(client_type: str = 'urllib3', **kwargs) -> Dict[str, Any]:
     from gateway import execute_operation, GatewayInterface, log_error
     
     try:
-        # Try to get the specific client type first
         singleton_key = f'http_client_{client_type}'
         
-        # Check if singleton exists first
+        # Check if singleton exists
         exists = execute_operation(
             GatewayInterface.SINGLETON,
             'has',
@@ -58,25 +43,25 @@ def get_client_state(client_type: str = 'urllib3', **kwargs) -> Dict[str, Any]:
                 
                 return state_info
         
-        # Fallback to default http_client_core
+        # Fallback to http_client_manager
         exists = execute_operation(
             GatewayInterface.SINGLETON,
             'has',
-            name='http_client_core'
+            name='http_client_manager'
         )
         
         if exists:
             client = execute_operation(
                 GatewayInterface.SINGLETON,
                 'get',
-                name='http_client_core',
+                name='http_client_manager',
                 factory_func=None
             )
             
             if client:
                 state_info = {
                     'exists': True,
-                    'client_type': 'http_client_core',
+                    'client_type': 'http_client_manager',
                     'state': 'initialized',
                     'instance_id': id(client)
                 }
@@ -86,7 +71,6 @@ def get_client_state(client_type: str = 'urllib3', **kwargs) -> Dict[str, Any]:
                 
                 return state_info
         
-        # No client exists
         return {
             'exists': False,
             'client_type': client_type,
@@ -105,12 +89,11 @@ def get_client_state(client_type: str = 'urllib3', **kwargs) -> Dict[str, Any]:
 
 
 def reset_client_state(client_type: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-    """Reset HTTP client state via singleton delete."""
+    """Reset HTTP client state via singleton."""
     from gateway import execute_operation, GatewayInterface, log_info, log_error
     
     try:
         if client_type:
-            # Reset specific client type
             singleton_key = f'http_client_{client_type}'
             deleted = execute_operation(
                 GatewayInterface.SINGLETON,
@@ -129,12 +112,12 @@ def reset_client_state(client_type: Optional[str] = None, **kwargs) -> Dict[str,
                 return {
                     'success': False,
                     'client_type': client_type,
-                    'message': 'Client not found or already reset'
+                    'message': 'Client not found'
                 }
         else:
             # Reset all HTTP clients
             count = 0
-            for key in ['http_client_core', 'http_client_urllib3']:
+            for key in ['http_client_manager', 'http_client_urllib3']:
                 deleted = execute_operation(
                     GatewayInterface.SINGLETON,
                     'delete',
@@ -158,19 +141,9 @@ def reset_client_state(client_type: Optional[str] = None, **kwargs) -> Dict[str,
         }
 
 
-def configure_http_retry(max_attempts: int = 3, backoff_base_ms: int = 100, 
+def configure_http_retry(max_attempts: int = 3, backoff_base_ms: int = 100,
                         backoff_multiplier: float = 2.0, **kwargs) -> Dict[str, Any]:
-    """
-    Configure HTTP retry behavior.
-    
-    Args:
-        max_attempts: Maximum retry attempts (1-10)
-        backoff_base_ms: Base backoff time in milliseconds (50-1000)
-        backoff_multiplier: Backoff multiplier (1.0-5.0)
-        
-    Returns:
-        Dict with success status and configuration
-    """
+    """Configure HTTP retry behavior."""
     from gateway import log_info, log_error, create_success_response, create_error_response
     
     try:
@@ -193,11 +166,10 @@ def configure_http_retry(max_attempts: int = 3, backoff_base_ms: int = 100,
                 'VALIDATION_ERROR'
             )
         
-        # Get current client
-        from http_client_core import get_http_client
+        # Get client and update config
+        from http_client.http_client_manager import get_http_client
         client = get_http_client()
         
-        # Update retry configuration
         client._retry_config['max_attempts'] = max_attempts
         client._retry_config['backoff_base_ms'] = backoff_base_ms
         client._retry_config['backoff_multiplier'] = backoff_multiplier
@@ -217,23 +189,15 @@ def configure_http_retry(max_attempts: int = 3, backoff_base_ms: int = 100,
 
 
 def get_connection_statistics(**kwargs) -> Dict[str, Any]:
-    """
-    Get HTTP client connection statistics.
-    
-    Returns:
-        Dict with client statistics including requests, successes, failures, retries
-    """
+    """Get HTTP client connection statistics."""
     from gateway import log_info, create_success_response, create_error_response
     
     try:
-        # Get current client
-        from http_client_core import get_http_client
+        from http_client.http_client_manager import get_http_client
         client = get_http_client()
         
-        # Get statistics
         stats = client.get_stats()
         
-        # Calculate additional metrics
         total_requests = stats.get('requests', 0)
         successful = stats.get('successful', 0)
         failed = stats.get('failed', 0)
@@ -266,5 +230,3 @@ __all__ = [
     'configure_http_retry',
     'get_connection_statistics',
 ]
-
-# EOF
