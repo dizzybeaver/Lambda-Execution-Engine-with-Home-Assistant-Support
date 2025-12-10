@@ -1,22 +1,8 @@
 """
-http_client_utilities.py - HTTP Client Utilities
-Version: 2025.10.14.01
-Description: Utility functions for HTTP operations (headers, query strings, parsing).
-             Internal module - accessed via http_client.py interface.
-
-Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+http_client/http_client_utilities.py
+Version: 2025-12-10_1
+Purpose: HTTP client utility functions
+License: Apache 2.0
 """
 
 from typing import Dict, Any, Optional
@@ -46,7 +32,7 @@ def build_query_string(params: Dict[str, Any]) -> str:
 
 
 def build_query_string_fast(params: Dict[str, Any]) -> str:
-    """Fast query string builder (optimized for small param sets)."""
+    """Fast query string builder (optimized)."""
     return build_query_string(params)
 
 
@@ -59,7 +45,7 @@ def parse_response_headers(headers: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def parse_response_headers_fast(headers: Dict[str, Any]) -> Dict[str, Any]:
-    """Fast header parser (optimized version)."""
+    """Fast header parser (optimized)."""
     return parse_response_headers(headers)
 
 
@@ -78,5 +64,3 @@ __all__ = [
     'parse_response_headers_fast',
     'process_response',
 ]
-
-# EOF
