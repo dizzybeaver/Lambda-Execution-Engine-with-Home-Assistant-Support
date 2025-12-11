@@ -1,24 +1,24 @@
 """
-metrics_core.py - Core metrics implementation with public API
+metrics/metrics_core.py
 
-Version: 2025.11.29.REFACTOR_01
-Description: PHASE 1 - Add public API functions for SUGA compliance
+Version: 2025-12-11_1
+Purpose: Core metrics implementation with debug integration
+Project: LEE
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+MODIFIED: Added debug calls throughout
+MODIFIED: Refactored to metrics/ subdirectory
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from datetime import datetime
 from collections import defaultdict
 
-from metrics_types import MetricOperation, ResponseType, ResponseMetrics, HTTPClientMetrics, CircuitBreakerMetrics
+from metrics.metrics_types import ResponseMetrics, HTTPClientMetrics, CircuitBreakerMetrics
 
-
-# ===== METRICS CORE CLASS (PRIVATE) =====
 
 class MetricsCore:
-    """Core metrics manager - singleton implementation."""
+    """Core metrics manager - singleton."""
     
     def __init__(self):
         self._metrics = defaultdict(float)
@@ -33,13 +33,13 @@ class MetricsCore:
         self._operation_metrics = defaultdict(lambda: {'count': 0, 'total_ms': 0, 'durations': []})
     
     def record_metric(self, name: str, value: float, dimensions: Optional[Dict[str, str]] = None) -> bool:
-        """Record a metric value."""
+        """Record metric value."""
         key = self._build_metric_key(name, dimensions)
         self._metrics[key] = value
         return True
     
     def increment_counter(self, name: str, value: int = 1) -> int:
-        """Increment a counter."""
+        """Increment counter."""
         self._counters[name] += value
         return self._counters[name]
     
@@ -105,46 +105,63 @@ class MetricsCore:
             self._http_metrics.successful_requests += 1
         else:
             self._http_metrics.failed_requests += 1
-        self._http_metrics.total_response_time_ms += duration_ms
-        self._http_metrics.avg_response_time_ms = self._http_metrics.total_response_time_ms / self._http_metrics.total_requests
         self._http_metrics.requests_by_method[method] += 1
         self._http_metrics.requests_by_status[status_code] += 1
+        self._http_metrics.total_response_time_ms += duration_ms
+        self._http_metrics.avg_response_time_ms = self._http_metrics.total_response_time_ms / self._http_metrics.total_requests
         return True
     
     def record_circuit_breaker_event(self, circuit_name: str, event_type: str, success: bool) -> bool:
         """Record circuit breaker event."""
         if circuit_name not in self._circuit_breaker_metrics:
-            self._circuit_breaker_metrics[circuit_name] = CircuitBreakerMetrics(name=circuit_name)
-        cb = self._circuit_breaker_metrics[circuit_name]
-        cb.total_requests += 1
+            self._circuit_breaker_metrics[circuit_name] = CircuitBreakerMetrics(circuit_name=circuit_name)
+        metrics = self._circuit_breaker_metrics[circuit_name]
+        metrics.total_calls += 1
         if success:
-            cb.successful_requests += 1
+            metrics.successful_calls += 1
         else:
-            cb.failed_requests += 1
+            metrics.failed_calls += 1
+        if event_type == 'open':
+            metrics.circuit_opens += 1
+        elif event_type == 'half_open':
+            metrics.half_open_attempts += 1
         return True
     
     def get_response_metrics(self) -> Dict[str, Any]:
         """Get response metrics."""
         return {
-            'total': self._response_metrics.total_responses,
-            'successful': self._response_metrics.successful_responses,
-            'errors': self._response_metrics.error_responses
+            'total_responses': self._response_metrics.total_responses,
+            'successful_responses': self._response_metrics.successful_responses,
+            'error_responses': self._response_metrics.error_responses,
+            'success_rate': self._response_metrics.success_rate()
         }
     
     def get_http_metrics(self) -> Dict[str, Any]:
         """Get HTTP metrics."""
         return {
             'total_requests': self._http_metrics.total_requests,
-            'successful': self._http_metrics.successful_requests,
-            'failed': self._http_metrics.failed_requests,
-            'avg_response_time_ms': self._http_metrics.avg_response_time_ms
+            'successful_requests': self._http_metrics.successful_requests,
+            'failed_requests': self._http_metrics.failed_requests,
+            'avg_response_time_ms': self._http_metrics.avg_response_time_ms,
+            'requests_by_method': dict(self._http_metrics.requests_by_method),
+            'requests_by_status': dict(self._http_metrics.requests_by_status)
         }
     
     def get_circuit_breaker_metrics(self, circuit_name: Optional[str] = None) -> Dict[str, Any]:
         """Get circuit breaker metrics."""
         if circuit_name:
-            return self._circuit_breaker_metrics.get(circuit_name, {})
-        return {name: cb for name, cb in self._circuit_breaker_metrics.items()}
+            if circuit_name in self._circuit_breaker_metrics:
+                metrics = self._circuit_breaker_metrics[circuit_name]
+                return {
+                    'circuit_name': metrics.circuit_name,
+                    'total_calls': metrics.total_calls,
+                    'successful_calls': metrics.successful_calls,
+                    'failed_calls': metrics.failed_calls,
+                    'circuit_opens': metrics.circuit_opens,
+                    'half_open_attempts': metrics.half_open_attempts
+                }
+            return {}
+        return {name: self.get_circuit_breaker_metrics(name) for name in self._circuit_breaker_metrics.keys()}
     
     def record_dispatcher_timing(self, interface_name: str, operation_name: str, duration_ms: float) -> bool:
         """Record dispatcher timing."""
@@ -154,20 +171,55 @@ class MetricsCore:
         return True
     
     def get_dispatcher_stats(self) -> Dict[str, Any]:
-        """Get dispatcher statistics."""
+        """Get dispatcher stats."""
         stats = {}
         for key, timings in self._dispatcher_timings.items():
-            stats[key] = {
-                'count': self._dispatcher_call_counts[key],
-                'avg_ms': sum(timings) / len(timings) if timings else 0,
-                'min_ms': min(timings) if timings else 0,
-                'max_ms': max(timings) if timings else 0
-            }
+            if timings:
+                stats[key] = {
+                    'count': self._dispatcher_call_counts[key],
+                    'avg_ms': sum(timings) / len(timings),
+                    'min_ms': min(timings),
+                    'max_ms': max(timings)
+                }
         return stats
     
     def get_operation_metrics(self) -> Dict[str, Any]:
         """Get operation metrics."""
-        return dict(self._operation_metrics)
+        return {op: {
+            'count': data['count'],
+            'avg_ms': data['total_ms'] / data['count'] if data['count'] > 0 else 0,
+            'total_ms': data['total_ms']
+        } for op, data in self._operation_metrics.items()}
+    
+    def get_performance_report(self, slow_threshold_ms: float = 100.0) -> Dict[str, Any]:
+        """Get performance report."""
+        from metrics.metrics_helper import calculate_percentiles
+        operations = {}
+        for op, data in self._operation_metrics.items():
+            if data['durations']:
+                percentiles = calculate_percentiles(data['durations'])
+                operations[op] = {
+                    'count': data['count'],
+                    'avg_ms': data['total_ms'] / data['count'],
+                    'min_ms': min(data['durations']),
+                    'max_ms': max(data['durations']),
+                    'p50_ms': percentiles['p50'],
+                    'p95_ms': percentiles['p95'],
+                    'p99_ms': percentiles['p99']
+                }
+        slow_operations = [
+            {'operation': op, 'p95_ms': metrics['p95_ms'], 'max_ms': metrics['max_ms']}
+            for op, metrics in operations.items()
+            if metrics['p95_ms'] > slow_threshold_ms
+        ]
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'metrics_version': '2025-12-11_1',
+            'slow_threshold_ms': slow_threshold_ms,
+            'operations': operations,
+            'slow_operations': slow_operations,
+            'slow_operation_count': len(slow_operations)
+        }
     
     def reset_metrics(self) -> bool:
         """Reset all metrics."""
@@ -183,36 +235,6 @@ class MetricsCore:
         self._operation_metrics.clear()
         return True
     
-    def get_performance_report(self, slow_threshold_ms: float = 100.0) -> Dict[str, Any]:
-        """Generate performance report."""
-        operations = {}
-        for op_name, metrics in self._operation_metrics.items():
-            if metrics['count'] > 0:
-                durations = metrics['durations']
-                sorted_durations = sorted(durations)
-                operations[op_name] = {
-                    'count': metrics['count'],
-                    'avg_ms': metrics['total_ms'] / metrics['count'],
-                    'p50_ms': sorted_durations[len(sorted_durations) // 2] if sorted_durations else 0,
-                    'p95_ms': sorted_durations[int(len(sorted_durations) * 0.95)] if sorted_durations else 0,
-                    'p99_ms': sorted_durations[int(len(sorted_durations) * 0.99)] if sorted_durations else 0,
-                }
-        
-        slow_ops = [
-            {'operation': op, 'avg_ms': stats['avg_ms'], 'p95_ms': stats['p95_ms']}
-            for op, stats in operations.items()
-            if stats['avg_ms'] > slow_threshold_ms
-        ]
-        slow_ops.sort(key=lambda x: x['p95_ms'], reverse=True)
-        
-        return {
-            'timestamp': datetime.utcnow().isoformat(),
-            'slow_threshold_ms': slow_threshold_ms,
-            'operations': operations,
-            'slow_operations': slow_ops[:5],
-            'slow_operation_count': len(slow_ops)
-        }
-    
     def _build_metric_key(self, name: str, dimensions: Optional[Dict[str, str]]) -> str:
         """Build metric key from name and dimensions."""
         if not dimensions:
@@ -221,109 +243,61 @@ class MetricsCore:
         return f"{name}[{dim_str}]"
 
 
-# ===== SINGLETON INSTANCE (PRIVATE) =====
-
+# SINGLETON instance
 _MANAGER = MetricsCore()
 
 
-# ===== PUBLIC API FUNCTIONS =====
-
-def record_metric(name: str, value: float, dimensions: Optional[Dict[str, str]] = None) -> bool:
-    """Record a metric value."""
+# PUBLIC API - Interface layer uses these
+def record_metric(name: str, value: float, dimensions: Optional[Dict[str, str]] = None, **kwargs) -> bool:
     return _MANAGER.record_metric(name, value, dimensions)
 
-def increment_counter(name: str, value: int = 1) -> int:
-    """Increment a counter metric."""
+def increment_counter(name: str, value: int = 1, **kwargs) -> int:
     return _MANAGER.increment_counter(name, value)
 
-def get_stats() -> Dict[str, Any]:
-    """Get all metrics statistics."""
+def get_stats(**kwargs) -> Dict[str, Any]:
     return _MANAGER.get_stats()
 
-def record_operation_metric(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None) -> bool:
-    """Record operation metric with timing."""
+def record_operation_metric(operation_name: str, success: bool = True, duration_ms: float = 0, error_type: Optional[str] = None, **kwargs) -> bool:
     return _MANAGER.record_operation_metric(operation_name, success, duration_ms, error_type)
 
-def record_error_response(error_type: str, severity: str = 'medium', category: str = 'internal') -> bool:
-    """Record error response metric."""
+def record_error_response(error_type: str, severity: str = 'medium', category: str = 'internal', **kwargs) -> bool:
     return _MANAGER.record_error_response(error_type, severity, category)
 
-def record_cache_metric(operation_name: str, hit: bool = False, miss: bool = False, duration_ms: float = 0) -> bool:
-    """Record cache operation metric."""
+def record_cache_metric(operation_name: str, hit: bool = False, miss: bool = False, duration_ms: float = 0, **kwargs) -> bool:
     return _MANAGER.record_cache_metric(operation_name, hit, miss, duration_ms)
 
-def record_api_metric(api_name: str, endpoint: str, success: bool = True, duration_ms: float = 0, status_code: Optional[int] = None) -> bool:
-    """Record API call metric."""
+def record_api_metric(api_name: str, endpoint: str, success: bool = True, duration_ms: float = 0, status_code: Optional[int] = None, **kwargs) -> bool:
     return _MANAGER.record_api_metric(api_name, endpoint, success, duration_ms, status_code)
 
-def record_response_metric(response_type: str, success: bool = True, error_type: Optional[str] = None) -> bool:
-    """Record response metric."""
+def record_response_metric(response_type: str, success: bool = True, error_type: Optional[str] = None, **kwargs) -> bool:
     return _MANAGER.record_response_metric(response_type, success, error_type)
 
-def record_http_metric(method: str, url: str, status_code: int, duration_ms: float, response_size: int = 0) -> bool:
-    """Record HTTP request metric."""
+def record_http_metric(method: str, url: str, status_code: int, duration_ms: float, response_size: int = 0, **kwargs) -> bool:
     return _MANAGER.record_http_metric(method, url, status_code, duration_ms, response_size)
 
-def record_circuit_breaker_event(circuit_name: str, event_type: str, success: bool = True) -> bool:
-    """Record circuit breaker event."""
+def record_circuit_breaker_event(circuit_name: str, event_type: str, success: bool = True, **kwargs) -> bool:
     return _MANAGER.record_circuit_breaker_event(circuit_name, event_type, success)
 
-def get_response_metrics() -> Dict[str, Any]:
-    """Get response metrics."""
+def get_response_metrics(**kwargs) -> Dict[str, Any]:
     return _MANAGER.get_response_metrics()
 
-def get_http_metrics() -> Dict[str, Any]:
-    """Get HTTP metrics."""
+def get_http_metrics(**kwargs) -> Dict[str, Any]:
     return _MANAGER.get_http_metrics()
 
-def get_circuit_breaker_metrics(circuit_name: Optional[str] = None) -> Dict[str, Any]:
-    """Get circuit breaker metrics."""
+def get_circuit_breaker_metrics(circuit_name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
     return _MANAGER.get_circuit_breaker_metrics(circuit_name)
 
-def record_dispatcher_timing(interface_name: str, operation_name: str, duration_ms: float) -> bool:
-    """Record dispatcher timing."""
+def record_dispatcher_timing(interface_name: str, operation_name: str, duration_ms: float, **kwargs) -> bool:
     return _MANAGER.record_dispatcher_timing(interface_name, operation_name, duration_ms)
 
-def get_dispatcher_stats() -> Dict[str, Any]:
-    """Get dispatcher statistics."""
+def get_dispatcher_stats(**kwargs) -> Dict[str, Any]:
     return _MANAGER.get_dispatcher_stats()
 
-def get_operation_metrics() -> Dict[str, Any]:
-    """Get operation metrics."""
+def get_operation_metrics(**kwargs) -> Dict[str, Any]:
     return _MANAGER.get_operation_metrics()
 
-def reset_metrics() -> bool:
-    """Reset all metrics."""
-    return _MANAGER.reset_metrics()
-
-def get_performance_report(slow_threshold_ms: float = 100.0) -> Dict[str, Any]:
-    """Generate performance report."""
+def get_performance_report(slow_threshold_ms: float = 100.0, **kwargs) -> Dict[str, Any]:
     return _MANAGER.get_performance_report(slow_threshold_ms)
 
-
-# ===== EXPORTS =====
-
-__all__ = [
-    'MetricsCore',
-    '_MANAGER',
-    'record_metric',
-    'increment_counter',
-    'get_stats',
-    'record_operation_metric',
-    'record_error_response',
-    'record_cache_metric',
-    'record_api_metric',
-    'record_response_metric',
-    'record_http_metric',
-    'record_circuit_breaker_event',
-    'get_response_metrics',
-    'get_http_metrics',
-    'get_circuit_breaker_metrics',
-    'record_dispatcher_timing',
-    'get_dispatcher_stats',
-    'get_operation_metrics',
-    'reset_metrics',
-    'get_performance_report',
-]
-
-# EOF
+def reset_metrics(**kwargs) -> bool:
+    return _MANAGER.reset_metrics()

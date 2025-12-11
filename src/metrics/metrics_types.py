@@ -1,54 +1,16 @@
 """
-metrics_types.py - Metrics type definitions and data structures
-Version: 2025.10.21.01
-Description: 
+metrics/metrics_types.py
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+Version: 2025-12-11_1
+Purpose: Metrics type definitions and data structures
+Project: LEE
+License: Apache 2.0
 """
 
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict
 from collections import defaultdict
 
-
-# ===== ENUMERATIONS =====
-
-class MetricOperation(Enum):
-    """Generic metric operations."""
-    RECORD = "record"
-    INCREMENT = "increment"
-    DECREMENT = "decrement"
-    GAUGE = "gauge"
-    HISTOGRAM = "histogram"
-    GET_METRIC = "get_metric"
-    GET_STATS = "get_stats"
-    CLEAR = "clear"
-    # Phase 4 Task #7: Dispatcher timing operations
-    RECORD_DISPATCHER_TIMING = "record_dispatcher_timing"
-    GET_DISPATCHER_STATS = "get_dispatcher_stats"
-    GET_OPERATION_METRICS = "get_operation_metrics"
-
-
-class MetricType(Enum):
-    """Metric types."""
-    COUNTER = "counter"
-    GAUGE = "gauge"
-    HISTOGRAM = "histogram"
-    TIMER = "timer"
-
-
-class ResponseType(Enum):
-    """Response types for tracking."""
-    SUCCESS = "success"
-    ERROR = "error"
-    TIMEOUT = "timeout"
-    CACHED = "cached"
-    FALLBACK = "fallback"
-
-
-# ===== DATA STRUCTURES =====
 
 @dataclass
 class ResponseMetrics:
@@ -65,13 +27,9 @@ class ResponseMetrics:
     cache_hit_rate: float = 0.0
     
     def success_rate(self) -> float:
-        """Calculate success rate percentage using safe_divide."""
-        from metrics_helper import safe_divide
-        return safe_divide(
-            self.successful_responses,
-            self.total_responses,
-            multiply_by=100.0
-        )
+        """Calculate success rate percentage."""
+        from metrics.metrics_helper import safe_divide
+        return safe_divide(self.successful_responses, self.total_responses, multiply_by=100.0)
 
 
 @dataclass
@@ -89,20 +47,10 @@ class HTTPClientMetrics:
 @dataclass
 class CircuitBreakerMetrics:
     """Circuit breaker metrics data structure."""
-    state: str = "closed"
-    failure_count: int = 0
-    success_count: int = 0
-    last_failure_time: Optional[float] = None
-    total_requests: int = 0
-
-
-__all__ = [
-    'MetricOperation',
-    'MetricType',
-    'ResponseType',
-    'ResponseMetrics',
-    'HTTPClientMetrics',
-    'CircuitBreakerMetrics',
-]
-
-# EOF
+    circuit_name: str = ""
+    total_calls: int = 0
+    successful_calls: int = 0
+    failed_calls: int = 0
+    circuit_opens: int = 0
+    half_open_attempts: int = 0
+    current_state: str = "closed"
