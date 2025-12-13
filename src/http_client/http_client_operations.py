@@ -7,7 +7,7 @@ License: Apache 2.0
 
 from typing import Dict, Any
 
-from http_client.http_client_manager import get_http_client_manager
+from http_client import get_http_client_manager
 
 
 def _make_http_request(method: str, url: str, correlation_id: str = None,
@@ -65,13 +65,13 @@ def http_reset_implementation(**kwargs) -> Dict[str, Any]:
 
 def get_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for get state."""
-    from http_client.http_client_state import get_client_state
+    from http_client import get_client_state
     return get_client_state(**kwargs)
 
 
 def reset_state_implementation(**kwargs) -> Dict[str, Any]:
     """Gateway implementation for reset state."""
-    from http_client.http_client_state import reset_client_state
+    from http_client import reset_client_state
     return reset_client_state(**kwargs)
 
 
