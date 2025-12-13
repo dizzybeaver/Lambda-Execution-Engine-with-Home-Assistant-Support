@@ -10,7 +10,7 @@ from typing import Dict, Any
 from collections import deque
 
 from config.config_state import ConfigurationState
-from config.config_validator import ConfigurationValidator
+from config import ConfigurationValidator
 
 _config_core = None
 
