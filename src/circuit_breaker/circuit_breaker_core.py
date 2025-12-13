@@ -7,7 +7,7 @@ License: Apache 2.0
 
 from typing import Callable, Dict, Any
 
-from circuit_breaker.circuit_breaker_manager import get_circuit_breaker_manager
+from circuit_breaker import get_circuit_breaker_manager
 
 
 def get_breaker_implementation(name: str, failure_threshold: int = 5, 
