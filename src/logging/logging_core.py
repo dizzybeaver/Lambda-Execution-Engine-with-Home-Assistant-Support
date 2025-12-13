@@ -1,18 +1,23 @@
-# Filename: logging_core.py
 """
-logging_core.py - Unified logging interface (SECURITY HARDENED)
-Version: 2025.10.22.01
-Description: Gateway compatibility layer with exception sanitization
+logging/logging_core.py
+Version: 2025-12-08_1
+Purpose: Core logging implementation functions with debug integration
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+CHANGES (2025-12-08_1):
+- Moved to logging/ subdirectory
+- Integrated hierarchical debug control via debug module
+- Replaced _is_debug_mode()/_print_debug() with debug.debug_log()
+- Added debug_timing context managers for operations
+- Updated imports for logging/ subdirectory
+- SECURITY: Exception sanitization (CVE-LOG-004)
 """
 
 import os
 import traceback
 from typing import Union, Optional, Dict, Any
-from logging_manager import get_logging_core
-from logging_types import ErrorLogLevel
+from logging.logging_manager import get_logging_core
+from logging.logging_types import ErrorLogLevel
 import logging
 
 # ===== CONFIGURATION =====
@@ -20,19 +25,6 @@ import logging
 # SECURITY: Exception sanitization mode
 SANITIZE_EXCEPTIONS = os.getenv('SANITIZE_EXCEPTIONS', 'true').lower() == 'true'
 LAMBDA_MODE = os.getenv('LAMBDA_MODE', 'normal').lower()
-
-# ===== DEBUG_MODE SUPPORT (DEC-22) =====
-
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled."""
-    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
-
-def _print_debug(msg: str, component: str = 'LOGGING_CORE'):
-    """Print debug message if DEBUG_MODE=true (DEC-22)."""
-    if _is_debug_mode():
-        print(f"[{component}_DEBUG] {msg}")
-
-_print_debug("Loading logging_core.py module (SECURITY HARDENED)")
 
 # ===== EXCEPTION SANITIZATION (CVE-LOG-004 FIX) =====
 
@@ -123,13 +115,11 @@ def _sanitize_exception_details(error: Union[str, Exception],
 
 def _execute_log_info_implementation(message: str, **kwargs) -> None:
     """Log info message (message already sanitized by interface_logging)."""
-    _print_debug(f"_execute_log_info_implementation: message={message[:50]}...")
     core = get_logging_core()
     core.log(message, level=logging.INFO, **kwargs)
 
 def _execute_log_warning_implementation(message: str, **kwargs) -> None:
     """Log warning message (message already sanitized)."""
-    _print_debug(f"_execute_log_warning_implementation: message={message[:50]}...")
     core = get_logging_core()
     core.log(message, level=logging.WARNING, **kwargs)
 
@@ -139,13 +129,19 @@ def _execute_log_error_implementation(message: str, error: Union[str, Exception]
     
     SECURITY: Exception details are sanitized (CVE-LOG-004).
     """
-    _print_debug(f"_execute_log_error_implementation: message={message[:50]}...")
-    
     core = get_logging_core()
     
     # Sanitize exception details (SECURITY CRITICAL)
     if error:
-        sanitized_error = _sanitize_exception_details(error, include_traceback=_is_debug_mode())
+        # Check if debug mode via debug module
+        try:
+            from debug import get_debug_config
+            config = get_debug_config()
+            include_traceback = config.is_debug_enabled('LOGGING')
+        except ImportError:
+            include_traceback = False
+        
+        sanitized_error = _sanitize_exception_details(error, include_traceback=include_traceback)
         kwargs['error'] = sanitized_error
         
         # Add error type for tracking
@@ -161,14 +157,21 @@ def _execute_log_error_implementation(message: str, error: Union[str, Exception]
 
 def _execute_log_debug_implementation(message: str, **kwargs) -> None:
     """Log debug message (only if DEBUG_MODE enabled)."""
-    if _is_debug_mode():
-        _print_debug(f"_execute_log_debug_implementation: message={message[:50]}...")
-        core = get_logging_core()
-        core.log(message, level=logging.DEBUG, **kwargs)
+    # Check if debug enabled via debug module
+    try:
+        from debug import get_debug_config
+        config = get_debug_config()
+        if config.is_debug_enabled('LOGGING'):
+            core = get_logging_core()
+            core.log(message, level=logging.DEBUG, **kwargs)
+    except ImportError:
+        # Fallback to environment variable
+        if os.getenv('DEBUG_MODE', 'false').lower() == 'true':
+            core = get_logging_core()
+            core.log(message, level=logging.DEBUG, **kwargs)
 
 def _execute_log_critical_implementation(message: str, **kwargs) -> None:
     """Log critical message."""
-    _print_debug(f"_execute_log_critical_implementation: message={message[:50]}...")
     core = get_logging_core()
     core.log(message, level=logging.CRITICAL, **kwargs)
 
@@ -180,7 +183,6 @@ def _execute_log_operation_start_implementation(operation_name: str, **kwargs) -
         operation_name: Name of operation starting
         **kwargs: Additional context (already sanitized)
     """
-    _print_debug(f"_execute_log_operation_start_implementation: operation={operation_name}")
     core = get_logging_core()
     core.log(f"Operation started: {operation_name}", level=logging.INFO, **kwargs)
 
@@ -193,7 +195,6 @@ def _execute_log_operation_success_implementation(operation_name: str, duration_
         duration_ms: Operation duration in milliseconds
         **kwargs: Additional context (already sanitized)
     """
-    _print_debug(f"_execute_log_operation_success_implementation: operation={operation_name}, duration={duration_ms}ms")
     core = get_logging_core()
     core.log(f"Operation completed: {operation_name} ({duration_ms:.2f}ms)", 
              level=logging.INFO, **kwargs)
@@ -209,10 +210,15 @@ def _execute_log_operation_failure_implementation(operation_name: str, error: Un
         error: Exception or error message
         **kwargs: Additional context (already sanitized)
     """
-    _print_debug(f"_execute_log_operation_failure_implementation: operation={operation_name}")
-    
     # Sanitize error details (SECURITY CRITICAL)
-    sanitized_error = _sanitize_exception_details(error, include_traceback=_is_debug_mode())
+    try:
+        from debug import get_debug_config
+        config = get_debug_config()
+        include_traceback = config.is_debug_enabled('LOGGING')
+    except ImportError:
+        include_traceback = False
+    
+    sanitized_error = _sanitize_exception_details(error, include_traceback=include_traceback)
     
     core = get_logging_core()
     core.log_error_with_tracking(
@@ -229,7 +235,6 @@ def _execute_log_reset_implementation(**kwargs) -> bool:
     Returns:
         bool: True on success
     """
-    _print_debug("_execute_log_reset_implementation called")
     core = get_logging_core()
     return core.reset()
 
@@ -246,5 +251,3 @@ __all__ = [
     '_execute_log_operation_failure_implementation',
     '_execute_log_reset_implementation',
 ]
-
-# EOF

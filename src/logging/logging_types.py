@@ -1,22 +1,12 @@
-# Filename: logging_types.py
 """
-logging_types.py - Logging type definitions and enumerations
-Version: 2025.10.21.02
-Description: Type definitions for unified logging system
+logging/logging_types.py
+Version: 2025-12-08_1
+Purpose: Logging type definitions and enumerations
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+CHANGES (2025-12-08_1):
+- Moved to logging/ subdirectory
+- Updated header to logging/ path
 """
 
 from enum import Enum
@@ -106,4 +96,10 @@ class ErrorLogEntry:
             return ErrorLogLevel.LOW
 
 
-# EOF
+__all__ = [
+    'LogOperation',
+    'LogTemplate',
+    'ErrorLogLevel',
+    'ErrorEntry',
+    'ErrorLogEntry',
+]

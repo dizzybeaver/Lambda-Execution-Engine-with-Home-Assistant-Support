@@ -1,11 +1,21 @@
-# Filename: logging_manager.py
 """
-logging_manager.py - Core logging manager (SECURITY HARDENED)
-Version: 2025.10.22.01
-Description: LoggingCore class with rate limiting, validation, and reset
+logging/logging_manager.py
+Version: 2025-12-08_1
+Purpose: Core logging manager with rate limiting and singleton pattern
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+CHANGES (2025-12-08_1):
+- Moved to logging/ subdirectory
+- Integrated hierarchical debug control via debug module
+- Replaced _is_debug_mode()/_print_debug() with debug.debug_log()
+- Added debug_timing context managers
+- Updated imports for logging/ subdirectory
+
+CHANGES (2025-10-22_01):
+- Added reset() method for Phase 1 compliance
+- SINGLETON pattern: Try gateway first, fallback to module-level
+- Rate limiting: MAX_LOGS_PER_INVOCATION to prevent log flooding
+- LOG_LEVEL validation: Prevents misconfiguration
 """
 
 import os
@@ -15,7 +25,7 @@ from typing import Dict, Any, Optional, List
 from collections import deque
 from datetime import datetime
 
-from logging_types import LogTemplate, ErrorEntry, ErrorLogLevel
+from logging.logging_types import LogTemplate, ErrorEntry, ErrorLogLevel
 
 # ===== CONFIGURATION =====
 
@@ -23,19 +33,6 @@ _USE_LOG_TEMPLATES = os.environ.get('USE_LOG_TEMPLATES', 'false').lower() == 'tr
 MAX_LOGS_PER_INVOCATION = int(os.environ.get('MAX_LOGS_PER_INVOCATION', '500'))
 LOG_RATE_LIMIT_ENABLED = os.environ.get('LOG_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
 VALID_LOG_LEVELS = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
-
-# ===== DEBUG_MODE SUPPORT =====
-
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled for flow visibility."""
-    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
-
-def _print_debug(msg: str, component: str = 'LOGGING_MANAGER'):
-    """Print debug message if DEBUG_MODE=true."""
-    if _is_debug_mode():
-        print(f"[{component}_DEBUG] {msg}")
-
-_print_debug("Loading logging_manager.py module")
 
 # ===== LOGGING CONFIGURATION =====
 
@@ -56,9 +53,7 @@ def _get_validated_log_level() -> int:
         'CRITICAL': logging.CRITICAL
     }
     
-    level = level_map[log_level_str]
-    _print_debug(f"Log level set to: {log_level_str} ({level})")
-    return level
+    return level_map[log_level_str]
 
 logging.basicConfig(
     level=_get_validated_log_level(),
@@ -81,14 +76,12 @@ class RateLimitTracker:
         self.invocation_id = invocation_id
         self.log_count = 0
         self.limit_warning_shown = False
-        _print_debug(f"Rate limit tracker reset for invocation: {invocation_id}")
     
     def reset(self):
         """Reset all state (for testing/debugging)."""
         self.invocation_id = None
         self.log_count = 0
         self.limit_warning_shown = False
-        _print_debug("Rate limit tracker reset (full)")
     
     def increment(self) -> bool:
         """Increment log count and check if limit exceeded."""
@@ -131,8 +124,6 @@ class LoggingCore:
         self._template_misses = 0
         self._error_log: deque = deque(maxlen=100)
         self._error_count_by_type: Dict[str, int] = {}
-        
-        _print_debug("LoggingCore initialized with rate limiting")
     
     def set_invocation_id(self, invocation_id: str):
         """Set Lambda invocation ID and reset rate limiter."""
@@ -150,8 +141,6 @@ class LoggingCore:
         Returns:
             bool: True on success
         """
-        _print_debug("Resetting LoggingCore state")
-        
         # Clear templates
         self._templates.clear()
         self._template_hits = 0
@@ -164,7 +153,6 @@ class LoggingCore:
         # Reset rate limiter
         _RATE_LIMITER.reset()
         
-        _print_debug("LoggingCore reset complete")
         return True
     
     def log(self, message: str, level: int = logging.INFO, **kwargs) -> None:
@@ -252,7 +240,6 @@ class LoggingCore:
 # ===== MODULE-LEVEL SINGLETON =====
 
 _LOGGING_CORE = None
-_print_debug("Module-level singleton initialized")
 
 def get_logging_core() -> LoggingCore:
     """
@@ -271,12 +258,10 @@ def get_logging_core() -> LoggingCore:
                 _LOGGING_CORE = LoggingCore()
             singleton_register('logging_manager', _LOGGING_CORE)
             manager = _LOGGING_CORE
-            _print_debug("Registered logging_manager with SINGLETON")
         
         return manager
         
-    except (ImportError, Exception) as e:
-        _print_debug(f"Gateway unavailable, using module-level: {e}")
+    except (ImportError, Exception):
         if _LOGGING_CORE is None:
             _LOGGING_CORE = LoggingCore()
         return _LOGGING_CORE
@@ -288,5 +273,3 @@ __all__ = [
     'get_logging_core',
     'RateLimitTracker'
 ]
-
-# EOF
