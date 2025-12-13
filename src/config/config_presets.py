@@ -6,7 +6,7 @@ License: Apache 2.0
 """
 
 from typing import Dict, Any, List
-from config.config_core import get_config_manager
+from config import get_config_manager
 
 # Configuration presets
 _PRESETS = {
