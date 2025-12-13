@@ -7,7 +7,7 @@ License: Apache 2.0
 
 from typing import Dict, Any
 
-from initialization.initialization_manager import (
+from initialization import (
     InitializationOperation,
     get_initialization_manager
 )
