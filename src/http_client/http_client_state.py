@@ -167,7 +167,7 @@ def configure_http_retry(max_attempts: int = 3, backoff_base_ms: int = 100,
             )
         
         # Get client and update config
-        from http_client.http_client_manager import get_http_client
+        from http_client import get_http_client
         client = get_http_client()
         
         client._retry_config['max_attempts'] = max_attempts
@@ -193,7 +193,7 @@ def get_connection_statistics(**kwargs) -> Dict[str, Any]:
     from gateway import log_info, create_success_response, create_error_response
     
     try:
-        from http_client.http_client_manager import get_http_client
+        from http_client import get_http_client
         client = get_http_client()
         
         stats = client.get_stats()
