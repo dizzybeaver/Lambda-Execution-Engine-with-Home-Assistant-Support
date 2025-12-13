@@ -7,7 +7,7 @@ License: Apache 2.0
 
 import os
 from typing import Dict, Any, Optional
-from config.config_core import get_config_manager
+from config import get_config_manager
 
 
 def initialize_config() -> Dict[str, Any]:
@@ -27,7 +27,7 @@ def initialize_config() -> Dict[str, Any]:
                             prefix=manager._parameter_prefix)
             
             # Load environment config
-            from config.config_loader import load_from_environment
+            from config import load_from_environment
             env_config = load_from_environment()
             manager._config.update(env_config)
             
