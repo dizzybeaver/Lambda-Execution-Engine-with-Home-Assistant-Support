@@ -1,10 +1,13 @@
 """
-gateway_wrappers_logging.py - LOGGING Interface Wrappers
-Version: 2025.10.22.02
-Description: Convenience wrappers for LOGGING interface operations
+gateway/wrappers/gateway_wrappers_logging.py
+Version: 2025-12-08_1
+Purpose: LOGGING interface gateway wrappers
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+CHANGES (2025-12-08_1):
+- Moved to gateway/wrappers/ subdirectory
+- Updated version for logging/ subdirectory refactoring
+- No functional changes (wrappers use gateway pattern correctly)
 """
 
 from typing import Optional
@@ -35,9 +38,6 @@ def log_operation_start(operation_name: str, **kwargs) -> None:
     """
     Log operation start.
     
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
-    
     Args:
         operation_name: Name of operation being started
         **kwargs: Additional logging context
@@ -48,9 +48,6 @@ def log_operation_start(operation_name: str, **kwargs) -> None:
 def log_operation_success(operation_name: str, duration_ms: float, **kwargs) -> None:
     """
     Log operation success.
-    
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
     
     Args:
         operation_name: Name of operation that succeeded
@@ -63,9 +60,6 @@ def log_operation_success(operation_name: str, duration_ms: float, **kwargs) -> 
 def log_operation_failure(operation_name: str, error: str, **kwargs) -> None:
     """
     Log operation failure.
-    
-    FIXED 2025.10.20.02: Renamed 'operation' to 'operation_name' to avoid conflict
-    with execute_operation() positional parameter.
     
     Args:
         operation_name: Name of operation that failed
