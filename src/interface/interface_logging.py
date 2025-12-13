@@ -1,17 +1,20 @@
-# Filename: interface_logging.py
 """
 interface_logging.py - Logging Router (SECURITY HARDENED)
-Version: 2025.10.22.01
-Description: Firewall router for LOGGING interface with security sanitization
+Version: 2025-12-08_1
+Purpose: Firewall router for LOGGING interface with security sanitization
+License: Apache 2.0
 
-Copyright 2025 Joseph Hersey
-Licensed under the Apache License, Version 2.0
+CHANGES (2025-12-08_1):
+- Updated imports from logging/ subdirectory
+- Integrated hierarchical debug control via debug module
+- Replaced _is_debug_mode()/_print_debug() with debug.debug_log()
+- PRESERVED: All security sanitization (CVE-LOG-001/002/003)
 """
 
 import os
 from typing import Any, Dict, Callable, Union
 
-from logging_core import (
+from logging.logging_core import (
     _execute_log_info_implementation,
     _execute_log_warning_implementation,
     _execute_log_error_implementation,
@@ -22,30 +25,15 @@ from logging_core import (
     _execute_log_reset_implementation,
 )
 
-# ===== DEBUG_MODE SUPPORT =====
-
-def _is_debug_mode() -> bool:
-    """Check if DEBUG_MODE is enabled."""
-    return os.getenv('DEBUG_MODE', 'false').lower() == 'true'
-
-def _print_debug(msg: str):
-    """Print debug message if DEBUG_MODE=true."""
-    if _is_debug_mode():
-        print(f"[INTERFACE_LOGGING_DEBUG] {msg}")
-
-_print_debug("Loading interface_logging.py module")
-
 # ===== AVAILABILITY CHECK =====
 
 try:
-    from logging_manager import get_logging_core
+    from logging.logging_manager import get_logging_core
     _LOGGING_AVAILABLE = True
     _LOGGING_IMPORT_ERROR = None
-    _print_debug("Logging core available")
 except ImportError as e:
     _LOGGING_AVAILABLE = False
     _LOGGING_IMPORT_ERROR = str(e)
-    _print_debug(f"Logging core unavailable: {e}")
 
 # ===== SECURITY SANITIZATION =====
 
@@ -70,7 +58,7 @@ def _sanitize_log_data(message: str, extra: Dict[str, Any]) -> tuple[str, Dict[s
 # ===== VALIDATION FUNCTIONS =====
 
 def _validate_message_param(kwargs: Dict[str, Any], operation: str) -> None:
-    """Validate message parameter (removed LogTemplate validation)."""
+    """Validate message parameter."""
     if 'message' not in kwargs:
         raise ValueError(f"logging.{operation} requires 'message' parameter")
     
@@ -157,8 +145,6 @@ _OPERATION_DISPATCH: Dict[str, Callable] = {
 
 def execute_logging_operation(operation: str, **kwargs) -> Any:
     """Execute logging operation with security hardening."""
-    _print_debug(f"execute_logging_operation: operation={operation}")
-    
     if not _LOGGING_AVAILABLE:
         raise RuntimeError(
             f"Logging system not available: {_LOGGING_IMPORT_ERROR}"
@@ -182,22 +168,17 @@ def execute_logging_operation(operation: str, **kwargs) -> Any:
             _validate_operation_failure_params(kwargs)
         # Reset operation needs no validation
     except ValueError as e:
-        _print_debug(f"Validation failed: {e}")
         raise
     
     try:
         handler = _OPERATION_DISPATCH[operation]
         result = handler(**kwargs)
-        _print_debug(f"Operation {operation} completed successfully")
         return result
         
     except Exception as e:
-        _print_debug(f"Operation {operation} failed: {e}")
         print(f"[INTERFACE_LOGGING_ERROR] {operation} failed: {e}")
         raise
 
 # ===== EXPORTS =====
 
 __all__ = ['execute_logging_operation']
-
-# EOF
