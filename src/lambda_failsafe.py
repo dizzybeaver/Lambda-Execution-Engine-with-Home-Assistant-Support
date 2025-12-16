@@ -1,6 +1,8 @@
 """
 lambda_failsafe.py
-Version: 2025-12-07_02
+
+Version: 2025.1207.02
+Date: 2025-12-07
 Purpose: Independent failsafe Alexa handler (NO LEE dependencies)
 
 CRITICAL: This file is COMPLETELY INDEPENDENT of LEE/gateway.
