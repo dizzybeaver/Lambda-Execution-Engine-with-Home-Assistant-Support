@@ -8,7 +8,7 @@ License: Apache 2.0
 import os
 import json
 from typing import Dict, Any
-from config import get_config_manager
+from config.config_core import get_config_manager
 
 
 def load_from_environment() -> Dict[str, Any]:
@@ -89,7 +89,7 @@ def reload_config(validate: bool = True) -> Dict[str, Any]:
             
             # Validate if requested
             if validate:
-                from config import validate_all_sections
+                from config.config_validator import validate_all_sections
                 validation = validate_all_sections()
                 
                 if not validation.get('valid', True):
