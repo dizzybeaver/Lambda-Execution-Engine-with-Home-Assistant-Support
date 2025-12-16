@@ -1,8 +1,11 @@
 """
 interface_test.py
-Version: 2025-12-08_1
+Version: 2025-12-13_1
 Purpose: TEST interface router (INT-15)
 License: Apache 2.0
+
+CHANGES (2025-12-13_1):
+- FIXED: Import from test package instead of direct module imports
 """
 
 from typing import Any
@@ -11,25 +14,19 @@ _TEST_AVAILABLE = True
 _TEST_IMPORT_ERROR = None
 
 try:
-    from test_core import (
+    from test import (
         run_test_suite,
         run_single_test,
         run_component_tests,
-        test_component_operation
-    )
-    from test_scenarios import (
+        test_component_operation,
         test_invalid_operation,
         test_missing_parameters,
         test_graceful_degradation,
-        run_error_scenario_tests
-    )
-    from test_performance import (
+        run_error_scenario_tests,
         test_operation_performance,
         test_component_performance,
         benchmark_operation,
-        run_performance_tests
-    )
-    from test_lambda_modes import (
+        run_performance_tests,
         test_lambda_mode,
         test_emergency_mode,
         test_failsafe_mode,
@@ -56,7 +53,7 @@ _DISPATCH = {
     'test_emergency_mode': lambda **kw: test_emergency_mode(**kw),
     'test_failsafe_mode': lambda **kw: test_failsafe_mode(**kw),
     'test_diagnostic_mode': lambda **kw: test_diagnostic_mode(**kw)
-}
+} if _TEST_AVAILABLE else {}
 
 def execute_test_operation(operation: str, **kwargs) -> Any:
     """Route test operations to implementations."""

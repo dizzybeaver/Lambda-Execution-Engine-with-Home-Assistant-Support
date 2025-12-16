@@ -1,8 +1,11 @@
 """
 interface_debug.py
-Version: 2025-12-08_1
+Version: 2025-12-13_1
 Purpose: DEBUG interface router (INT-14) - Runtime inspection
 License: Apache 2.0
+
+CHANGES (2025-12-13_1):
+- FIXED: Import from debug package instead of debug_core module
 """
 
 from typing import Any
@@ -11,7 +14,7 @@ _DEBUG_AVAILABLE = True
 _DEBUG_IMPORT_ERROR = None
 
 try:
-    from debug_core import (
+    from debug import (
         debug_log,
         debug_timing,
         generate_correlation_id,
