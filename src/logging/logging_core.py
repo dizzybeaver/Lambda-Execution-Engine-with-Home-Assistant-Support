@@ -23,8 +23,15 @@ import logging
 # ===== CONFIGURATION =====
 
 # SECURITY: Exception sanitization mode
+# FIXED: Ensure sanitization is always enabled unless explicitly disabled in development
+# Default to 'true' for security (MEDIUM-001 fix)
 SANITIZE_EXCEPTIONS = os.getenv('SANITIZE_EXCEPTIONS', 'true').lower() == 'true'
 LAMBDA_MODE = os.getenv('LAMBDA_MODE', 'normal').lower()
+
+# Additional safety: Force sanitization in production Lambda environments
+# In AWS Lambda, LAMBDA_TASK_ROOT is always set
+if os.getenv('AWS_LAMBDA_FUNCTION_NAME') or os.getenv('LAMBDA_TASK_ROOT'):
+    SANITIZE_EXCEPTIONS = True  # Force sanitization in production
 
 # ===== EXCEPTION SANITIZATION (CVE-LOG-004 FIX) =====
 
