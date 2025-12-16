@@ -1,12 +1,15 @@
 """
 gateway/wrappers/gateway_wrappers_http_client.py
-Version: 2025-12-10_1
+Version: 2025-12-13_1
 Purpose: HTTP_CLIENT interface wrappers
 License: Apache 2.0
+
+CHANGES (2025-12-13_1):
+- FIXED: Import path from gateway_core (not gateway.gateway_core)
 """
 
 from typing import Any, Dict
-from gateway.gateway_core import GatewayInterface, execute_operation
+from gateway_core import GatewayInterface, execute_operation
 
 
 def http_request(method: str, url: str, **kwargs) -> Dict[str, Any]:
