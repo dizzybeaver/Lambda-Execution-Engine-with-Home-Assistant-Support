@@ -9,7 +9,7 @@ import time
 from typing import Callable, Dict, Any
 from collections import deque
 
-from circuit_breaker import CircuitBreaker
+from circuit_breaker.circuit_breaker_state import CircuitBreaker
 
 
 class CircuitBreakerCore:
