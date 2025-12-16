@@ -52,6 +52,10 @@ def generate_correlation_id_implementation(prefix: Optional[str] = None,
 def render_template_implementation(template: dict, data: dict,
                                    correlation_id: str = None, **kwargs) -> dict:
     """Render template with data substitution."""
+    # FIXED: Add input validation (MEDIUM-005)
+    from gateway import validate_data_structure
+    validate_data_structure(template, dict, "template")
+    validate_data_structure(data, dict, "data")
     return get_utility_manager().render_template_impl(template, data, correlation_id, **kwargs)
 
 
@@ -67,6 +71,9 @@ def config_get_implementation(key: str, default=None,
 
 def parse_json_implementation(data: str, correlation_id: str = None, **kwargs) -> Dict:
     """Parse JSON string."""
+    # FIXED: Add input validation (MEDIUM-005)
+    from gateway import validate_string
+    validate_string(data, min_length=1, max_length=10000, name="JSON data")
     return _get_data_ops().parse_json(data, correlation_id)
 
 
@@ -79,6 +86,10 @@ def parse_json_safely_implementation(json_str: str, use_cache: bool = True,
 def deep_merge_implementation(dict1: Dict[str, Any], dict2: Dict[str, Any],
                               correlation_id: str = None, **kwargs) -> Dict[str, Any]:
     """Deep merge two dictionaries."""
+    # FIXED: Add input validation (MEDIUM-005)
+    from gateway import validate_data_structure
+    validate_data_structure(dict1, dict, "dict1")
+    validate_data_structure(dict2, dict, "dict2")
     return _get_data_ops().deep_merge(dict1, dict2, correlation_id)
 
 
@@ -90,6 +101,9 @@ def safe_get_implementation(dictionary: Dict, key_path: str, default: Any = None
 
 def format_bytes_implementation(size: int, correlation_id: str = None, **kwargs) -> str:
     """Format bytes to human-readable string."""
+    # FIXED: Add input validation (MEDIUM-005)
+    from gateway import validate_number_range
+    validate_number_range(size, min_val=0, max_val=1099511627776, name="size")  # Max 1TB
     return _get_data_ops().format_bytes(size, correlation_id)
 
 
