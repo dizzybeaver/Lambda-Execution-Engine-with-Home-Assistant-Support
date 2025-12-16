@@ -1,8 +1,12 @@
 """
 gateway_enums.py - Gateway Interface Enumeration
-Version: 1.0.0
-Date: 2025-12-03
+Version: 2025-12-13_1
+Date: 2025-12-13
 Description: Shared enum to prevent circular imports
+
+CHANGES (2025-12-13_1):
+- ADDED: DIAGNOSIS interface
+- ADDED: TEST interface
 
 CREATED: Extracted GatewayInterface from gateway_core.py
 PURPOSE: Break circular import between gateway_core and gateway_wrappers
@@ -28,6 +32,8 @@ class GatewayInterface(Enum):
     CIRCUIT_BREAKER = "circuit_breaker"
     UTILITY = "utility"
     DEBUG = "debug"
+    DIAGNOSIS = "diagnosis"
+    TEST = "test"
 
 
 __all__ = ['GatewayInterface']
