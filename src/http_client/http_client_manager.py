@@ -14,7 +14,7 @@ from collections import deque
 # Import preloaded urllib3 classes
 from lambda_preload import PoolManager, Timeout
 
-from http_client import get_standard_headers
+from http_client.http_client_utilities import get_standard_headers
 
 
 class HTTPClientCore:
